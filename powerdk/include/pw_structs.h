@@ -112,7 +112,7 @@ typedef int64_t s64;
  * WARNING: support for 'EXEC' syscalls is EXPERIMENTAL!!!
  * ********************************************************
  */
-#define DO_PROBE_ON_EXEC_SYSCALL 1
+#define DO_PROBE_ON_EXEC_SYSCALL 0
 /*
  * Do we use an RCU-based mechanism
  * to determine which output buffers
@@ -183,7 +183,12 @@ typedef enum{
     K_CALL_STACK, /* Used for kernel-space call trace entries */
     M_MAP, /* Used for module map info samples */
     IRQ_MAP, /* Used for IRQ # <-> DEV name mapping samples */
-    PROC_MAP /* Used for PID <-> PROC name mapping samples */
+    PROC_MAP, /* Used for PID <-> PROC name mapping samples */
+    S_RESIDENCY, /* Used for S residency counter samples */
+    S_STATE, /* Used for S state samples */
+    D_RESIDENCY, /* Used for D residency counter samples */
+    D_STATE, /* Used for D state samples in north or south complex */
+    W_STATE /* Used for wakelock samples */
 }sample_type_t;
 
 /*
@@ -204,8 +209,11 @@ typedef enum{
     PW_BREAK_TYPE_T, // timer
     PW_BREAK_TYPE_S, // sched-switch : THIS IS DEPRECATED -- DO NOT USE!
     PW_BREAK_TYPE_IPI, // {LOC, RES, CALL, TLB}
+    PW_BREAK_TYPE_W, // workqueue
     PW_BREAK_TYPE_U // unknown
 }c_break_type_t;
+
+
 
 /*
  * Structure used to encode C-state sample information.
@@ -390,6 +398,22 @@ typedef struct{
 #define PW_MAX_PROC_NAME_SIZE 16
 
 /*
+ * MAX number of logical subsystems in south complex.
+ */
+#define MAX_LSS_NUM_IN_SC 39
+
+/*
+ * MAX number of logical subsystems in north complex.
+ */
+#define MAX_LSS_NUM_IN_NC 10
+
+/*
+ * MAX size of each wakelock name.
+ */
+#define PW_MAX_WAKELOCK_NAME_SIZE 96
+
+
+/*
  * The 'type' of the associated
  * 'r_sample'.
  */
@@ -408,7 +432,78 @@ typedef struct{
 }r_sample_t;
 
 /*
- * The C/P/K sample structure.
+ * Platform state (a.k.a. S state) residency counter sample
+ */
+typedef struct{
+    u32 usec; // S0 residency = usec - S0i1 - S0i2 - S0i3
+    u32 counters[3];  // S0i1, S0i2, S0i3 in order
+}s_residency_sample_t;
+
+/*
+ * Platform state (a.k.a. S state) sample
+ */
+typedef struct{
+    u32 state; // S-state
+}s_state_sample_t;
+
+/*
+ * The 'type' of the associated
+ * 'd_residency_sample'.
+ */
+typedef enum{
+    PW_NORTH_COMPLEX, // North complex
+    PW_SOUTH_COMPLEX  // South complex
+}device_type_t;
+
+
+typedef struct{
+    u32 usec;     // D0 residency = usec - D0i0_CG - D0i1 - D0i3
+    u32 D0i0_CG;  // clock gates
+    u32 D0i1;
+    u32 D0i3;
+}d_residency_t;
+
+/*
+ * Device state (a.k.a. D state) residency counter sample
+ */
+typedef struct{
+    char device_type;     // Either NORTH_COMPLEX or SOUTH_COMPLEX
+    char num_sampled;
+    char mask[6];  // Each bit indicates whether LSS residency is counted or not.
+                   // 1 means "counted", 0 means "not counted"
+                   // The last byte indicates the number of LSSes sampled
+    d_residency_t d_residency_counters[6];  // Limit the number of d_residency data to 128byte which is 2 cache lines
+}d_residency_sample_t;
+
+/*
+ * Device state (a.k.a. D state) sample from north or south complex
+ */
+typedef struct{
+    char device_type;     // Either NORTH_COMPLEX or SOUTH_COMPLEX
+    u32 states[4]; // Each device state is represented in 2 bits
+}d_state_sample_t;
+
+/*
+ * The 'type' of the associated
+ * 'w_sample'.
+ */
+typedef enum{
+    PW_WAKE_LOCK, // Wake lock
+    PW_WAKE_UNLOCK // Wake unlock
+}w_sample_type_t;
+
+/*
+ * Wakelock sample
+ */
+typedef struct{
+    w_sample_type_t type;   // Either WAKE_LOCK or WAKE_UNLOCK
+    pid_t tid, pid;
+    char name[PW_MAX_WAKELOCK_NAME_SIZE]; // Wakelock name
+}w_sample_t;
+
+
+/*
+ * The C/P/K/S sample structure.
  */
 typedef struct PWCollector_sample{
     u32 cpuidx;
@@ -430,6 +525,11 @@ typedef struct PWCollector_sample{
 	m_sample_t m_sample;
 	i_sample_t i_sample;
 	r_sample_t r_sample;
+	s_residency_sample_t s_residency_sample;
+	s_state_sample_t s_state_sample;
+	d_state_sample_t d_state_sample;
+	d_residency_sample_t d_residency_sample;
+	w_sample_t w_sample;
     };
 }PWCollector_sample_t;
 
@@ -458,6 +558,12 @@ typedef enum{
     FREQ,
     COMPONENT,
     SYSTEM,
+    PLATFORM_RESIDENCY,
+    PLATFORM_STATE,
+    DEVICE_SC_RESIDENCY,
+    DEVICE_NC_STATE,
+    DEVICE_SC_STATE,
+    WAKELOCK_STATE,
     TOTAL
 }power_data_t;
 
@@ -466,6 +572,12 @@ typedef enum{
 #define POWER_FREQ_MASK (1 << FREQ)
 #define POWER_COMPONENT_MASK (1 << COMPONENT)
 #define POWER_SYSTEM_MASK (1 << SYSTEM)
+#define POWER_S_RESIDENCY_MASK (1 << PLATFORM_RESIDENCY)
+#define POWER_S_STATE_MASK (1 << PLATFORM_STATE)
+#define POWER_D_SC_RESIDENCY_MASK (1 << DEVICE_SC_RESIDENCY)
+#define POWER_D_SC_STATE_MASK (1 << DEVICE_SC_STATE)
+#define POWER_D_NC_STATE_MASK (1 << DEVICE_NC_STATE)
+#define POWER_WAKELOCK_MASK (1 << WAKELOCK_STATE)
 
 /*
  * Platform-specific config struct.
@@ -484,7 +596,8 @@ typedef struct{
  */
 struct PWCollector_config{
 	int data;
-	u32 padding;
+	u32 d_state_sample_interval;  // This is the knob to control the frequency of D-state data sampling
+                                      // to adjust their collection overhead in the unit of msec.
 	platform_info_t info;
 };
 

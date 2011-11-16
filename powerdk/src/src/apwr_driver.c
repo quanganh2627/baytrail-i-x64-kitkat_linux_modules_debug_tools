@@ -77,23 +77,32 @@
  * Current driver version is 1.0.4
  * Current driver version is 2.0.0
  * Current driver version is 2.1.1
+ * Current driver version is 2.2.0
+ * Current driver version is 2.2.1
+ * Current driver version is 2.2.2
  */
 #define PW_VERSION_VERSION 2
-#define PW_VERSION_INTERFACE 1
-#define PW_VERSION_OTHER 1
+#define PW_VERSION_INTERFACE 2
+#define PW_VERSION_OTHER 2
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
+#include <linux/time.h>
 
 #include <asm/local.h>
 #include <asm/cputime.h> // For ktime
+#include <asm/io.h> // For ioremap, read, and write
 
 #include <trace/events/timer.h>
 #include <trace/events/power.h>
 #include <trace/events/irq.h>
 #include <trace/events/sched.h>
 #include <trace/events/syscalls.h>
+#include <trace/events/workqueue.h>
+#if DO_WAKELOCK_SAMPLE
+#include <trace/events/wakelock.h> // Works for the custom kernel enabling wakelock tracepoint event
+#endif
 
 #include <linux/hardirq.h> // for "in_interrupt"
 #include <linux/interrupt.h> // for "TIMER_SOFTIRQ, HRTIMER_SOFTIRQ"
@@ -218,6 +227,40 @@ static unsigned long startJIFF, stopJIFF;
  * TPF seems to be broken.
  */
 #define DO_CPUFREQ_NOTIFIER 1
+/*
+ * Collect S state residency counters
+ * The S state residency counters are only available
+ * for MFLD now.
+ */
+// #define DO_S_RESIDENCY_SAMPLE 1
+#define DO_S_RESIDENCY_SAMPLE 1
+/*
+ * Collect S states
+ */
+#define DO_S_STATE_SAMPLE 0
+/*
+ * Collect D state residency counters in south complex
+ * The D state residency counters are only available
+ * for MFLD now.
+ */
+// #define DO_D_SC_RESIDENCY_SAMPLE 1
+#define DO_D_SC_RESIDENCY_SAMPLE 1
+/*
+ * Collect D states in north complex
+ */
+// #define DO_D_NC_STATE_SAMPLE 1
+#define DO_D_NC_STATE_SAMPLE 1
+/*
+ * Collect D states in south complex
+ */
+// #define DO_D_SC_STATE_SAMPLE 1
+#define DO_D_SC_STATE_SAMPLE 1
+/*
+ * Use the predefined SCU IPC functions to access to SCU
+ * The intel_scu_ipc driver uses mutex lock which makes the system hanging
+ * when used in sched_switch. So, disable it for now.
+ */
+#define USE_PREDEFINED_SCU_IPC 0
 
 
 /*
@@ -395,9 +438,115 @@ static unsigned long startJIFF, stopJIFF;
 /*
  * 'cpu_bitmap' manipulation macros.
  */
-// #define IS_BIT_SET(bit,map) ( test_bit( (bit), (map) ) == 1 )
 #define IS_BIT_SET(bit,map) ( test_bit( (bit), (map) ) != 0 )
 #define SET_BIT(bit,map) ( test_and_set_bit( (bit), (map) ) )
+/*
+ * Timer stats accessor macros.
+ */
+#ifdef CONFIG_TIMER_STATS
+	#define TIMER_START_PID(t) ( (t)->start_pid )
+	#define TIMER_START_COMM(t) ( (t)->start_comm )
+#else
+	#define TIMER_START_PID(t) (-1)
+	#define TIMER_START_COMM(t) ( "UNKNOWN" )
+#endif
+/*
+ * Helper macro to return time in usecs.
+ */
+#define CURRENT_TIME_IN_USEC() ({struct timeval tv; \
+		do_gettimeofday(&tv);		\
+		(unsigned long long)tv.tv_sec*1000000ULL + (unsigned long long)tv.tv_usec;})
+
+/*
+ * IPC communication definitions for coulomb counter,
+ * S and D state residencies
+ */
+// IPC register offsets
+#define IPC_BASE_ADDRESS                0xFF11C000
+#define IPC_CMD_OFFSET                  0x00000000
+#define IPC_STS_OFFSET                  0x00000004
+#define IPC_SPTR_OFFSET                 0x00000008
+#define IPC_DPTR_OFFSET                 0x0000000C
+#define IPC_WBUF_OFFSET                 0x00000080
+#define IPC_RBUF_OFFSET                 0x00000090
+#define IPC_MAX_ADDR                    0x100
+
+// Write 3bytes in IPC_WBUF (2bytes for address and 1byte for value)
+#define IPC_ADC_WRITE_1                 0x000300FF
+// Write 2bytes in IPC_WBUF (2bytes for address) and read 1byte from IPC_RBUF
+#define IPC_ADC_READ_1                  0x000210FF
+
+// IPC commands
+#define IPC_MESSAGE_MSIC                0xFF
+#define IPC_MESSAGE_CC                  0xEF
+#define IPC_MESSAGE_D_RESIDENCY         0xEA
+#define IPC_MESSAGE_S_RESIDENCY         0xEB
+
+// IPC subcommands
+#define IPC_COMMAND_WRITE               0x0
+#define IPC_COMMAND_READ                0x1
+#define IPC_COMMAND_START_RESIDENCY     0x0
+#define IPC_COMMAND_STOP_RESIDENCY      0x1
+#define IPC_COMMAND_DUMP_RESIDENCY      0x2
+
+// IPC commands for S state residency counter
+#define S_RESIDENCY_BASE_ADDRESS        0xFFFF71E0
+#define S_RESIDENCY_MAX_COUNTERS        0x4
+// IPC commands for D state residency counter
+#define D_RESIDENCY_BASE_ADDRESS        0xFFFF7000
+#define D_RESIDENCY_MAX_COUNTERS        0x78    // 40 LSS * 3 D states = 120
+
+// PCI communication
+#define MTX_ENABLE_PCI                      0x80000000
+#define MTX_PCI_MSG_CTRL_REG                0x000000D0
+#define MTX_PCI_MSG_DATA_REG                0x000000D4
+#define MTX_PCI_ADDR(Bus, Device, Function, Offset) ((0x01 << 31) |(((Bus) &0xFF) <<     16)|   \ (((Device)&0x1F) << 11)|(((Function)&0x07) << 8)| (((Offset)&(~0x3)) << 0))
+#define MTX_PCI_ADDR_IO                    0x00000CF8
+#define MTX_PCI_DATA_IO                    0x00000CFC
+
+// Power management base address for read/control subsystem status
+#define PM_BASE_ADDRESS                    0xFF11D000
+#define PM_MAX_ADDR                        0x3F
+
+#if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
+static void *mmio_pm_base = NULL;             // memory mapped io base address for subsystem power management
+#endif
+#if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
+static void *mmio_ipc1_base = NULL;             // memory mapped io base address for IPC-1
+#endif
+#if DO_S_RESIDENCY_SAMPLE
+static void *mmio_s_residency_base = NULL;      // memory mapped io base address for S0ix Residency counters
+#endif
+#if DO_D_SC_RESIDENCY_SAMPLE
+static void *mmio_d_residency_base = NULL;      // memory mapped io base address for D0ix Residency counters
+#endif
+
+// Lock used to prevent multiple call to SCU
+#if !USE_PREDEFINED_SCU_IPC
+static DEFINE_SPINLOCK(ipclock);
+#endif
+
+// Required to calculate S0i0 residency counter from non-zero S state counters
+#if DO_S_RESIDENCY_SAMPLE
+static u64 startJIFF_s_residency;
+#endif
+#if DO_S_RESIDENCY_SAMPLE
+static u64 startJIFF_d_sc_residency;
+#endif
+
+// Keep track of jiffies when previously D-state sampled
+static unsigned long long prev_sample_usec = 0;
+
+// Hold bits for interesting device residency counters
+// The first LSB indicates that the residency counter for LSS0 is collected.
+// By default, 40 LSSs are available in MFD now.
+static u64 d_sc_mask = 0xFFFFFFFFFFULL;
+// Number of devices collecting residency counters
+static u32 d_sc_count_num = 40;
+
+// Non-zero value indicates a new sample needs to be generated.
+//static atomic_t new_sample_flag = ATOMIC_INIT(0);
+
 
 /*
  * Data structure definitions.
@@ -719,12 +868,332 @@ DEFINE_PER_CPU(local_t, sched_timer_found) = LOCAL_INIT(0);
 #endif // READ_MSR_FOR_TSC
 };
 
+/*
+ * PCI io communication functions to read D states in north complex
+ */
+#if DO_D_NC_STATE_SAMPLE
+static unsigned int PCI_ReadU32 (unsigned int pci_address)  {
+    outl(pci_address,MTX_PCI_ADDR_IO);
+    return inl(MTX_PCI_DATA_IO);
+};
+
+static void PCI_WriteU32 (unsigned int pci_address, unsigned int data)  {
+    outl(pci_address, MTX_PCI_ADDR_IO);
+    outl(data, MTX_PCI_DATA_IO);
+    return;
+};
+
+static int get_D_NC_states (unsigned long *states)  {
+    unsigned int ncaddr = 0x100461f0;
+    unsigned int pwr_data = 0;
+    PCI_WriteU32(MTX_ENABLE_PCI + MTX_PCI_MSG_CTRL_REG, (ncaddr ));
+    if (states != NULL) {
+        pwr_data = PCI_ReadU32(MTX_ENABLE_PCI + MTX_PCI_MSG_DATA_REG);
+        memcpy(states, &pwr_data, sizeof(unsigned long));
+
+        return SUCCESS;
+    }
+
+    return -ERROR;
+};
+#endif
+
+
+#if DO_S_STATE_SAMPLE
+static int get_S_state (u32 *state)  {
+    if (mmio_pm_base != NULL && state != NULL) {
+        *state = readl(mmio_pm_base + 0x4);
+
+        return SUCCESS;
+    }
+
+    return -ERROR;
+};
+#endif
+
+
+#if DO_D_SC_STATE_SAMPLE
+static int get_D_SC_states (u32 *states)  {
+    if (mmio_pm_base != NULL && states != NULL) {
+        states[0] = readl(mmio_pm_base + 0x30);
+        states[1] = readl(mmio_pm_base + 0x34);
+        states[2] = readl(mmio_pm_base + 0x38);
+        states[3] = readl(mmio_pm_base + 0x3C);
+
+        return SUCCESS;
+    }
+
+    return -ERROR;
+};
+#endif
+
+
+/*
+ * IPC communication functions to SCU
+ */
+#if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
+// Send IPC command
+static inline void ipc_command(u32 cmd)
+{
+    if (mmio_ipc1_base != NULL)
+        writel(cmd, mmio_ipc1_base);
+    else
+        printk(KERN_ERR "mmio_ipc1_base is NULL!\n");
+};
+
+// Write IPC write buffer
+static inline void ipc_data_writel(u32 data, u32 offset)
+{
+    if (mmio_ipc1_base != NULL)
+        writel(data, mmio_ipc1_base + IPC_WBUF_OFFSET + offset);
+    else
+        printk(KERN_ERR "mmio_ipc1_base is NULL!\n");
+};
+
+// Read IPC status register
+static inline u32 ipc_status(void)
+{
+    if (mmio_ipc1_base != NULL)
+        return readl(mmio_ipc1_base + IPC_STS_OFFSET);
+
+    printk(KERN_ERR "mmio_ipc1_base is NULL!\n");
+    return ERROR;
+};
+
+// Read one byte from IPC read buffer
+static inline u8 ipc_data_readb(u32 offset)
+{
+    char val = 0;
+
+    if (mmio_ipc1_base != NULL)
+        val = readb(mmio_ipc1_base + IPC_RBUF_OFFSET + offset);
+    else
+        printk(KERN_ERR "mmio_ipc1_base is NULL!\n");
+
+    return val;
+};
+
+// Read 4 bytes from IPC read buffer
+static inline u32 ipc_data_readl(u32 offset)
+{
+    u32 val = 0;
+
+    if (mmio_ipc1_base != NULL)
+        val = readl(mmio_ipc1_base + IPC_RBUF_OFFSET + offset);
+    else
+        printk(KERN_ERR "mmio_ipc1_base is NULL!\n");
+
+    return val;
+};
+
+// Wait till scu status is busy
+static inline int busy_loop(void)
+{
+    u32 status = 0;
+    u32 count = 0;
+
+    status = ipc_status();
+    // Check the busy bit
+    while (status & 1) {
+        udelay(1);
+        status = ipc_status();
+        count++;
+
+        // SCU is still busy after 1 msec
+        if (count > 1000) {
+            printk(KERN_INFO "[Coulomb] IPC is busy.\n");
+            return -ERROR;;
+        }
+    }
+
+    // Check the error bit
+    if ((status >> 1) & 1) {
+        return -ERROR;
+    }
+
+    return SUCCESS;
+};
+#endif
+
+#if DO_S_RESIDENCY_SAMPLE
+// Start S state residency counting
+static int start_s_residency_counter(void)
+{
+    int ret = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Start S0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_START_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_START_RESIDENCY << 12) | IPC_MESSAGE_S_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    return ret;
+};
+
+// Stop S state residency counting
+static int stop_s_residency_counter(void)
+{
+    int ret = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Stop S0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_STOP_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_STOP_RESIDENCY << 12) | IPC_MESSAGE_S_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    return ret;
+};
+
+// Dump S state residency counting
+static u64 dump_s_residency_counter(void)
+{
+    int ret;
+    u64 delta_usec = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Dump S0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_DUMP_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_DUMP_RESIDENCY << 12) | IPC_MESSAGE_S_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    if(ret != SUCCESS)
+        printk(KERN_ERR "Error: dump_s_residency_counter!\n");
+
+#if 0
+    if(stop_s_residency_counter() != SUCCESS)
+        printk(KERN_ERR "Error: stop_s_residency_counter!\n");
+    stopJIFF_s_residency = jiffies;
+    if(start_s_residency_counter() != SUCCESS)
+        printk(KERN_ERR "Error: start_s_residency_counter!\n");
+    startJIFF_s_residency = jiffies;
+#endif
+
+    delta_usec = CURRENT_TIME_IN_USEC() - startJIFF_s_residency;
+
+    return delta_usec;
+};
+#endif
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+// Start D residency counting in south complex
+static int start_d_sc_residency_counter(void) {
+    int ret = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Start D0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_START_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_START_RESIDENCY << 12) | IPC_MESSAGE_D_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    return ret;
+};
+
+// Stop D residency counting in south complex
+static int stop_d_sc_residency_counter(void) {
+    int ret = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Stop D0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_STOP_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_STOP_RESIDENCY << 12) | IPC_MESSAGE_D_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    return ret;
+};
+
+// Dump D residency counting in south complex
+static u64 dump_d_sc_residency_counter(void) {
+    int ret;
+    u64 delta_usec = 0;
+
+    OUTPUT(0, KERN_INFO "[Coulomb] Dump D0ix residency counter\n");
+
+#if USE_PREDEFINED_SCU_IPC
+    ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_DUMP_RESIDENCY, NULL, 0, NULL, 0);
+#else
+    LOCK(ipclock);
+
+    ipc_command((IPC_COMMAND_DUMP_RESIDENCY << 12) | IPC_MESSAGE_D_RESIDENCY);
+
+    ret = busy_loop();
+#endif
+
+#if !USE_PREDEFINED_SCU_IPC
+    UNLOCK(ipclock);
+#endif
+
+    if(ret != SUCCESS)
+        printk(KERN_ERR "Error: dump_d_sc_residency_counter!\n");
+
+#if 0
+    if(stop_d_sc_residency_counter() != SUCCESS)
+        printk(KERN_ERR "Error: stop_d_sc_residency_counter!\n");
+    stopJIFF_d_sc_residency = jiffies;
+    if(start_d_sc_residency_counter() != SUCCESS)
+        printk(KERN_ERR "Error: start_d_sc_residency_counter!\n");
+    startJIFF_d_sc_residency = jiffies;
+#endif
+
+    delta_usec = CURRENT_TIME_IN_USEC() - startJIFF_d_sc_residency;
+
+    return delta_usec;
+};
+#endif
 
 
 /*
  * Initialization and termination routines.
  */
-
 static void destroy_timer_map(void)
 {
     /*
@@ -1159,7 +1628,6 @@ static tnode_t *timer_find(unsigned long timer_addr, pid_t tid)
 
 	hlist_for_each_entry(node, curr, head, list){
 	    if(node->timer_addr == timer_addr && (node->tid == tid || tid < 0)){
-	    /* if(node->timer_addr == timer_addr && node->tid == tid){ */
 		retVal = node;
 		break;
 	    }
@@ -1231,7 +1699,11 @@ static int timer_delete(unsigned long timer_addr, pid_t tid)
 	head = &timer_map[idx].head;
 
 	hlist_for_each_entry_safe(node, curr, next, head, list){
-	    if(node->timer_addr == timer_addr && node->tid == tid){
+	    // if(node->timer_addr == timer_addr && node->tid == tid){
+            if(node->timer_addr == timer_addr) {
+                if (node->tid != tid){
+                    OUTPUT(0, KERN_INFO "WARNING: stale timer tid value? node tid = %d, task tid = %d\n", node->tid, tid);
+		}
 		hlist_del(&node->list);
 		found_node = node;
 		retVal = SUCCESS;
@@ -1491,7 +1963,7 @@ static irq_mapping_types_t irq_insert(int cpu, int irq_num, const char *irq_name
 			 * already done that. Instead, do a BITWISE OR of
 			 * the old and new bitmaps)...
 			 */
-			OUTPUT(0, KERN_INFO "[%d]: IRQ = %d, OLD bitmap = %llu\n", cpu, irq_num, old_node->cpu_bitmap);
+			OUTPUT(0, KERN_INFO "[%d]: IRQ = %d, OLD bitmap = %lu\n", cpu, irq_num, *(old_node->cpu_bitmap));
 			// node->cpu_bitmap |= old_node->cpu_bitmap;
                         /*
                          * UPDATE: new 'bitmap' scheme -- copy over the older
@@ -1850,6 +2322,315 @@ static inline void produce_c_sample(int cpu, per_cpu_t *pcpu, int last_PID, int 
 
 };
 
+#if DO_S_RESIDENCY_SAMPLE
+/*
+ * Insert a S Residency counter sample into a (per-cpu) output buffer.
+ */
+static inline void produce_s_residency_sample(u64 usec)
+{
+    seg_t *seg = NULL;
+    int seg_index = -1;
+    u64 tsc;
+    int cpu = CPU();
+
+    /*
+     * No residency counters available
+     */
+    tscval(&tsc);
+
+    if(!(seg = find_producer_seg(cpu))){
+        printk(KERN_ERR "Error: No buffer available for s_residency_sample on cpu=%d!\n", cpu);
+        return;
+    }
+
+    seg_index = seg->index;
+    {
+        SAMPLE(seg, seg_index).sample_type = S_RESIDENCY;
+        SAMPLE(seg, seg_index).cpuidx = cpu;
+        SAMPLE(seg, seg_index).tsc = tsc;
+        S_RESIDENCY_SAMPLE(seg, seg_index).usec = (unsigned int)usec;
+        memcpy(S_RESIDENCY_SAMPLE(seg, seg_index).counters, mmio_s_residency_base, sizeof(u32) * 3);
+    }
+
+    /*
+     * OK, we've written to the segment.
+     * Now increment indices, check for
+     * full conditions etc.
+     */
+    seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+    if(!seg->index){ // index has wrapped around ==> FULL segment
+        atomic_set(&seg->is_full, FULL);
+        smp_mb();
+#if ALLOW_BLOCKING_READ
+        wake_up_interruptible(&read_queue);
+#endif
+    }
+};
+#endif
+
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+/*
+ * Insert a D Residency counter sample into a (per-cpu) output buffer.
+ */
+static inline void produce_d_sc_residency_sample(u64 usec)
+{
+    int seg_index = -1;
+    seg_t *seg = NULL;
+    u64 tsc;
+    int cpu = CPU();
+    int i,j;
+    int start_idx = 0;
+    int num = 0;
+    int numofsamples = (d_sc_count_num + 5) / 6;  // Currently, 6 devices info can be included into a single sample
+
+    tscval(&tsc);
+
+    for (i=0; i<numofsamples; i++) {
+        num = 0;
+
+        if(!(seg = find_producer_seg(cpu))){
+            printk(KERN_ERR "Error: No buffer available for d_sc_residency_sample on cpu=%d!\n", cpu);
+            return;
+        }
+
+        seg_index = seg->index;
+        SAMPLE(seg, seg_index).sample_type = D_RESIDENCY;
+        SAMPLE(seg, seg_index).cpuidx = cpu;
+        SAMPLE(seg, seg_index).tsc = tsc;
+        D_RESIDENCY_SAMPLE(seg, seg_index).device_type = PW_SOUTH_COMPLEX;
+
+        for (j=start_idx; j<MAX_LSS_NUM_IN_SC; j++) {
+            if ((d_sc_mask >> j) & 0x1) {
+                D_RESIDENCY_SAMPLE(seg, seg_index).mask[num] = j;
+                D_RESIDENCY_SAMPLE(seg, seg_index).d_residency_counters[num].usec = (unsigned int)usec;
+                D_RESIDENCY_SAMPLE(seg, seg_index).d_residency_counters[num].D0i0_CG = readl(mmio_d_residency_base + sizeof(u32)*j);
+                D_RESIDENCY_SAMPLE(seg, seg_index).d_residency_counters[num].D0i1 = readl(mmio_d_residency_base + 40*4 + sizeof(u32)*j);
+                D_RESIDENCY_SAMPLE(seg, seg_index).d_residency_counters[num].D0i3 = readl(mmio_d_residency_base + 40*4*2 + sizeof(u32)*j);
+
+                start_idx = j+1;
+                if(++num == 6)
+                    break;
+            }
+        }
+        D_RESIDENCY_SAMPLE(seg, seg_index).num_sampled = num;
+
+        if(true){
+            /*
+             * OK, we've written to the segment.
+             * Now increment indices, check for
+             * full conditions etc.
+             */
+            seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+            if(!seg->index){ // index has wrapped around ==> FULL segment
+                atomic_set(&seg->is_full, FULL);
+                smp_mb();
+#if ALLOW_BLOCKING_READ
+                wake_up_interruptible(&read_queue);
+#endif
+            }
+        }
+    }
+};
+#endif
+
+
+#if DO_S_STATE_SAMPLE
+/*
+ * Insert a S state sample into a (per-cpu) output buffer.
+ */
+static inline void produce_s_state_sample(void)
+{
+    int seg_index = -1;
+    seg_t *seg = NULL;
+    u64 tsc;
+    int cpu = CPU();
+    u32 state;
+
+    tscval(&tsc);
+
+    if(get_S_state(&state))
+        return;
+
+    if(!(seg = find_producer_seg(cpu))){
+        printk(KERN_ERR "Error: No buffer available for s_state_sample on cpu=%d!\n", cpu);
+        return;
+    }
+
+    seg_index = seg->index;
+    {
+        SAMPLE(seg, seg_index).sample_type = S_STATE;
+        SAMPLE(seg, seg_index).cpuidx = cpu;
+        SAMPLE(seg, seg_index).tsc = tsc;
+        S_STATE_SAMPLE(seg, seg_index).state = state;
+    }
+
+    if(true){
+        /*
+         * OK, we've written to the segment.
+         * Now increment indices, check for
+         * full conditions etc.
+         */
+        seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+        if(!seg->index){ // index has wrapped around ==> FULL segment
+            atomic_set(&seg->is_full, FULL);
+            smp_mb();
+#if ALLOW_BLOCKING_READ
+            wake_up_interruptible(&read_queue);
+#endif
+        }
+    }
+
+}
+#endif
+
+
+#if DO_D_NC_STATE_SAMPLE
+/*
+ * Insert a north complex D state sample into a (per-cpu) output buffer.
+ */
+static inline void produce_d_nc_state_sample(void)
+{
+    int seg_index = -1;
+    seg_t *seg = NULL;
+    u64 tsc;
+    int cpu = CPU();
+    unsigned long ncstates = 0;
+
+    tscval(&tsc);
+
+    if(get_D_NC_states(&ncstates))
+        return;
+
+    if(!(seg = find_producer_seg(cpu))){
+        printk(KERN_ERR "Error: No buffer available for d_nc_state_sample on cpu=%d!\n", cpu);
+        return;
+    }
+
+    seg_index = seg->index;
+    {
+        SAMPLE(seg, seg_index).sample_type = D_STATE;
+        SAMPLE(seg, seg_index).cpuidx = cpu;
+        SAMPLE(seg, seg_index).tsc = tsc;
+        D_STATE_SAMPLE(seg, seg_index).device_type = PW_NORTH_COMPLEX;
+        D_STATE_SAMPLE(seg, seg_index).states[0] = ncstates;
+    }
+
+    if(true){
+        /*
+         * OK, we've written to the segment.
+         * Now increment indices, check for
+         * full conditions etc.
+         */
+        seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+        if(!seg->index){ // index has wrapped around ==> FULL segment
+            atomic_set(&seg->is_full, FULL);
+            smp_mb();
+#if ALLOW_BLOCKING_READ
+            wake_up_interruptible(&read_queue);
+#endif
+        }
+    }
+};
+#endif
+
+
+#if DO_D_SC_STATE_SAMPLE
+/*
+ * Insert a south complex D state sample into a (per-cpu) output buffer.
+ */
+static inline void produce_d_sc_state_sample(void)
+{
+    int seg_index = -1;
+    seg_t *seg = NULL;
+    u64 tsc;
+    int cpu = CPU();
+    u32 scstates[4];
+
+    tscval(&tsc);
+
+    if(get_D_SC_states(scstates))
+        return;
+
+    if(!(seg = find_producer_seg(cpu))){
+        printk(KERN_ERR "Error: No buffer available for d_sc_state_sample on cpu=%d!\n", cpu);
+        return;
+    }
+
+    seg_index = seg->index;
+    {
+        SAMPLE(seg, seg_index).sample_type = D_STATE;
+        SAMPLE(seg, seg_index).cpuidx = cpu;
+        SAMPLE(seg, seg_index).tsc = tsc;
+        D_STATE_SAMPLE(seg, seg_index).device_type = PW_SOUTH_COMPLEX;
+        memcpy(D_STATE_SAMPLE(seg, seg_index).states, scstates, sizeof(u32)*4);
+    }
+
+    if(true){
+        /*
+         * OK, we've written to the segment.
+         * Now increment indices, check for
+         * full conditions etc.
+         */
+        seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+        if(!seg->index){ // index has wrapped around ==> FULL segment
+            atomic_set(&seg->is_full, FULL);
+            smp_mb();
+#if ALLOW_BLOCKING_READ
+            wake_up_interruptible(&read_queue);
+#endif
+        }
+    }
+
+}
+#endif
+
+
+#if DO_WAKELOCK_SAMPLE
+/*
+ * Insert a Wakelock sample into a (per-cpu) output buffer.
+ */
+static inline void produce_w_sample(int cpu, u64 tsc, w_sample_type_t type, pid_t tid, pid_t pid, const char *name)
+{
+    int seg_index = -1;
+    seg_t *seg = NULL;
+
+    if(!(seg = find_producer_seg(cpu))){
+        printk(KERN_ERR "Error: No buffer available for wakelock_sample on cpu=%d!\n", cpu);
+	return;
+    }
+
+    seg_index = seg->index;
+    {
+        SAMPLE(seg, seg_index).sample_type = W_STATE;
+	SAMPLE(seg, seg_index).cpuidx = cpu;
+	SAMPLE(seg, seg_index).tsc = tsc;
+	W_SAMPLE(seg, seg_index).type = type;
+	W_SAMPLE(seg, seg_index).tid = tid;
+	W_SAMPLE(seg, seg_index).pid = pid;
+	memcpy(W_SAMPLE(seg, seg_index).name, name, PW_MAX_WAKELOCK_NAME_SIZE); // dst, src
+	OUTPUT(0, KERN_INFO "%d , %d -> %s\n", W_SAMPLE(seg, seg_index).tid, W_SAMPLE(seg, seg_index).pid, W_SAMPLE(seg, seg_index).name);
+    }
+
+    if(true){
+        /*
+         * OK, we've written to the segment.
+         * Now increment indices, check for
+         * full conditions etc.
+         */
+        seg->index = CIRCULAR_INC(seg_index, SAMPLE_MASK);
+        if(!seg->index){ // index has wrapped around ==> FULL segment
+            atomic_set(&seg->is_full, FULL);
+            smp_mb();
+#if ALLOW_BLOCKING_READ
+            wake_up_interruptible(&read_queue);
+#endif
+        }
+    }
+};
+#endif
+
+
 /*
  * Insert a P-state transition sample into a (per-cpu) output buffer.
  */
@@ -2134,7 +2915,7 @@ static void probe_hrtimer_start(struct hrtimer *hrt)
     pid_t tid = TID();
     pid_t pid = PID();
     u64 tsc = 0;
-    /* const char *name = hrt->start_comm; */
+    /* const char *name = TIMER_START_COMM(hrt); */
     int i, trace_len;
     char symname[KSYM_NAME_LEN];
     unsigned long trace[MAX_BACKTRACE_LENGTH];
@@ -2170,7 +2951,7 @@ static void probe_hrtimer_start(struct hrtimer *hrt)
 
     if(INTERNAL_STATE.have_kernel_frame_pointers){
 	trace_len = get_kernel_timerstack(trace, MAX_BACKTRACE_LENGTH);
-	OUTPUT(0, KERN_INFO "[%d]: %.20s TIMER_START for timer = %p. trace_len = %d\n", tid, hrt->start_comm, hrt, trace_len);
+	OUTPUT(0, KERN_INFO "[%d]: %.20s TIMER_START for timer = %p. trace_len = %d\n", tid, TIMER_START_COMM(hrt), hrt, trace_len);
 	for(i=0; i<trace_len; ++i){
 	    sprint_symbol(symname, trace[i]);
 	    OUTPUT(3, KERN_INFO "SYM MAPPING: 0x%lx --> %s\n", trace[i], symname);
@@ -2351,8 +3132,11 @@ static void timer_expire(void *timer_addr, pid_t tid)
 		/*
 		 * tid < 0 but this was NOT caused
 		 * by a TIMER_SOFTIRQ.
+		 * UPDATE: this is also possible if
+		 * the kernel wasn't compiled with the
+		 * 'CONFIG_TIMER_STATS' option set.
 		 */
-		printk(KERN_INFO "WARNING: NEGATIVE tid in timer_expire!\n");
+		OUTPUT(0, KERN_INFO "WARNING: NEGATIVE tid in timer_expire!\n");
 	    }
 	}
     }else{
@@ -2392,7 +3176,7 @@ static void probe_hrtimer_expire_entry(struct hrtimer *hrt, ktime_t *now)
     static void probe_hrtimer_expire_entry(void *ignore, struct hrtimer *hrt, ktime_t *now)
 #endif
 {
-    DO_PER_CPU_OVERHEAD_FUNC(timer_expire, hrt, hrt->start_pid);
+    DO_PER_CPU_OVERHEAD_FUNC(timer_expire, hrt, TIMER_START_PID(hrt));
 };
 
 /*
@@ -2401,7 +3185,7 @@ static void probe_hrtimer_expire_entry(struct hrtimer *hrt, ktime_t *now)
  */
 #define IS_INTERVAL_TIMER(hrt) ({					\
 	    bool __tmp = false;						\
-	    pid_t pid = (hrt)->start_pid;				\
+	    pid_t pid = TIMER_START_PID(hrt);				\
 	    ktime_t rem_k = hrtimer_expires_remaining(hrt);		\
 	    s64 remaining = rem_k.tv64;					\
 	    /* We first account for timers that */			\
@@ -2449,13 +3233,13 @@ static void probe_hrtimer_expire_exit(struct hrtimer *hrt)
          */
         if((void *)hrt != pcpu->sched_timer_addr){
             int ret = -1;
-            DO_PER_CPU_OVERHEAD_FUNC_RET(ret, timer_delete, (unsigned long)hrt, hrt->start_pid);
+            DO_PER_CPU_OVERHEAD_FUNC_RET(ret, timer_delete, (unsigned long)hrt, TIMER_START_PID(hrt));
             if(ret){
-                OUTPUT(0, KERN_INFO "WARNING: could NOT delete timer mapping for HRT = %p, TID = %d, NAME = %.20s\n", hrt, hrt->start_pid, hrt->start_comm);
+                OUTPUT(0, KERN_INFO "WARNING: could NOT delete timer mapping for HRT = %p, TID = %d, NAME = %.20s\n", hrt, TIMER_START_PID(hrt), TIMER_START_COMM(hrt));
             }else{
-                OUTPUT(3, KERN_INFO "OK: DELETED timer mapping for HRT = %p, TID = %d, NAME = %.20s\n", hrt, hrt->start_pid, hrt->start_comm);
+                OUTPUT(3, KERN_INFO "OK: DELETED timer mapping for HRT = %p, TID = %d, NAME = %.20s\n", hrt, TIMER_START_PID(hrt), TIMER_START_COMM(hrt));
                 // debugging ONLY!
-                if(timer_find((unsigned long)hrt, hrt->start_pid)){
+                if(timer_find((unsigned long)hrt, TIMER_START_PID(hrt))){
                     printk(KERN_INFO "WARNING: TIMER_FIND reports TIMER %p STILL IN MAP!\n", hrt);
                 }
             }
@@ -2476,7 +3260,7 @@ static void probe_timer_expire_entry(struct timer_list *t)
     static void probe_timer_expire_entry(void *ignore, struct timer_list *t)
 #endif
 {
-    DO_PER_CPU_OVERHEAD_FUNC(timer_expire, t, t->start_pid);
+    DO_PER_CPU_OVERHEAD_FUNC(timer_expire, t, TIMER_START_PID(t));
 };
 
 
@@ -2602,6 +3386,29 @@ static void probe_softirq_entry(void *ignore, unsigned int vec_nr)
 };
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+static void probe_workqueue_execution(struct task_struct *wq_thread, struct work_struct *work)
+#else
+static void probe_workqueue_execution(void * ignore, struct task_struct *wq_thread, struct work_struct *work)
+#endif // < 2.6.35
+{
+    per_cpu_t *pcpu = NULL;
+    pcpu = &__get_cpu_var(per_cpu_counts);
+    record_hit_full(pcpu, 0, 0, WORKQUEUE, 1);
+
+    if (false) {
+        printk(KERN_INFO "WORKQUEUE!");
+    }
+};
+#else // >= 2.6.36
+static void probe_workqueue_execute_start(void *ignore, struct work_struct *work)
+{
+    per_cpu_t *pcpu = NULL;
+    pcpu = &__get_cpu_var(per_cpu_counts);
+    record_hit_full(pcpu, 0, 0, WORKQUEUE, 1);
+};
+#endif // < 2.6.36
 
 #define C1 APERF
 #define CN MAX_MSR_ADDRESSES
@@ -2840,7 +3647,7 @@ static void tps(unsigned int type, unsigned int state)
     per_cpu_t *pcpu = NULL;
     int cpu = -1;
     int last_PID = -1, last_TID = -1;
-    unsigned long long last_IRQ = 0, last_TIMER = 0, last_SCHED = 0;
+    unsigned long long last_IRQ = 0, last_TIMER = 0, last_SCHED = 0, last_WORK = 0;
     char sample_type = 'I';
     unsigned long long sample_data = 0;
     bool other_irq_diff = false;
@@ -2896,6 +3703,7 @@ static void tps(unsigned int type, unsigned int state)
     last_TID = pcpu->last_tid;
     last_IRQ = pcpu->last_break[IRQ];
     last_TIMER = pcpu->last_break[TIMER];
+    last_WORK = pcpu->last_break[WORKQUEUE];
     last_SCHED = pcpu->last_break[SCHED];
 
     put_cpu_var(pcpu[cpu]);
@@ -2930,12 +3738,21 @@ static void tps(unsigned int type, unsigned int state)
 	local_inc(&pstats->timer_c_breaks);
 #endif
 
-    }else if( (sample_data = last_SCHED) > 0){
-	sample_type = 'S';
-	OUTPUT(3, KERN_INFO "SCHED BREAK!\n");
-	printk(KERN_INFO "SCHED BREAK: APIC TIMER = %s!\n", GET_BOOL_STRING(other_irq_diff));
-	sample_type = PW_BREAK_TYPE_S;
-    }else if(other_irq_diff){
+    }
+	else if ( (sample_data = last_WORK) > 0) {
+        sample_type = PW_BREAK_TYPE_W;
+    }
+	else if( (sample_data = last_SCHED) > 0){
+		/*
+		 * 'last_SCHED' is "source_cpu+1". Adjust
+		 * for the "+1" by decrementing 'sample_data'
+		 * here.
+		 */
+		--sample_data;
+		sample_type = 'S';
+		OUTPUT(3, KERN_INFO "SCHED BREAK!\n");
+		sample_type = PW_BREAK_TYPE_S;
+	}else if(other_irq_diff){
 	/*
 	 * We speculate here -- the
 	 * wakeup was caused by one of
@@ -2966,10 +3783,65 @@ static void tps(unsigned int type, unsigned int state)
     }
 
     pcpu->last_pid = pcpu->last_tid = -1;
-    pcpu->last_break[IRQ] = pcpu->last_break[TIMER] = pcpu->last_break[SCHED] = 0;
+    pcpu->last_break[WORKQUEUE] = pcpu->last_break[IRQ] = pcpu->last_break[TIMER] =  pcpu->last_break[SCHED] = 0;
     pcpu->was_timer_hrtimer_softirq = 0;
 
     pcpu->prev_state = state;
+
+    // Collect S and D state / residency counter samples on CPU0
+    if(cpu != 0 || !IS_COLLECTING())
+        return;
+
+// Produce S state residency counter sample
+// We expect that S state transition will not occur
+// as many as C state transition.
+// Therefore, we produce the S samples only if the C state
+// was in the deepest state (C6 in Medfield)
+#if DO_S_RESIDENCY_SAMPLE
+        if(PW_is_atm && IS_S_RESIDENCY_MODE() && RESIDENCY(pcpu, C6) > 0){
+            u64 usec = dump_s_residency_counter();
+            produce_s_residency_sample(usec);
+        }
+#endif
+
+#if DO_S_STATE_SAMPLE
+    if(PW_is_atm && IS_S_STATE_MODE()){
+        if(INTERNAL_STATE.write_to_buffers) {
+            produce_s_state_sample();
+        }
+    }
+#endif
+
+    /*
+     * Controls the sampling frequency to reduce data collection overheads 
+     */
+    if ((CURRENT_TIME_IN_USEC() - prev_sample_usec) > INTERNAL_STATE.d_state_sample_interval*1000) {
+        prev_sample_usec = CURRENT_TIME_IN_USEC();
+// Produce D state residency counter sample
+#if DO_D_SC_RESIDENCY_SAMPLE
+        if(PW_is_atm && IS_D_SC_RESIDENCY_MODE()){
+            u64 usec = dump_d_sc_residency_counter();
+            if (usec > 0)
+                produce_d_sc_residency_sample(usec);
+        }
+#endif
+
+#if DO_D_NC_STATE_SAMPLE
+        if(PW_is_atm && IS_D_NC_STATE_MODE()){
+            if(INTERNAL_STATE.write_to_buffers) {
+                produce_d_nc_state_sample();
+            }
+        }
+#endif
+
+#if DO_D_SC_STATE_SAMPLE
+        if(PW_is_atm && IS_D_SC_STATE_MODE()){
+            if(INTERNAL_STATE.write_to_buffers) {
+                produce_d_sc_state_sample();
+            }
+        }
+#endif
+    }
 };
 
 /*
@@ -2993,12 +3865,14 @@ static void probe_power_start(unsigned int type, unsigned int state, unsigned in
     // tps_i(type, state);
     DO_PER_CPU_OVERHEAD_FUNC(tps, type, state);
 };
-#else // APWR_RED_HAT
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
+#else
+#if LINUX_VERSION_CODE  < KERNEL_VERSION(2,6,38)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 static void probe_power_start(unsigned int type, unsigned int state)
-#else
-    static void probe_power_start(void *ignore, unsigned int type, unsigned int state)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+static void probe_power_start(void *ignore, unsigned int type, unsigned int state)
+#else // 2.6.36 <= version < 2.6.38
+static void probe_power_start(void *ignore, unsigned int type, unsigned int state, unsigned int cpu_id)
 #endif
 {
     if(unlikely(!IS_SLEEP_MODE())){
@@ -3420,6 +4294,23 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+static void probe_sched_wakeup(struct task_struct *task, int success)
+#else
+static void probe_sched_wakeup(void *ignore, struct task_struct *task, int success)
+#endif
+{
+    int target_cpu = task_cpu(task), source_cpu = CPU();
+    per_cpu_t *pcpu = NULL;
+
+    if (source_cpu == target_cpu) {
+        pcpu = &__get_cpu_var(per_cpu_counts);
+    } else {
+        pcpu = &per_cpu(per_cpu_counts, target_cpu);
+    }
+    record_hit_full(pcpu, 0, 0, SCHED, (source_cpu+1)); // we add "1" to "source_cpu" because we need a non-zero value in "last_break"!!!
+};
+
 #if DO_PROBE_ON_EXEC_SYSCALL
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 static void probe_sys_exit(struct pt_regs *regs, long ret)
@@ -3457,7 +4348,6 @@ static void probe_sched_process_fork(struct task_struct *parent, struct task_str
     produce_r_sample(CPU(), tsc, PW_PROC_FORK, ctid, cpid, cname);
 };
 
-
 /*
  * Module load tracepoint.
  * We register a module load event -- extract memory
@@ -3481,6 +4371,63 @@ static void probe_module_load(struct module *mod)
 
     return;
 };
+
+
+#if DO_WAKELOCK_SAMPLE
+/*
+ * Wakelock hooks
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+static void probe_wake_lock(struct wake_lock *lock)
+#else
+    static void probe_wake_lock(void *ignore, struct wake_lock *lock)
+#endif
+{
+    u64 tsc;
+
+    /*
+     * Track task exits ONLY IF COLLECTION
+     * ONGOING!
+     * UPDATE: track if COLLECTION ONGOING OR
+     * IF IN PAUSED STATE!
+     */
+    if(!IS_COLLECTING() && !IS_SLEEPING()){
+	return;
+    }
+
+    tscval(&tsc);
+
+    produce_w_sample(CPU(), tsc, PW_WAKE_LOCK, TID(), PID(), lock->name);
+
+    OUTPUT(0, "wake_lock: name=%s, CPU=%d, PID=%d, TSC=%llu\n", lock->name, CPU(), PID(), tsc);
+};
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+static void probe_wake_unlock(struct wake_lock *lock)
+#else
+    static void probe_wake_unlock(void *ignore, struct wake_lock *lock)
+#endif
+{
+    u64 tsc;
+
+    /*
+     * Track task exits ONLY IF COLLECTION
+     * ONGOING!
+     * UPDATE: track if COLLECTION ONGOING OR
+     * IF IN PAUSED STATE!
+     */
+    if(!IS_COLLECTING() && !IS_SLEEPING()){
+	return;
+    }
+
+    tscval(&tsc);
+
+    produce_w_sample(CPU(), tsc, PW_WAKE_UNLOCK, TID(), PID(), lock->name);
+
+    OUTPUT(0, "wake_unlock: name=%s, CPU=%d, PID=%d, TSC=%llu\n", lock->name, CPU(), PID(), tsc);
+};
+#endif
+
 
 static int register_timer_callstack_probes(void)
 {
@@ -3635,26 +4582,31 @@ static int register_non_pausable_probes(void)
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
     if(IS_SLEEP_MODE()){
-	OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-	{
-	    OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
-	    ret = register_trace_timer_expire_entry(probe_timer_expire_entry);
-	    WARN_ON(ret);
-	    ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
-	    WARN_ON(ret);
-	    ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
-	    WARN_ON(ret);
-	    ret = register_trace_irq_handler_entry(probe_irq_handler_entry);
-	    WARN_ON(ret);
-	    ret = register_trace_softirq_entry(probe_softirq_entry);
-	    WARN_ON(ret);
-
-	}
-	{
-	    OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
-	    ret = register_trace_power_start(probe_power_start);
-	    WARN_ON(ret);
-	}
+        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
+        {
+            OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
+            ret = register_trace_timer_expire_entry(probe_timer_expire_entry);
+            WARN_ON(ret);
+            ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
+            WARN_ON(ret);
+            ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
+            WARN_ON(ret);
+            ret = register_trace_irq_handler_entry(probe_irq_handler_entry);
+            WARN_ON(ret);
+            ret = register_trace_softirq_entry(probe_softirq_entry);
+            WARN_ON(ret);
+            ret = register_trace_sched_wakeup(probe_sched_wakeup);
+            WARN_ON(ret);
+        }
+        {
+            OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
+            ret = register_trace_power_start(probe_power_start);
+            WARN_ON(ret);
+        }
+        {
+            ret = register_trace_workqueue_execution(probe_workqueue_execution);
+            WARN_ON(ret);
+        }
     }
 
 
@@ -3664,35 +4616,52 @@ static int register_non_pausable_probes(void)
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
     if(IS_SLEEP_MODE()){
-	OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-	{
-	    OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
-	    ret = register_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
-	    WARN_ON(ret);
-	    ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
-	    WARN_ON(ret);
-	    ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
-	    WARN_ON(ret);
-	    ret = register_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
-	    WARN_ON(ret);
-	    ret = register_trace_softirq_entry(probe_softirq_entry, NULL);
-	    WARN_ON(ret);
-	}
-	/*
-	 * ONLY required for "SLEEP" mode i.e. C-STATES
-	 */
+        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
+        {
+            OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
+            ret = register_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
+            WARN_ON(ret);
+            ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
+            WARN_ON(ret);
+            ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
+            WARN_ON(ret);
+            ret = register_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
+            WARN_ON(ret);
+            ret = register_trace_softirq_entry(probe_softirq_entry, NULL);
+            WARN_ON(ret);
+            ret = register_trace_sched_wakeup(probe_sched_wakeup, NULL);
+            WARN_ON(ret);
+        }
+        /*
+         * ONLY required for "SLEEP" mode i.e. C-STATES
+         */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-	{
-	    OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
-	    ret = register_trace_power_start(probe_power_start, NULL);
-	    WARN_ON(ret);
-	}
+        {
+            OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
+            ret = register_trace_power_start(probe_power_start, NULL);
+            WARN_ON(ret);
+        }
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+        {
+            ret = register_trace_workqueue_execution(probe_workqueue_execution, NULL);
+            WARN_ON(ret);
+        }
+#else // 2.6.36 <= version < 2.6.38
+        {
+            ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+            WARN_ON(ret);
+        }
+#endif // version < 2.6.36
 #else // version >= 2.6.38
-	{
-	    OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
-	    ret = register_trace_cpu_idle(probe_cpu_idle, NULL);
-	    WARN_ON(ret);
-	}
+        {
+            OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
+            ret = register_trace_cpu_idle(probe_cpu_idle, NULL);
+            WARN_ON(ret);
+        }
+        {
+            ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+            WARN_ON(ret);
+        }
 #endif // LINUX_VERSION_CODE < 2.6.38
     }
 
@@ -3709,24 +4678,31 @@ static void unregister_non_pausable_probes(void)
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
     if(IS_SLEEP_MODE()){
-	OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-	{
-	    unregister_trace_timer_expire_entry(probe_timer_expire_entry);
-	    unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
-	    unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
-	    unregister_trace_irq_handler_entry(probe_irq_handler_entry);
-	    unregister_trace_softirq_entry(probe_softirq_entry);
+        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
+        {
+            unregister_trace_timer_expire_entry(probe_timer_expire_entry);
+            unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
+            unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
+            unregister_trace_irq_handler_entry(probe_irq_handler_entry);
+            unregister_trace_softirq_entry(probe_softirq_entry);
+            unregister_trace_sched_wakeup(probe_sched_wakeup);
 
-	    tracepoint_synchronize_unregister();
-	}
-	/*
-	 * ONLY required for "SLEEP" mode i.e. C-STATES
-	 */
-	{
-	    unregister_trace_power_start(probe_power_start);
+            tracepoint_synchronize_unregister();
+        }
+        /*
+         * ONLY required for "SLEEP" mode i.e. C-STATES
+         */
+        {
+            unregister_trace_power_start(probe_power_start);
 
-	    tracepoint_synchronize_unregister();
-	}
+            tracepoint_synchronize_unregister();
+        }
+
+        {
+            unregister_trace_workqueue_execution(probe_workqueue_execution);
+
+            tracepoint_synchronize_unregister();
+        }
     }
 
 
@@ -3736,31 +4712,50 @@ static void unregister_non_pausable_probes(void)
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
     if(IS_SLEEP_MODE()){
-	OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-	{
-	    unregister_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
-	    unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
-	    unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
-	    unregister_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
-	    unregister_trace_softirq_entry(probe_softirq_entry, NULL);
+        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
+        {
+            unregister_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
+            unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
+            unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
+            unregister_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
+            unregister_trace_softirq_entry(probe_softirq_entry, NULL);
+            unregister_trace_sched_wakeup(probe_sched_wakeup, NULL);
 
-	    tracepoint_synchronize_unregister();
-	}
-	/*
-	 * ONLY required for "SLEEP" mode i.e. C-STATES
-	 */
+            tracepoint_synchronize_unregister();
+        }
+        /*
+         * ONLY required for "SLEEP" mode i.e. C-STATES
+         */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-	{
-	    unregister_trace_power_start(probe_power_start, NULL);
+        {
+            unregister_trace_power_start(probe_power_start, NULL);
 
-	    tracepoint_synchronize_unregister();
-	}
+            tracepoint_synchronize_unregister();
+        }
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+        {
+            unregister_trace_workqueue_execution(probe_workqueue_execution, NULL);
+
+            tracepoint_synchronize_unregister();
+        }
+#else // 2.6.36 <= version < 2.6.38
+        {
+            unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+
+            tracepoint_synchronize_unregister();
+        }
+#endif // version < 2.6.36
 #else // version >= 2.6.38
-	{
-	    unregister_trace_cpu_idle(probe_cpu_idle, NULL);
+        {
+            unregister_trace_cpu_idle(probe_cpu_idle, NULL);
 
-	    tracepoint_synchronize_unregister();
-	}
+            tracepoint_synchronize_unregister();
+        }
+        {
+            unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+
+            tracepoint_synchronize_unregister();
+        }
 #endif // LINUX_VERSION_CODE < 2.6.38
     }
 
@@ -3826,6 +4821,17 @@ static int register_pausable_probes(void)
 #endif // DO_CPUFREQ_NOTIFIER
     }
 
+    if(IS_WAKELOCK_MODE()){
+#if DO_WAKELOCK_SAMPLE
+        OUTPUT(0, KERN_INFO "\tWAKELOCK_EVENTS\n");
+        ret = register_trace_wake_lock(probe_wake_lock);
+        WARN_ON(ret);
+
+        OUTPUT(0, KERN_INFO "\tWAKEUNLOCK_EVENTS\n");
+        ret = register_trace_wake_unlock(probe_wake_unlock);
+        WARN_ON(ret);
+#endif
+    }
 
 #else // KERNEL_VER
 
@@ -3875,6 +4881,18 @@ static int register_pausable_probes(void)
 	    WARN_ON(ret);
 	}
 #endif // DO_CPUFREQ_NOTIFIER
+    }
+
+    if(IS_WAKELOCK_MODE()){
+#if DO_WAKELOCK_SAMPLE
+        printk(KERN_INFO "\tWAKELOCK_EVENTS");
+        ret = register_trace_wake_lock(probe_wake_lock, NULL);
+        WARN_ON(ret);
+
+        printk(KERN_INFO "\tWAKEUNLOCK_EVENTS");
+        ret = register_trace_wake_unlock(probe_wake_unlock, NULL);
+        WARN_ON(ret);
+#endif
     }
 
 #endif // KERNEL_VER
@@ -3934,6 +4952,15 @@ static void unregister_pausable_probes(void)
 #endif // DO_CPUFREQ_NOTIFIER
     }
 
+    if(IS_WAKELOCK_MODE()){
+#if DO_WAKELOCK_SAMPLE
+        unregister_trace_wake_lock(probe_wake_lock);
+        unregister_trace_wake_unlock(probe_wake_unlock);
+
+        tracepoint_synchronize_unregister();
+#endif
+    }
+
 #else // KERNEL_VER
 
     /*
@@ -3982,6 +5009,15 @@ static void unregister_pausable_probes(void)
 	    tracepoint_synchronize_unregister();
 	}
 #endif // DO_CPUFREQ_NOTIFIER
+    }
+
+    if(IS_WAKELOCK_MODE()){
+#if DO_WAKELOCK_SAMPLE
+        unregister_trace_wake_lock(probe_wake_lock, NULL);
+        unregister_trace_wake_unlock(probe_wake_unlock, NULL);
+
+        tracepoint_synchronize_unregister();
+#endif
     }
 
 #endif // KERNEL_VER
@@ -4292,7 +5328,7 @@ static ssize_t device_read(struct file *file,	/* see include/linux/fs.h   */
 	 * Now copy data to user.
 	 */
 	int bytes_not_copied = 0;
-	OUTPUT(3, KERN_INFO "About to copy to user-space! Size = %d\n", size);
+	OUTPUT(3, KERN_INFO "About to copy to user-space! Size = %d\n", (int)size);
 
 	if( (bytes_not_copied = copy_to_user(buffer, (char *)seg->samples, size))){ // dst,src
 	    printk(KERN_INFO "Warning: could NOT copy %d bytes!\n", bytes_not_copied);
@@ -4398,7 +5434,7 @@ void get_frequency_steps(void)
 	     * the frequencies and we don't need to
 	     * repeat this procedure.
 	     */
-	    OUTPUT(0, KERN_INFO "[%d]: buffer_len = %d, BUFFER = %s\n", cpu, buffer_len, buffer);
+	    OUTPUT(0, KERN_INFO "[%d]: buffer_len = %d, BUFFER = %s\n", cpu, (int)buffer_len, buffer);
 	    if(extract_valid_frequencies(buffer, buffer_len)){
 		printk(KERN_INFO "ERROR: could NOT determine frequency table!\n");
 	    }
@@ -4523,6 +5559,16 @@ int set_config(struct PWCollector_config *remote_config, int size)
      */
     INTERNAL_STATE.collection_switches = local_config.data;
     OUTPUT(0, KERN_INFO "\tCONFIG collection switches = %d\n", INTERNAL_STATE.collection_switches);
+
+    INTERNAL_STATE.d_state_sample_interval = local_config.d_state_sample_interval;
+    OUTPUT(0, KERN_INFO "\tCONFIG D-state collection interval (msec) = %d\n", INTERNAL_STATE.d_state_sample_interval);
+
+    d_sc_count_num = 0;
+    for (i=0; i<MAX_LSS_NUM_IN_SC; i++) {
+        if ((d_sc_mask >> i) & 0x1) {
+            d_sc_count_num++;
+        }
+    }
 
     return SUCCESS;
 };
@@ -4769,7 +5815,7 @@ void reset_per_cpu_msr_residencies(void)
 		memset(pcpu->residencies, 0, sizeof(pcpu->residencies));
 		memset(pcpu->prev_msr_vals, 0, sizeof(pcpu->prev_msr_vals));
 		pcpu->last_pid = pcpu->last_tid = -1;
-		pcpu->last_break[IRQ] = pcpu->last_break[TIMER] =  pcpu->last_break[SCHED] = 0;
+		pcpu->last_break[WORKQUEUE] = pcpu->last_break[IRQ] = pcpu->last_break[TIMER] =  pcpu->last_break[SCHED] = 0;
 		pcpu->debug_enters = 0;
 		pcpu->prev_state = 0;
 	    }
@@ -5086,6 +6132,24 @@ int start_collection(PWCollector_cmd_t cmd)
     }
 #endif
     OUTPUT(0, KERN_INFO "\tREGISTERED all probes!\n");
+
+#if DO_S_RESIDENCY_SAMPLE
+    //struct timeval cur_time;
+    if(PW_is_atm && IS_S_RESIDENCY_MODE()){
+	    start_s_residency_counter();
+            //do_gettimeofday(cur_time);
+            startJIFF_s_residency = CURRENT_TIME_IN_USEC();
+    }
+#endif
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+    if(PW_is_atm && IS_D_SC_RESIDENCY_MODE()){
+	    start_d_sc_residency_counter();
+            startJIFF_d_sc_residency = CURRENT_TIME_IN_USEC();
+            prev_sample_usec = CURRENT_TIME_IN_USEC();
+    }
+#endif
+
     return SUCCESS;
 };
 
@@ -5098,6 +6162,49 @@ int start_collection(PWCollector_cmd_t cmd)
  */
 int stop_collection(PWCollector_cmd_t cmd)
 {
+    /*
+     * Get S and D state residency counter samples
+     */
+#if DO_S_RESIDENCY_SAMPLE
+    if(PW_is_atm && IS_S_RESIDENCY_MODE()){
+        u64 usec = dump_s_residency_counter();
+        produce_s_residency_sample(usec);
+        stop_s_residency_counter();
+    }
+#endif
+
+#if DO_S_STATE_SAMPLE
+    if(PW_is_atm && IS_S_STATE_MODE()){
+        if(INTERNAL_STATE.write_to_buffers) {
+            produce_s_state_sample();
+        }
+    }
+#endif
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+    if(PW_is_atm && IS_D_SC_RESIDENCY_MODE()){
+        u64 usec = dump_d_sc_residency_counter();
+        produce_d_sc_residency_sample(usec);
+        stop_d_sc_residency_counter();
+    }
+#endif
+
+#if DO_D_NC_STATE_SAMPLE
+    if(PW_is_atm && IS_D_NC_STATE_MODE()){
+        if(INTERNAL_STATE.write_to_buffers) {
+            produce_d_nc_state_sample();
+        }
+    }
+#endif
+
+#if DO_D_SC_STATE_SAMPLE
+    if(PW_is_atm && IS_D_SC_STATE_MODE()){
+        if(INTERNAL_STATE.write_to_buffers) {
+            produce_d_sc_state_sample();
+        }
+    }
+#endif
+
     INTERNAL_STATE.collectionStopJIFF = jiffies;
     INTERNAL_STATE.write_to_buffers = false;
     {
@@ -5612,7 +6719,7 @@ bool is_atm(void)
      * be updated for each new
      * architecture type!!!
      */
-    if(family == 0x6 && model == 0x27 && stepping == 0x1){
+    if (family == 0x6 && model == 0x27) {
         // MFLD
         return true;
     }
@@ -5700,6 +6807,50 @@ static int __init init_hooks(void)
 	enable_ref();
     }
 
+#if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
+    if(PW_is_atm){
+        // Map the bus memory into CPU space for 6 IPC registers
+        mmio_ipc1_base = ioremap_nocache(IPC_BASE_ADDRESS, IPC_MAX_ADDR);
+
+        if (mmio_ipc1_base == NULL) {
+                printk(KERN_ERR "ioremap_nocache returns NULL! IPC1 is NOT available\n");
+                return -ERROR;
+        }
+#endif
+
+#if DO_S_RESIDENCY_SAMPLE
+        // Map the bus memory into CPU space for 4 S state residency counters
+        mmio_s_residency_base = ioremap_nocache(S_RESIDENCY_BASE_ADDRESS, S_RESIDENCY_MAX_COUNTERS*4);
+
+        if (mmio_s_residency_base == NULL) {
+                printk(KERN_ERR "ioremap_nocache returns NULL! S Residency counter is NOT available\n");
+                return -ERROR;
+        }
+    }
+#endif
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+        // Map the bus memory into CPU space for 4(bytes) * 3(states) * 40(LSS) D state residency counters
+        mmio_d_residency_base = ioremap_nocache(D_RESIDENCY_BASE_ADDRESS, D_RESIDENCY_MAX_COUNTERS*4);
+
+        if (mmio_d_residency_base == NULL) {
+                printk(KERN_ERR "ioremap_nocache returns NULL! D Residency counter is NOT available\n");
+                return -ERROR;
+        }
+#endif
+
+#if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
+    if(PW_is_atm){
+        // Map the bus memory into CPU space for power management
+        mmio_pm_base = ioremap_nocache(PM_BASE_ADDRESS, PM_MAX_ADDR);
+
+        if (mmio_pm_base == NULL) {
+                printk(KERN_ERR "ioremap_nocache returns NULL! PM is NOT available\n");
+                return -ERROR;
+        }
+    }
+#endif
+
     {
 	/*
 	 * Check if kernel-space call stack generation
@@ -5761,6 +6912,35 @@ static void __exit cleanup_hooks(void)
     {
 	unregister_dev();
     }
+
+#if DO_S_RESIDENCY_SAMPLE
+    if(mmio_s_residency_base != NULL && PW_is_atm){
+	stop_s_residency_counter();
+
+        iounmap(mmio_s_residency_base);
+    }
+#endif
+
+#if DO_D_SC_RESIDENCY_SAMPLE
+    if(mmio_d_residency_base != NULL && PW_is_atm){
+	stop_d_sc_residency_counter();
+
+        iounmap(mmio_d_residency_base);
+    }
+#endif
+
+#if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
+    if(mmio_ipc1_base != NULL && PW_is_atm){
+        iounmap(mmio_ipc1_base);
+    }
+#endif
+
+#if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
+    if(mmio_pm_base != NULL && PW_is_atm){
+        iounmap(mmio_pm_base);
+    }
+#endif
+
 
     /*
      * Probes required to cache (kernel) timer

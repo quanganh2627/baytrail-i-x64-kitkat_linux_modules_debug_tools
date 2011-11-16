@@ -1,6 +1,5 @@
 #!/bin/sh
-
-# Description: Script to unload the power driver
+# Description: script to unload the power driver on Android.
 # Version: 1.0
 
 # ***********************************************************************************************
@@ -61,14 +60,15 @@
   # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  # ***********************************************************************************************
+  #
+# ***********************************************************************************************
 
 # ------------------------------ CONSTANTS -----------------------------------
 
 # base driver name and version
 DRIVER_BASE=apwr
 DRIVER_MAJOR=2
-DRIVER_MINOR=0
+DRIVER_MINOR=2
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 # Character device file name -- APWR uses a driver-agnostic file name
@@ -98,9 +98,12 @@ print_err()
   fi
 }
 
+# GU: For Android Honeycomb, make sure we pull in "busybox"
+export PATH=/system/xbin/busybox:$PATH
+
 # set the path to include "standard" locations so commands below can be found
-PATH="/sbin:/usr/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}":."
-export PATH
+#PATH="/sbin:/usr/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}":."
+#export PATH
 
 # ------------------------------ COMMANDS ------------------------------------
 
@@ -109,15 +112,19 @@ GREP="grep"
 INSMOD="insmod"
 LSMOD="lsmod"
 PGREP="pgrep"
-PKILL="pkill"
+#PKILL="pkill"
 RM="rm"
 RMMOD="rmmod"
+RMMOD_ADRD="/system/bin/rmmod"
 SED="sed"
 SU="su"
 TR="tr"
 UNAME="uname"
 
-COMMANDS_TO_CHECK="${CUT} ${GREP} ${INSMOD} ${LSMOD} ${PGREP} ${PKILL} ${RM} ${RMMOD} ${SED} ${SU} ${TR} ${UNAME}"
+#COMMANDS_TO_CHECK="${CUT} ${GREP} ${INSMOD} ${LSMOD} ${PGREP} ${PKILL} ${RM} ${RMMOD} ${SED} ${SU} ${TR} ${UNAME}"
+#COMMANDS_TO_CHECK="${CUT} ${GREP} ${INSMOD} ${LSMOD} ${PGREP} ${PKILL} ${RM} ${SED} ${SU} ${TR} ${UNAME}"
+COMMANDS_TO_CHECK="${CUT} ${GREP} ${INSMOD} ${LSMOD} ${RM} ${SED} ${SU} ${TR} ${UNAME}"
+RMMOD_TO_CHECK="${RMMOD_ADRD} ${RMMOD}"
 
 # if any of the COMMANDS_TO_CHECK are not executable, then exit script
 OK="true"
@@ -130,6 +137,24 @@ for c in ${COMMANDS_TO_CHECK} ; do
 done
 if [ ${OK} != "true" ] ; then
   print_err "Please add the above commands to your PATH and re-run the script ... exiting."
+  exit 255
+fi
+
+# special case for "rmmod" -- we check for EITHER 'rmmod' path
+OK="false"
+for c in ${RMMOD_TO_CHECK} ; do
+  CMD=`type -P $c 2>&1` ;
+  if [ -z "${CMD}" ] ; then
+    OK="false";
+  else
+    OK="true";
+    ACT_RMMOD=${c}
+    break
+  fi
+done
+
+if [ ${OK} != "true" ] ; then
+  print_err "Fatal error: Could NOT locate the \"rmmod\" command -- please add it to your path before continuing! EXITING";
   exit 255
 fi
 
@@ -160,7 +185,7 @@ print_usage_and_exit()
 # --------------------------------- MAIN -------------------------------------
 
 # check for a loaded driver (should be only one)
-DRIVER_LOADED=`${LSMOD} | ${GREP} -w ${DRIVER_NAME} | ${CUT} -d ' ' -f 1`
+DRIVER_LOADED=`${LSMOD} | ${GREP} ${DRIVER_NAME} | ${CUT} -d ' ' -f 1`
 
 # if no driver is loaded then exit
 if [ -z "${DRIVER_LOADED}" ] ; then
@@ -188,7 +213,7 @@ fi
 if [ -n "${DRIVER_LOADED}" ] ; then
   print_nnl "Removing ${DRIVER_NAME} driver from the kernel ... "
   sleep 1
-  ${RMMOD} ${DRIVER_NAME}
+  ${ACT_RMMOD} ${DRIVER_NAME}
   RMMOD_RESULT=$?
   if [ ${RMMOD_RESULT} -ne 0 ] ; then
     print_err ""

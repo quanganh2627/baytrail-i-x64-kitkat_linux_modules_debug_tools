@@ -1,5 +1,5 @@
-# Description: Makefile for the power driver.
-# Version: 1.0
+# Description: Makefile for the power driver. Enhancements for android wuwatch (s,d states, wakelock etc.)
+# Version: 2.0
 
 # ***********************************************************************************************
 
@@ -92,7 +92,12 @@
 # -------------------- user configurable options ------------------------
 
 # base name of APWR driver
-DRIVER_NAME = apwr2_0
+#DRIVER_NAME = apwr2_0
+DRIVER_BASE=apwr
+DRIVER_MAJOR=2
+DRIVER_MINOR=2
+# basic name of driver
+DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 
 # location to install driver
 INSTALL = .
@@ -107,80 +112,31 @@ EXTRA_CFLAGS += -I$(INC2)
 
 # The driver needs to know what version we have
 KERNEL_VERSION=$(shell uname -r | awk 'BEGIN{FS="[^0-9]"} {print $$3}')
-ifeq "$(APWR_RED_HAT)" ""
-	APWR_RED_HAT="0"
-endif
+
+APWR_RED_HAT="0"
+WAKELOCK_SAMPLE=1
 EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
+EXTRA_CFLAGS += -DDO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)
 
-# platform details
-#MACH := $(shell uname -m)
-MACH := i686
-ifeq ($(MACH),x86_64)
-	PLATFORM=x32_64
-endif
-ifeq ($(MACH),ia64)
-	PLATFORM=x64
-endif
-ifeq ($(PLATFORM),)
-	PLATFORM=x32
-endif
-#KERNEL_VERSION_FULL ?= $(shell uname -r)
-#SMP := $(shell uname -v | grep SMP)
-SMP := SMP
-ARITY=up
-ifneq ($(SMP),)
-ARITY=smp
+obj-m := $(DRIVER_NAME).o
+#apwr2_0-objs :=	src/apwr_driver.o
+$(DRIVER_NAME)-objs := src/apwr_driver.o
+
+.PHONY: kernel_check
+
+kernel_check:
+ifeq "$(KERNEL_SRC_DIR)" ""
+	@echo "Error: makefile MUST NOT be invoked directly! Use the \"build_driver\" script instead."
+	@exit 255
 endif
 
-# eventual filename of APWR driver
-#DRIVER_FILENAME=$(DRIVER_NAME)-$(PLATFORM)-$(KERNEL_VERSION_FULL)$(ARITY).ko
-
-
-# build options ...
-ifneq ($(KERNELRELEASE),)
-
-# the following macros must be set to y
-ifeq ($(strip $(CONFIG_MODULES)),y)
-ifeq ($(strip $(CONFIG_MODULE_UNLOAD)),y)
-ifeq ($(strip $(CONFIG_TRACEPOINTS)),y)
-ifeq ($(strip $(CONFIG_FRAME_POINTER)),y)
-ifeq ($(strip $(CONFIG_TIMER_STATS)),y)
-	obj-m := $(DRIVER_NAME).o
-
-	apwr2_0-objs :=	src/apwr_driver.o
-endif
-endif
-endif
-endif
-endif
-
-# targets ...
-
-# Otherwise, we were called directly from the command
-# line; invoke the kernel build system.
-else
-	KERNEL_SRC_DIR ?= /lib/modules/$(shell uname -r)/build
-	PWD := $(shell pwd)
-
-all: default
-
-default:
+default: kernel_check
 	@echo "************************************************************"
-	@echo "DETECTED KERNEL VERSION $(KERNEL_VERSION)"
-	@echo "************************************************************"
+	@echo "KERNEL_SRC_DIR=$(KERNEL_SRC_DIR)"
 	@echo "APWR_RED_HAT=$(APWR_RED_HAT)"
-	$(MAKE) -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
-	mv $(DRIVER_NAME).ko $(DRIVER_FILENAME)
-
-endif
-
-install:
-	@[ $(INSTALL) = "." ] || [ $(INSTALL) = $(PWD) ] || [ $(INSTALL) = $(PWD)/ ] \
-         || cp $(DRIVER_FILENAME) $(INSTALL)/
-	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
+	@echo "DO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)"
+	@echo "************************************************************"
+	make -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
 
 clean:
-	make -C $(KERNEL_SRC_DIR) M=$(PWD) clean
-# rm -f *.o .*.o.cmd .*.o.d $(DRIVER_NAME).ko $(DRIVER_FILENAME) .*.ko.cmd
-# rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers
-# rm -rf .tmp_versions
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean

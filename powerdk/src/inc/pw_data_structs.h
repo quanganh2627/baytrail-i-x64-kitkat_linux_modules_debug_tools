@@ -87,7 +87,9 @@ enum{
 enum{
     IRQ=0,
     TIMER,
-    SCHED
+    WORKQUEUE,
+    SCHED,
+    BREAK_TYPE_END
 };
 
 /*
@@ -139,6 +141,11 @@ typedef struct{
 #define M_SAMPLE(s,i) ( (s)->samples[(i)].m_sample )
 #define I_SAMPLE(s,i) ( (s)->samples[(i)].i_sample )
 #define R_SAMPLE(s,i) ( (s)->samples[(i)].r_sample )
+#define S_RESIDENCY_SAMPLE(s,i) ( (s)->samples[(i)].s_residency_sample )
+#define S_STATE_SAMPLE(s,i) ( (s)->samples[(i)].s_state_sample )
+#define D_STATE_SAMPLE(s,i) ( (s)->samples[(i)].d_state_sample )
+#define D_RESIDENCY_SAMPLE(s,i) ( (s)->samples[(i)].d_residency_sample )
+#define W_SAMPLE(s,i) ( (s)->samples[(i)].w_sample )
 
 /*
  * Structure to hold current CMD state
@@ -199,6 +206,13 @@ typedef struct{
      * the current collection.
      */
     unsigned long collectionStartJIFF, collectionStopJIFF;
+    /*
+     * This is the knob to control the frequency of D-state data sampling
+     * to adjust their collection overhead. By default, they are sampled
+     * in power_start traceevent after 100 msec is passed from the previous sample.
+     */
+    u32 d_state_sample_interval;
+
     // Others...
 }internal_state_t;
 
@@ -210,6 +224,13 @@ static internal_state_t INTERNAL_STATE;
 #define IS_FREQ_MODE() (INTERNAL_STATE.collection_switches & POWER_FREQ_MASK)
 #define IS_KTIMER_MODE() (INTERNAL_STATE.collection_switches & POWER_KTIMER_MASK)
 #define IS_NON_PRECISE_MODE() (INTERNAL_STATE.collection_switches & POWER_SYSTEM_MASK)
+#define IS_S_RESIDENCY_MODE() (INTERNAL_STATE.collection_switches & POWER_S_RESIDENCY_MASK)
+#define IS_S_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_S_STATE_MASK)
+#define IS_D_SC_RESIDENCY_MODE() (INTERNAL_STATE.collection_switches & POWER_D_SC_RESIDENCY_MASK)
+#define IS_D_SC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_SC_STATE_MASK)
+#define IS_D_NC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_NC_STATE_MASK)
+#define IS_WAKELOCK_MODE() (INTERNAL_STATE.collection_switches & POWER_WAKELOCK_MASK)
+
 
 /*
  * Per-cpu structure holding MSR residency counts,
@@ -229,7 +250,7 @@ typedef struct per_cpu_struct{
     atomic_t is_first; // 4 bytes
     u32 was_timer_hrtimer_softirq; // 4 bytes
 
-    u64 last_break[3]; // 24 bytes
+    u64 last_break[BREAK_TYPE_END]; // 32 bytes
 
     void *sched_timer_addr; // 4/8 bytes (arch dependent)
 }per_cpu_t;

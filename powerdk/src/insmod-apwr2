@@ -1,6 +1,5 @@
 #!/bin/sh
-
-# Description: Script to load the power driver
+# Description: script to load the power driver on Android.
 # Version: 1.0
 
 # ***********************************************************************************************
@@ -61,14 +60,15 @@
   # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  # ***********************************************************************************************
+  #
+# ***********************************************************************************************
 
 # ------------------------------ CONSTANTS -----------------------------------
 
 # base driver name and version
 DRIVER_BASE=apwr
 DRIVER_MAJOR=2
-DRIVER_MINOR=0
+DRIVER_MINOR=2
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 # Character device file name -- APWR uses a driver-agnostic file name
@@ -108,9 +108,12 @@ print_err()
   fi
 }
 
+# GU: For Android Honeycomb, make sure we pull in "busybox"
+export PATH=/system/xbin/busybox:$PATH
+
 # set the path to include "standard" locations so commands below can be found
-PATH="/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}""
-export PATH
+#PATH="/sbin:/usr/sbin:/usr/local/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}""
+#export PATH
 # ------------------------------ COMMANDS ------------------------------------
 
 CHGRP="chgrp"
@@ -182,6 +185,9 @@ print_usage_and_exit()
 # set the directory of the insmod-apwr2 script
 SCRIPT_DIR=`dirname $0`
 
+# Did the user specify a "DRIVER GROUP"?
+was_group_specified=0
+
 # check for certain options
 reload_driver=0
 while [ $# -gt 0 ] ; do
@@ -196,6 +202,7 @@ while [ $# -gt 0 ] ; do
         print_err "ERROR: must provide a group"
         print_usage_and_exit 254
       fi
+	  was_group_specified=1
       shift
       ;;
     -p | --perms)
@@ -209,18 +216,11 @@ while [ $# -gt 0 ] ; do
       ;;
     -q | --query)
       err_pwr=0
-      driver_loaded=`lsmod | grep -w ${DRIVER_NAME}`
+      driver_loaded=`lsmod | grep ${DRIVER_NAME}`
       if [ -z "$driver_loaded" ] ; then
         err_pwr=213
         print_msg "${DRIVER_NAME} driver is not loaded."
-      else
-          # SEP has subdev perms/groups checks here -- we have just the one device so no need to check
-          # We DO, however, need to output some messages (for installer compatibility)
-          # To do so, retrieve the driver group/perms settings here.
-          drv_group=`${STAT} -c "%G" /dev/${DEV_FILE_NAME}`
-          drv_perms=`${STAT} -c "%a" /dev/${DEV_FILE_NAME}`
-          print_msg "${DRIVER_NAME} driver is loaded and owned by group \"${drv_group}\" with file permissions \"${drv_perms}\"."
-      fi
+	  fi # SEP has subdev perms/groups checks here -- we have just the one device so no need to check
       exit $err_pwr
       ;;
     -r | --reload)
@@ -271,7 +271,7 @@ fi
 # ------------------------------- MAIN ---------------------------------------
 
 # check if driver devices exist, and if so, then exit
-DEVNUM=`${GREP} -w ${DEV_FILE_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1`
+DEVNUM=`${GREP} ${DEV_FILE_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1`
 if [ -n "${DEVNUM}" ] ; then
   if [ $reload_driver -ne 1 ] ; then
     print_err ""
@@ -317,7 +317,8 @@ else
 fi
 
 # file name of the driver to load
-DRIVER_FILENAME=${DRIVER_NAME}-${ARCH}-${KERNEL_VERSION}${ARITY}.ko
+#DRIVER_FILENAME=${DRIVER_NAME}-${ARCH}-${KERNEL_VERSION}${ARITY}.ko
+DRIVER_FILENAME=${DRIVER_NAME}.ko
 
 if [ ! -r ${DRIVER_DIRECTORY}/${DRIVER_FILENAME} ] ; then
   print_err ""
@@ -356,7 +357,7 @@ if [ ${INSMOD_RESULT} -ne 0 ] ; then
 fi
 
 # check if the driver has been loaded into the kernel
-DEVNUM=`${GREP} -w ${DEV_FILE_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1`
+DEVNUM=`${GREP} ${DEV_FILE_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1`
 if [ -z "${DEVNUM}" ] ; then
   print_err ""
   print_err "Error:  unable to find device \"${DRIVER_NAME}\" in /proc/devices !"
@@ -392,34 +393,25 @@ print_msg "done."
 # GU: NOT supported for APWR
 
 # change group ownership to whichever group is permitted to open the driver
-if [ -z "${DRIVER_GROUP}" ] ; then
-  print_err ""
-  print_err "Error:  no group ownership specified for /dev/${DEV_FILE_NAME} device ... exiting."
-  print_err ""
-  exit 231
+# UPDATE: do this ONLY if the user specifically requests it!!!
+if [ $was_group_specified -eq 1 ]; then
+	if [ -z "${DRIVER_GROUP}" ] ; then
+		print_err ""
+		print_err "Error:  no group ownership specified for /dev/${DEV_FILE_NAME} device ... exiting."
+		print_err ""
+		exit 231
+	fi
+	print_nnl "Setting group ownership of device to group \"${DRIVER_GROUP}\" ... "
+	${CHGRP} ${DRIVER_GROUP} /dev/${DEV_FILE_NAME}
+	CHGRP_RESULT=$?
+	if [ ${CHGRP_RESULT} -ne 0 ] ; then
+		print_err ""
+		print_err "Error:  unable to change group ownership of device!"
+		print_err ""
+		exit 230
+		fi
+	print_msg "done."
 fi
-print_nnl "Setting group ownership of device to group \"${DRIVER_GROUP}\" ... "
-${CHGRP} ${DRIVER_GROUP} /dev/${DEV_FILE_NAME}
-CHGRP_RESULT=$?
-if [ ${CHGRP_RESULT} -ne 0 ] ; then
-  print_err ""
-  print_err "Error:  unable to change group ownership of device!"
-  print_err ""
-  exit 230
-fi
-print_msg "done."
-
-print_nnl "Setting file permissions on device to \"${DRIVER_PERMS}\" ... "
-print_msg "[GU: THIS STEP DISABLED FOR TESTING...]"
-# ${CHMOD} ${DRIVER_PERMS} /dev/${DEV_FILE_NAME}
-# CHMOD_RESULT=$?
-# if [ ${CHMOD_RESULT} -ne 0 ] ; then
-#   print_err ""
-#   print_err "Error:  unable to change permissions to ${DRIVER_PERMS} on device!"
-#   print_err ""
-#   exit 229
-# fi
-# print_msg "done."
 
 # show which driver was loaded
 print_msg "The ${DRIVER_NAME} driver has been successfully loaded."

@@ -99,7 +99,7 @@
     }									\
 									\
     static inline int name##_get_cumulative_num_iters_for(int cpu){	\
-      return local_read(&per_cpu(name##_num_iters, cpu));		\
+	return local_read(&per_cpu(name##_num_iters, cpu));		\
     }									\
 									\
     static inline void name##_get_cumulative_overhead_params(u64 *time,	\
