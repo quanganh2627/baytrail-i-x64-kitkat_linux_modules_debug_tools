@@ -118,9 +118,11 @@ WAKELOCK_SAMPLE=1
 EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
 EXTRA_CFLAGS += -DDO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)
 
+ifeq ($(strip $(CONFIG_STACKTRACE)),y)
 obj-m := $(DRIVER_NAME).o
 #apwr2_0-objs :=	src/apwr_driver.o
 $(DRIVER_NAME)-objs := src/apwr_driver.o
+endif
 
 .PHONY: kernel_check
 
