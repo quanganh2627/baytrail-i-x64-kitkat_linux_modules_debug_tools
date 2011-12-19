@@ -283,7 +283,7 @@ typedef struct{
          * thinks more data is available because of the
          * way 1 byte fields are interpreted).
          */
-	u16 is_boundary_sample;
+	u32 is_boundary_sample;
 }p_sample_t;
 
 /*

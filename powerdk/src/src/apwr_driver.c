@@ -83,12 +83,13 @@
  */
 #define PW_VERSION_VERSION 2
 #define PW_VERSION_INTERFACE 2
-#define PW_VERSION_OTHER 2
+#define PW_VERSION_OTHER 4
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/time.h>
+#include <linux/smp.h> // For smp_call_function
 
 #include <asm/local.h>
 #include <asm/cputime.h> // For ktime
@@ -115,6 +116,7 @@
 #include <linux/cpufreq.h>
 #include <linux/version.h> // for "LINUX_VERSION_CODE"
 #include <asm/unistd.h> // for "__NR_execve"
+#include <asm/delay.h> // for "udelay"
 
 #include "pw_lock_defs.h"
 #include "pw_mem.h" // internally includes "pw_lock_defs.h"
@@ -262,6 +264,7 @@ static unsigned long startJIFF, stopJIFF;
  */
 #define USE_PREDEFINED_SCU_IPC 0
 
+#define DO_GENERATE_CURRENT_FREQ_IN_PARALLEL 0
 
 /*
  * Compile-time constants and
@@ -419,7 +422,7 @@ static unsigned long startJIFF, stopJIFF;
 
 #else // DO_RCU_OUTPUT_BUFFERS
 
-#define UNPROTECTED_GET_OUTPUT_LIST(cpu) &lists[(cpu)]
+#define UNPROTECTED_GET_OUTPUT_LIST(cpu) lists[(cpu)]
 #define BEGIN_PRODUCING() /* NOP */
 #define STOP_PRODUCING()  /* NOP */
 
@@ -547,6 +550,11 @@ static u32 d_sc_count_num = 40;
 // Non-zero value indicates a new sample needs to be generated.
 //static atomic_t new_sample_flag = ATOMIC_INIT(0);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+#define SMP_CALL_FUNCTION(func,ctx,retry,wait)    smp_call_function((func),(ctx),(wait))
+#else
+#define SMP_CALL_FUNCTION(func,ctx,retry,wait)    smp_call_function((func),(ctx),(retry),(wait))
+#endif
 
 /*
  * Data structure definitions.
@@ -694,7 +702,7 @@ static output_set_t *current_output_set = NULL;
 static int curr_output_set_index = -1;
 static output_set_t *output_sets[2] = {NULL, NULL};
 #else
-static list_t *lists = NULL;
+static list_t **lists = NULL;
 #endif
 
 DEFINE_PER_CPU(per_cpu_t, per_cpu_counts);
@@ -1001,7 +1009,7 @@ static inline int busy_loop(void)
 
         // SCU is still busy after 1 msec
         if (count > 1000) {
-            printk(KERN_INFO "[Coulomb] IPC is busy.\n");
+            printk(KERN_INFO "[APWR] IPC is busy.\n");
             return -ERROR;;
         }
     }
@@ -1021,7 +1029,7 @@ static int start_s_residency_counter(void)
 {
     int ret = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Start S0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Start S0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_START_RESIDENCY, NULL, 0, NULL, 0);
@@ -1045,7 +1053,7 @@ static int stop_s_residency_counter(void)
 {
     int ret = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Stop S0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Stop S0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_STOP_RESIDENCY, NULL, 0, NULL, 0);
@@ -1070,7 +1078,7 @@ static u64 dump_s_residency_counter(void)
     int ret;
     u64 delta_usec = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Dump S0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Dump S0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_S_RESIDENCY, IPC_COMMAND_DUMP_RESIDENCY, NULL, 0, NULL, 0);
@@ -1109,7 +1117,7 @@ static u64 dump_s_residency_counter(void)
 static int start_d_sc_residency_counter(void) {
     int ret = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Start D0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Start D0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_START_RESIDENCY, NULL, 0, NULL, 0);
@@ -1132,7 +1140,7 @@ static int start_d_sc_residency_counter(void) {
 static int stop_d_sc_residency_counter(void) {
     int ret = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Stop D0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Stop D0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_STOP_RESIDENCY, NULL, 0, NULL, 0);
@@ -1156,7 +1164,7 @@ static u64 dump_d_sc_residency_counter(void) {
     int ret;
     u64 delta_usec = 0;
 
-    OUTPUT(0, KERN_INFO "[Coulomb] Dump D0ix residency counter\n");
+    OUTPUT(0, KERN_INFO "[APWR] Dump D0ix residency counter\n");
 
 #if USE_PREDEFINED_SCU_IPC
     ret = intel_scu_ipc_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_DUMP_RESIDENCY, NULL, 0, NULL, 0);
@@ -1440,8 +1448,15 @@ static void destroy_data_structures(void)
     }
     destroy_output_sets();
 #else
-    if(lists)
+    if(lists) {
+	int cpu = 0;
+	for_each_online_cpu(cpu) {
+	    if (lists[cpu]) {
+		pw_kfree(lists[cpu]);
+	    }
+	}
         pw_kfree(lists);
+    }
     lists = NULL;
 #endif // DO_RCU_OUTPUT_BUFFERS
 
@@ -1479,19 +1494,27 @@ static int init_data_structures(void)
 	 * We have two buffers (or "segments") for every "list"
 	 * and one "list" for every cpu.
 	 */
-	int i=0, j=0;
-	lists = (list_t *)pw_kmalloc(PW_max_num_cpus * sizeof(list_t), GFP_KERNEL);
+	int cpu = 0, i = 0;
+	lists = (list_t **)pw_kmalloc(sizeof(list_t *) * PW_max_num_cpus, GFP_KERNEL);
 	if(!lists){
-	    printk(KERN_INFO "ERROR: Could NOT allocate memory for lists!\n");
+	    printk(KERN_INFO "ERROR: could NOT allocate array-of-lists!\n");
 	    return -ERROR;
 	}
+	memset(lists, 0, sizeof(list_t *) * PW_max_num_cpus);
 
-	for_each_online_cpu(i){
-	    memset(&lists[i], 0, sizeof(list_t));
-	    for(j=0; j<NUM_SEGS_PER_LIST; ++j)
-		atomic_set(&lists[i].segs[j].is_full, EMPTY);
-	    smp_mb();
+	for_each_online_cpu(cpu) {
+	    lists[cpu] = (list_t *)pw_kmalloc(sizeof(list_t), GFP_KERNEL);
+	    if (lists[cpu] == NULL) {
+		printk(KERN_INFO "ERROR: could NOT allocate list[%d]!\n", cpu);
+		destroy_data_structures();
+		return -ERROR;
+	    }
+	    memset(lists[cpu], 0, sizeof(list_t));
+	    for (i=0; i<NUM_SEGS_PER_LIST; ++i) {
+		atomic_set(&lists[cpu]->segs[i].is_full, EMPTY);
+	    }
 	}
+	smp_mb();
     }
 #endif // DO_RCU_OUTPUT_BUFFERS
 
@@ -4295,7 +4318,7 @@ static void probe_sched_process_exit(struct task_struct *task)
 };
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
-static void probe_sched_wakeup(struct task_struct *task, int success)
+static void probe_sched_wakeup(struct rq *rq, struct task_struct *task, int success)
 #else
 static void probe_sched_wakeup(void *ignore, struct task_struct *task, int success)
 #endif
@@ -5886,11 +5909,9 @@ static void reset_trace_sent_fields(void)
  *
  * REQUIRES CPUFREQ DRIVER!!!
  */
-static void get_current_cpu_frequency(bool is_start)
+static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
 {
-    int cpu = 0;
 
-    for_each_online_cpu(cpu){
 	u32 act_freq = 0, req_freq = 0;
 	u32 l=0, h=0;
 	u64 tsc = 0;
@@ -5983,7 +6004,24 @@ static void get_current_cpu_frequency(bool is_start)
 	produce_p_sample(cpu, tsc, act_freq, 1); // "1" ==> this is a BOUNDARY-MARKER p-sample.
 #endif // DO_DYNAMIC_FREQUENCY_MEASUREMENT
 	OUTPUT(3, KERN_INFO "[%d]: %llu --> %u\n", cpu, tsc, act_freq);
+}
+static void generate_cpu_frequency(void *data)
+{
+    int cpu = CPU();
+    bool is_start = *((bool *)data);
+    generate_cpu_frequency_per_cpu(cpu, is_start);
+}
+static void get_current_cpu_frequency(bool is_start)
+{
+    int cpu = 0;
+#if DO_GENERATE_CURRENT_FREQ_IN_PARALLEL
+    SMP_CALL_FUNCTION(&generate_cpu_frequency, (void *)&is_start, 0, 1);
+    generate_cpu_frequency((void *)&is_start);
+#else
+    for_each_online_cpu(cpu){
+        generate_cpu_frequency_per_cpu(cpu, is_start);
     }
+#endif
     if(!is_start){
 #if DO_DYNAMIC_FREQUENCY_MEASUREMENT
 	/*

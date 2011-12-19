@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Description: script to unload the power driver on Android.
 # Version: 1.0
 
@@ -99,7 +99,7 @@ print_err()
 }
 
 # GU: For Android Honeycomb, make sure we pull in "busybox"
-export PATH=/system/xbin/busybox:$PATH
+export PATH=/system/xbin/busybox:/sbin:$PATH
 
 # set the path to include "standard" locations so commands below can be found
 #PATH="/sbin:/usr/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}":."
@@ -228,7 +228,7 @@ fi
 if [ -e /dev/${DEV_FILE_NAME} ] ; then
   print_nnl "Deleting /dev/${DEV_FILE_NAME} devices ... "
   sleep 1
-  ${RM} -rf /dev/${DEV_FILE_NAME}
+  ${RM} /dev/${DEV_FILE_NAME}
   print_msg "done."
 fi
 
