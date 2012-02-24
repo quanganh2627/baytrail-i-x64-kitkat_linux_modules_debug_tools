@@ -3974,7 +3974,7 @@ int extract_valid_frequencies(const char *buffer, ssize_t len)
 		// ERROR!
 		return -ERROR;
 	    }
-	    strncpy(tmp, str, tmp_len);
+	    strncpy(tmp, str, min(sizeof(tmp), tmp_len));
 	    // fprintf(stderr, "TOKEN = %d\n", atoi(tmp));
 	    freq = simple_strtoul(tmp, NULL, 10);
 	    apwr_available_frequencies[j++] = (u32)freq;
