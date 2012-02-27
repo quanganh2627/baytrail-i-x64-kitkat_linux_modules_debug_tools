@@ -241,7 +241,8 @@ SCRIPT=$0
 PLATFORM=`${UNAME} -m`
 KERNEL_VERSION=`${UNAME} -r`
 PLATFORM=`${UNAME} -m`
-DRIVER_DIRECTORY=`${DIRNAME} ${SCRIPT}`
+#DRIVER_DIRECTORY=`${DIRNAME} ${SCRIPT}`
+DRIVER_DIRECTORY=/lib/modules
 # use existing driver group and device permissions as default if available
 if [ -e /dev/${DEV_FILE_NAME} ] ; then
   drv_group=`${STAT} --format "%G" /dev/${DEV_FILE_NAME}`
