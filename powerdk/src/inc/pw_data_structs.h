@@ -131,7 +131,7 @@ typedef struct{
     int prod_index;
     int read_index;
     int flush_index;
-}list_t;
+} list_t;
 
 
 #define SAMPLE(s,i) ( (s)->samples[(i)] )
@@ -153,7 +153,7 @@ typedef struct{
  * that's OK -- this is internal to the driver
  * and is NOT exported.
  */
-typedef struct{
+typedef struct {
     PWCollector_cmd_t cmd; // indicates which command was specified last e.g. START, STOP etc.
     /*
      * Should we write to our per-cpu output buffers?
@@ -178,10 +178,10 @@ typedef struct{
      * here.
      */
     unsigned int residency_count_multiplier;
-	/*
-	 * Store the bus clock frequency.
-	 */
-	unsigned int bus_clock_freq_khz;
+    /*
+     * Store the bus clock frequency.
+     */
+    unsigned int bus_clock_freq_khz;
     /*
      * Core/Pkg MSR residency addresses
      */
@@ -230,29 +230,21 @@ static internal_state_t INTERNAL_STATE;
 #define IS_D_SC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_SC_STATE_MASK)
 #define IS_D_NC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_NC_STATE_MASK)
 #define IS_WAKELOCK_MODE() (INTERNAL_STATE.collection_switches & POWER_WAKELOCK_MASK)
+/*
+ * Special check to see if we should produce c-state samples.
+ * Required to support S/D-state use of TPS probe (which requires "SLEEP_MASK") without
+ * producing any C-state samples.
+ */
+#define IS_C_STATE_MODE() ( INTERNAL_STATE.collection_switches & POWER_C_STATE_MASK )
 
 
 /*
  * Per-cpu structure holding MSR residency counts,
  * timer-TSC values etc.
  */
-typedef struct per_cpu_struct{
-    pid_t last_pid; // 4 bytes
-    pid_t last_tid; // 4 bytes
-    int last_type; // 4 bytes
-    unsigned int prev_state; // 4 bytes
-    u64 old_alpha; // 8 bytes
-    u64 tsc; // 8 bytes
-    u64 residencies[MAX_MSR_ADDRESSES]; // 80 bytes
-    u64 prev_msr_vals[MAX_MSR_ADDRESSES]; // 80 bytes
-    u64 debug_enters; // 8 bytes
-
-    atomic_t is_first; // 4 bytes
-    u32 was_timer_hrtimer_softirq; // 4 bytes
-
-    u64 last_break[BREAK_TYPE_END]; // 32 bytes
-
-    void *sched_timer_addr; // 4/8 bytes (arch dependent)
+typedef struct per_cpu_struct {
+	u32 was_timer_hrtimer_softirq; // 4 bytes
+	void *sched_timer_addr; // 4/8 bytes (arch dependent)
 }per_cpu_t;
 
 

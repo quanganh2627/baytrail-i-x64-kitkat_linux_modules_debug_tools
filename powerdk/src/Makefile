@@ -92,10 +92,10 @@
 # -------------------- user configurable options ------------------------
 
 # base name of APWR driver
-#DRIVER_NAME = apwr2_0
+#DRIVER_NAME = apwr3_0
 DRIVER_BASE=apwr
-DRIVER_MAJOR=2
-DRIVER_MINOR=2
+DRIVER_MAJOR=3
+DRIVER_MINOR=0
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 
@@ -122,6 +122,7 @@ ifeq ($(strip $(CONFIG_STACKTRACE)),y)
 obj-m := $(DRIVER_NAME).o
 #apwr2_0-objs :=	src/apwr_driver.o
 $(DRIVER_NAME)-objs := src/apwr_driver.o
+#src/pw_output_buffer.o
 endif
 
 .PHONY: kernel_check
@@ -140,5 +141,5 @@ default: kernel_check
 	@echo "************************************************************"
 	make -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
 
-clean:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+clean: kernel_check
+	make -C $(KERNEL_SRC_DIR) M=$(PWD) clean

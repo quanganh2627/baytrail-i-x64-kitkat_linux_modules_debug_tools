@@ -89,6 +89,7 @@
  */
 // #define DEVICE_FILE_NAME "/dev/pw_driver_char_dev"
 #define DEVICE_FILE_NAME "/dev/apwr_driver_char_dev"
+#define DEVICE_NAME "apwr_driver_char_dev"
 
 /*
  * Data structs that the IOCTLs will need.
@@ -107,7 +108,11 @@
  * (similar to the file "read" and "write" calls).
  */
 #define PW_IOCTL_CONFIG _IOW(APWR_IOCTL_MAGIC_NUM, 1, struct PWCollector_ioctl_arg *)
+#if DO_COUNT_DROPPED_SAMPLES
+    #define PW_IOCTL_CMD _IOWR(APWR_IOCTL_MAGIC_NUM, 2, struct PWCollector_ioctl_arg *)
+#else
 #define PW_IOCTL_CMD _IOW(APWR_IOCTL_MAGIC_NUM, 2, struct PWCollector_ioctl_arg *)
+#endif // DO_COUNT_DROPPED_SAMPLES
 #define PW_IOCTL_STATUS _IOR(APWR_IOCTL_MAGIC_NUM, 3, struct PWCollector_ioctl_arg *)
 #define PW_IOCTL_SAMPLE _IOR(APWR_IOCTL_MAGIC_NUM, 4, struct PWCollector_ioctl_arg *)
 #define PW_IOCTL_CHECK_PLATFORM _IOR(APWR_IOCTL_MAGIC_NUM, 5, struct PWCollector_ioctl_arg *)
@@ -126,7 +131,11 @@
  */
 #if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
     #define PW_IOCTL_CONFIG32 _IOW(APWR_IOCTL_MAGIC_NUM, 1, compat_uptr_t)
+#if DO_COUNT_DROPPED_SAMPLES
+        #define PW_IOCTL_CMD32 _IOWR(APWR_IOCTL_MAGIC_NUM, 2, compat_uptr_t)
+#else
     #define PW_IOCTL_CMD32 _IOW(APWR_IOCTL_MAGIC_NUM, 2, compat_uptr_t)
+#endif // DO_COUNT_DROPPED_SAMPLES
     #define PW_IOCTL_STATUS32 _IOR(APWR_IOCTL_MAGIC_NUM, 3, compat_uptr_t)
     #define PW_IOCTL_SAMPLE32 _IOR(APWR_IOCTL_MAGIC_NUM, 4, compat_uptr_t)
     #define PW_IOCTL_CHECK_PLATFORM32 _IOR(APWR_IOCTL_MAGIC_NUM, 5, compat_uptr_t)

@@ -90,29 +90,15 @@ typedef int64_t s64;
 #endif // __KERNEL__
 
 /*
- * Should we do legacy p-state frequency measurement?
- * This involves relying on the 'hint'
- * parameter passed to the TPF probe
- * function to determine frequency the
- * CPU is ABOUT TO EXECUTE AT.
- * *********************************************************
- * WARNING: LEGACY MODE IS DEPRECATED!!!
- * *********************************************************
- *
- * '1' ==> YES, use the 'hint' parameter
- * '0' ==> NO, calculate frequency dynamically.
- */
-#define DO_LEGACY_P_STATE_MEASUREMENT 0
-/*
- * Should we probe on system calls, looking for
- * a process "exec"? Doing so allows us to
- * accurately map (newly forked and execed) PIDs
- * to process names.
+ * Should we probe on syscall enters and exits?
+ * We require this functionality to handle certain
+ * device-driver related timers.
  * ********************************************************
- * WARNING: support for 'EXEC' syscalls is EXPERIMENTAL!!!
+ * WARNING: SETTING TO 1 will INVOLVE HIGH OVERHEAD!!!
  * ********************************************************
  */
-#define DO_PROBE_ON_EXEC_SYSCALL 0
+#define DO_PROBE_ON_SYSCALL_ENTER_EXIT 1
+#define DO_PROBE_ON_EXEC_SYSCALL DO_PROBE_ON_SYSCALL_ENTER_EXIT
 /*
  * Do we use an RCU-based mechanism
  * to determine which output buffers
@@ -140,9 +126,21 @@ typedef int64_t s64;
  * ***********************************
  */
 #define DO_PERIODIC_BUFFER_FLUSH DO_RCU_OUTPUT_BUFFERS
+/*
+ * Do we use a TPS "epoch" counter to try and
+ * order SCHED_WAKEUP samples and TPS samples?
+ * (Required on many-core architectures that don't have
+ * a synchronized TSC).
+ */
+#define DO_TPS_EPOCH_COUNTER 1
+/*
+ * Should the driver count number of dropped samples?
+ */
+#define DO_COUNT_DROPPED_SAMPLES 1
 
 
 #define NUM_SAMPLES_PER_SEG 512
+// #define NUM_SAMPLES_PER_SEG 1024
 #define SEG_SIZE (NUM_SAMPLES_PER_SEG * sizeof(PWCollector_sample_t))
 
 #ifndef PAGE_SIZE
@@ -176,7 +174,7 @@ enum{
 /*
  * Enumeration of possible sample types.
  */
-typedef enum{
+typedef enum {
     FREE_SAMPLE=0, /* Used (internally) to indicate a FREE entry */
     C_STATE, /* Used for c-state samples */
     P_STATE, /* Used for p-state samples */
@@ -188,8 +186,15 @@ typedef enum{
     S_STATE, /* Used for S state samples */
     D_RESIDENCY, /* Used for D residency counter samples */
     D_STATE, /* Used for D state samples in north or south complex */
-    W_STATE /* Used for wakelock samples */
-}sample_type_t;
+    TIMER_SAMPLE,
+    IRQ_SAMPLE,
+    WORKQUEUE_SAMPLE,
+    SCHED_SAMPLE,
+    IPI_SAMPLE,
+    TPE_SAMPLE, /*  Used for 'trace_power_end' samples */
+    W_STATE, /* Used for wakelock samples */
+    SAMPLE_TYPE_END
+} sample_type_t;
 
 /*
  * Enumeration of possible C-state sample
@@ -210,6 +215,7 @@ typedef enum{
     PW_BREAK_TYPE_S, // sched-switch : THIS IS DEPRECATED -- DO NOT USE!
     PW_BREAK_TYPE_IPI, // {LOC, RES, CALL, TLB}
     PW_BREAK_TYPE_W, // workqueue
+    PW_BREAK_TYPE_B, // begin
     PW_BREAK_TYPE_U // unknown
 }c_break_type_t;
 
@@ -218,14 +224,12 @@ typedef enum{
 /*
  * Structure used to encode C-state sample information.
  */
-typedef struct{
-    /*
-     * "break_type" is an instance of 'c_break_type_t'
-     */
-    u32 break_type;
+typedef struct {
+    u16 break_type; // instance of 'c_break_type_t'
+    u16 prev_state; // "HINT" parameter passed to TPS probe
     pid_t pid; // PID of process which caused the C-state break.
     pid_t tid; // TID of process which caused the C-state break.
-    u32 prev_state; // "HINT" parameter passed to TPS probe
+    u32 tps_epoch; // Used to sync with SCHED_SAMPLE events
     /*
      * "c_data" is one of the following:
      * (1) If "c_type" == 'I' ==> "c_data" is the IRQ of the interrupt
@@ -236,7 +240,7 @@ typedef struct{
      */
     u64 c_data;
     u64 c_state_res_counts[MAX_MSR_ADDRESSES];
-}c_sample_t;
+} c_sample_t;
 
 #define RES_COUNT(s,i) ( (s).c_state_res_counts[(i)] )
 
@@ -249,42 +253,33 @@ typedef struct{
  * for an explanation on why the 'frequency' field values are
  * unreliable in TURBO mode.
  */
-typedef struct{
-#if DO_LEGACY_P_STATE_MEASUREMENT
-	u32 frequency;
-	u32 padding_64b_freq;
-#else // DO_LEGACY_P_STATE_MEASUREMENT
-	/*
-	 * Field to encode the frequency
-	 * the CPU was ACTUALLY executing
-	 * at DURING THE PREVIOUS
-	 * P-QUANTUM.
-	 */
-        u32 frequency;
-	/*
-	 * Field to encode the frequency
-	 * the OS requested DURING THE
-	 * PREVIOUS P-QUANTUM.
-	 */
-	u32 prev_req_frequency;
-#endif // DO_LEGACY_P_STATE_MEASUREMENT
-	/*
-	 * We encode the frequency at the start
-	 * and end of a collection in 'boundary'
-	 * messages. This flag is set for such
-	 * messages.
-	 */
-	// u8 is_boundary_sample;
-        /*
-         * We change 'u8' to 'u16' to avoid problems
-         * when deserializing (in cases where the last
-         * sample is a 'p-state' sample, stringstream has
-         * a problem deserializing. Specifically, it
-         * thinks more data is available because of the
-         * way 1 byte fields are interpreted).
-         */
-	u32 is_boundary_sample;
-}p_sample_t;
+typedef struct {
+    /*
+     * Field to encode the frequency
+     * the CPU was ACTUALLY executing
+     * at DURING THE PREVIOUS
+     * P-QUANTUM.
+     */
+    u32 frequency;
+    /*
+     * Field to encode the frequency
+     * the OS requested DURING THE
+     * PREVIOUS P-QUANTUM.
+     */
+    u32 prev_req_frequency;
+    /*
+     * We encode the frequency at the start
+     * and end of a collection in 'boundary'
+     * messages. This flag is set for such
+     * messages.
+     */
+    u32 is_boundary_sample;
+    u32 padding;
+    /*
+     * The APERF and MPERF values.
+     */
+    u64 unhalted_core_value, unhalted_ref_value;
+} p_sample_t;
 
 /*
  * The MAX number of entries in the "trace" array of the "k_sample_t" structure.
@@ -300,18 +295,18 @@ typedef struct{
 /*
  * Structure used to encode kernel-space call trace information.
  */
-typedef struct{
+typedef struct {
     /*
      * "trace_len" indicates the number of entries in the "trace" array.
      * Note that the actual backtrace may be larger -- in which case the "sample_len"
      * field of the enclosing "struct PWCollector_sample" will be greater than 1.
      */
     u32 trace_len;
-	/*
-	 * We want the 'PWCollector_sample_t' struct
-	 * to be 128 bytes
-	 */
-	u32 padding;
+    /*
+     * We can have root timers with non-zero tids.
+     * Account for that possibility here.
+     */
+    pid_t tid;
     /*
      * The entry and exit TSC values for this kernel call stack.
      * MUST be equal to "[PWCollector_sample.tsc - 1, PWCollector_sample.tsc + 1]" respectively!
@@ -325,10 +320,8 @@ typedef struct{
      * the current function has a return address of 0x10, its calling function
      * has a return address of 0x20 etc.
      */
-    // unsigned long trace[TRACE_LEN];
-	// uintptr_t trace[TRACE_LEN];
-	u64 trace[TRACE_LEN];
-}k_sample_t;
+    u64 trace[TRACE_LEN];
+} k_sample_t;
 
 /*
  * Max size of a module name. Ideally we'd
@@ -400,7 +393,7 @@ typedef struct{
 /*
  * MAX number of logical subsystems in south complex.
  */
-#define MAX_LSS_NUM_IN_SC 39
+#define MAX_LSS_NUM_IN_SC 40
 
 /*
  * MAX number of logical subsystems in north complex.
@@ -410,20 +403,18 @@ typedef struct{
 /*
  * MAX size of each wakelock name.
  */
-#define PW_MAX_WAKELOCK_NAME_SIZE 96
+#define PW_MAX_WAKELOCK_NAME_SIZE 84
 
 
 /*
  * The 'type' of the associated
  * 'r_sample'.
  */
-typedef enum{
+typedef enum {
     PW_PROC_FORK, /* Sample encodes a process FORK */
-#if DO_PROBE_ON_EXEC_SYSCALL
-    PW_PROC_EXEC, /* Sample encodes an EXECVE system call */
-#endif
-    PW_PROC_EXIT /* Sample encodes a process EXIT */
-}r_sample_type_t;
+    PW_PROC_EXIT, /* Sample encodes a process EXIT */
+    PW_PROC_EXEC /* Sample encodes an EXECVE system call */
+} r_sample_type_t;
 
 typedef struct{
     u32 type;
@@ -457,8 +448,8 @@ typedef enum{
 
 
 typedef struct{
-    u32 usec;     // D0 residency = usec - D0i0_CG - D0i1 - D0i3
-    u32 D0i0_CG;  // clock gates
+    u32 usec;     // D0 residency = usec - D0i0_ACG - D0i1 - D0i3
+    u32 D0i0_ACG;
     u32 D0i1;
     u32 D0i3;
 }d_residency_t;
@@ -499,8 +490,15 @@ typedef struct{
     w_sample_type_t type;   // Either WAKE_LOCK or WAKE_UNLOCK
     pid_t tid, pid;
     char name[PW_MAX_WAKELOCK_NAME_SIZE]; // Wakelock name
+    char proc_name[PW_MAX_PROC_NAME_SIZE]; // process name
 }w_sample_t;
 
+/*
+ * Generic "event" sample.
+ */
+typedef struct {
+    u64 data[4];
+} event_sample_t;
 
 /*
  * The C/P/K/S sample structure.
@@ -518,7 +516,7 @@ typedef struct PWCollector_sample{
      */
     u16 sample_len;
     u64 tsc; // The TSC at which the measurement was taken
-    union{
+    union {
 	c_sample_t c_sample;
 	p_sample_t p_sample;
 	k_sample_t k_sample;
@@ -530,6 +528,7 @@ typedef struct PWCollector_sample{
 	d_state_sample_t d_state_sample;
 	d_residency_sample_t d_residency_sample;
 	w_sample_t w_sample;
+	event_sample_t e_sample;
     };
 }PWCollector_sample_t;
 
@@ -551,7 +550,7 @@ typedef enum{
  * Note: different from interface spec:
  * We're moving from bitwise OR to bitwise OR of (1 << switch) values.
  */
-typedef enum{
+typedef enum {
     // SLEEP=1,
     SLEEP=0,
     KTIMER,
@@ -564,8 +563,9 @@ typedef enum{
     DEVICE_NC_STATE,
     DEVICE_SC_STATE,
     WAKELOCK_STATE,
-    TOTAL
-}power_data_t;
+    POWER_C_STATE,
+    MAX_POWER_DATA_MASK
+} power_data_t;
 
 #define POWER_SLEEP_MASK (1 << SLEEP)
 #define POWER_KTIMER_MASK (1 << KTIMER)
@@ -578,6 +578,7 @@ typedef enum{
 #define POWER_D_SC_STATE_MASK (1 << DEVICE_SC_STATE)
 #define POWER_D_NC_STATE_MASK (1 << DEVICE_NC_STATE)
 #define POWER_WAKELOCK_MASK (1 << WAKELOCK_STATE)
+#define POWER_C_STATE_MASK ( 1 << POWER_C_STATE )
 
 /*
  * Platform-specific config struct.
@@ -595,18 +596,33 @@ typedef struct{
  * stuff and power switches.
  */
 struct PWCollector_config{
-	int data;
-	u32 d_state_sample_interval;  // This is the knob to control the frequency of D-state data sampling
-                                      // to adjust their collection overhead in the unit of msec.
-	platform_info_t info;
+    int data;
+    u32 d_state_sample_interval;  // This is the knob to control the frequency of D-state data sampling
+    // to adjust their collection overhead in the unit of msec.
+    platform_info_t info;
 };
 
 /*
- * Structure to encode unsupported tracepoints.
+ * Some constants used to describe kernel features
+ * available to the power driver.
  */
-struct PWCollector_check_platform{
+#define PW_KERNEL_SUPPORTS_CALL_STACKS (1 << 0)
+#define PW_KERNEL_SUPPORTS_CONFIG_TIMER_STATS (1 << 1)
+#define PW_KERNEL_SUPPORTS_WAKELOCK_PATCH (1 << 2)
+
+/*
+ * Structure to encode unsupported tracepoints and
+ * kernel features that enable power collection.
+ */
+struct PWCollector_check_platform {
     char unsupported_tracepoints[4096];
-    u64 reserved[4];
+    /*
+     * Bitwise 'OR' of zero or more of the
+     * 'PW_KERNEL_SUPPORTS_' constants described
+     * above.
+     */
+    u64 supported_features;
+    u64 reserved[3];
 };
 
 /*
