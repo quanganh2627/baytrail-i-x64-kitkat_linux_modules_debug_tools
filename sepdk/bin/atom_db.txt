@@ -1,0 +1,278 @@
+HELP_ID	CODE	UMASK	OTHER	COMMON	WEIGHT	COUNTER	NAME	DESCRIPTION	HELP_FILE	OVERFLOW	SAV_LOWER_LIMIT	DEFAULT	CALIBRATION	PRECISE_EVENT	EM TRIGGER
+0x10001	0x2	0x83	0x53	0x9	0	"0,1"	STORE_FORWARDS.ANY	All store forwards	pmb.chm	200000	0	0	0	0	0
+0x10001	0x2	0x81	0x53	0x9	0	"0,1"	STORE_FORWARDS.GOOD	Good store forwards	pmb.chm	200000	0	0	0	0	0
+0x10002	0x3	0x7F	0x53	0x5	0	"0,1"	REISSUE.ANY	Micro-op reissues for any cause	pmb.chm	200000	0	0	0	0	0
+0x10002	0x3	0xFF	0x53	0x5	0	"0,1"	REISSUE.ANY.AR	Micro-op reissues for any cause (At Retirement)	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0xF	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.SPLIT	Memory references that cross an 8-byte boundary.	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x9	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.LD_SPLIT	Load splits	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0xA	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.ST_SPLIT	Store splits	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x8F	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.SPLIT.AR	Memory references that cross an 8-byte boundary (At Retirement)	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x89	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.LD_SPLIT.AR	Load splits (At Retirement)	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x8A	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.ST_SPLIT.AR	Store splits (Ar Retirement)	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x8C	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.RMW_SPLIT	ld-op-st splits	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x97	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.BUBBLE	Nonzero segbase 1 bubble	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x91	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.LD_BUBBLE	Nonzero segbase load 1 bubble	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x92	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.ST_BUBBLE	Nonzero segbase store 1 bubble	pmb.chm	200000	0	0	0	0	0
+0x10003	0x5	0x94	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.RMW_BUBBLE	Nonzero segbase ld-op-st 1 bubble	pmb.chm	200000	0	0	0	0	0
+0x10004	0x6	0x80	0x53	0x3	0	"0,1"	SEGMENT_REG_LOADS.ANY	Number of segment register loads.	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x81	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT0	Streaming SIMD Extensions (SSE) PrefetchT0 instructions executed.	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x82	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT1	Streaming SIMD Extensions (SSE) PrefetchT1 instructions executed.	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x84	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT2	Streaming SIMD Extensions (SSE) PrefetchT2 instructions executed.	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x86	0x53	0x801	0	"0,1"	PREFETCH.SW_L2	Streaming SIMD Extensions (SSE) PrefetchT1 and PrefetchT2 instructions executed	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x88	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHNTA	Streaming SIMD Extensions (SSE) Prefetch NTA instructions executed	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x10	0x53	0x801	0	"0,1"	PREFETCH.HW_PREFETCH	L1 hardware prefetch request	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0xF	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH	Any Software prefetch	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x8F	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH.AR	Any Software prefetch	pmb.chm	2000000	0	0	0	0	0
+0x10006	0x8	0x7	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.DTLB_MISS	Memory accesses that missed the DTLB.	pmb.chm	200000	0	0	0	0	0
+0x10006	0x8	0x5	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.DTLB_MISS_LD	DTLB misses due to load operations.	pmb.chm	200000	0	0	0	0	0
+0x10006	0x8	0x9	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.L0_DTLB_MISS_LD	L0 DTLB misses due to load operations.	pmb.chm	200000	0	0	0	0	0
+0x10006	0x8	0x6	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.DTLB_MISS_ST	DTLB misses due to store operations.	pmb.chm	200000	0	0	0	0	0
+0x10006	0x8	0xA	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.L0_DTLB_MISS_ST	L0 DTLB misses due to store operations	pmb.chm	200000	0	0	0	0	0
+0x10007	0x9	0x20	0x53	0x5	0	"0,1"	DISPATCH_BLOCKED.ANY	Memory cluster signals to block micro-op dispatch for any reason	pmb.chm	200000	0	0	0	0	0
+0x10008	0xC	0x3	0x57	0x101	0	"0,1"	PAGE_WALKS.WALKS	Number of page-walks executed.	pmb.chm	200000	0	0	0	0	0
+0x10008	0xC	0x3	0x53	0x101	0	"0,1"	PAGE_WALKS.CYCLES	Duration of page-walks in core cycles	pmb.chm	2000000	0	0	0	0	0
+0x10008	0xC	0x1	0x57	0x101	0	"0,1"	PAGE_WALKS.D_SIDE_WALKS	Number of D-side only page walks	pmb.chm	200000	0	0	0	0	0
+0x10008	0xC	0x1	0x53	0x101	0	"0,1"	PAGE_WALKS.D_SIDE_CYCLES	Duration of D-side only page walks	pmb.chm	2000000	0	0	0	0	0
+0x10008	0xC	0x2	0x57	0x101	0	"0,1"	PAGE_WALKS.I_SIDE_WALKS	Number of I-Side page walks	pmb.chm	200000	0	0	0	0	0
+0x10008	0xC	0x2	0x53	0x101	0	"0,1"	PAGE_WALKS.I_SIDE_CYCLES	Duration of I-Side page walks	pmb.chm	2000000	0	0	0	0	0
+0x10009	0x10	0x1	0x53	0x9	0	"0,1"	X87_COMP_OPS_EXE.ANY.S	Floating point computational micro-ops executed.	pmb.chm	2000000	0	0	0	0	0
+0x10009	0x10	0x81	0x53	0x9	0	"0,1"	X87_COMP_OPS_EXE.ANY.AR	Floating point computational micro-ops retired.	pmb.chm	2000000	0	0	0	1	0
+0x10009	0x10	0x2	0x53	0x9	0	"0,1"	X87_COMP_OPS_EXE.FXCH.S	FXCH uops executed.	pmb.chm	2000000	0	0	0	0	0
+0x10009	0x10	0x82	0x53	0x9	0	"0,1"	X87_COMP_OPS_EXE.FXCH.AR	FXCH uops retired.	pmb.chm	2000000	0	0	0	1	0
+0x1000A	0x11	0x1	0x53	0x9	0	"0,1"	FP_ASSIST.S	Floating point assists.	pmb.chm	10000	0	0	0	0	0
+0x1000A	0x11	0x81	0x53	0x9	0	"0,1"	FP_ASSIST.AR	Floating point assists for retired operations.	pmb.chm	10000	0	0	0	0	0
+0x1000B	0x12	0x1	0x53	0x9	0	"0,1"	MUL.S	Multiply operations executed.	pmb.chm	2000000	0	0	0	0	0
+0x1000B	0x12	0x81	0x53	0x9	0	"0,1"	MUL.AR	Multiply operations retired	pmb.chm	2000000	0	0	0	0	0
+0x1000C	0x13	0x1	0x53	0x9	0	"0,1"	DIV.S	Divide operations executed.	pmb.chm	2000000	0	0	0	0	0
+0x1000C	0x13	0x81	0x53	0x9	0	"0,1"	DIV.AR	Divide operations retired	pmb.chm	2000000	0	0	0	0	0
+0x1000D	0x14	0x1	0x53	0x9	0	"0,1"	CYCLES_DIV_BUSY	Cycles the divider is busy.	pmb.chm	2000000	0	0	0	0	0
+0x1000E	0x21	0x40	0x53	0x81	0	"0,1"	L2_ADS.SELF	Cycles L2 address bus is in use.	pmb.chm	200000	0	0	0	0	0
+0x1000F	0x22	0x40	0x53	0x81	0	"0,1"	L2_DBUS_BUSY.SELF	Cycles the L2 cache data bus is busy.	pmb.chm	200000	0	0	0	0	0
+0x10010	0x23	0x40	0x53	0x81	0	"0,1"	L2_DBUS_BUSY_RD.SELF	Cycles the L2 transfers data to the core.	pmb.chm	200000	0	0	0	0	0
+0x10011	0x24	0x70	0x53	0x81	0	"0,1"	L2_LINES_IN.SELF.ANY	L2 cache misses.	pmb.chm	200000	0	0	0	0	0
+0x10011	0x24	0x40	0x53	0x81	0	"0,1"	L2_LINES_IN.SELF.DEMAND	L2 cache misses.	pmb.chm	200000	0	0	0	0	0
+0x10011	0x24	0x50	0x53	0x81	0	"0,1"	L2_LINES_IN.SELF.PREFETCH	L2 cache misses.	pmb.chm	200000	0	0	0	0	0
+0x10012	0x25	0x40	0x53	0x81	0	"0,1"	L2_M_LINES_IN.SELF	L2 cache line modifications.	pmb.chm	200000	0	0	0	0	0
+0x10013	0x26	0x70	0x53	0x81	0	"0,1"	L2_LINES_OUT.SELF.ANY	L2 cache lines evicted. 	pmb.chm	200000	0	0	0	0	0
+0x10013	0x26	0x40	0x53	0x81	0	"0,1"	L2_LINES_OUT.SELF.DEMAND	L2 cache lines evicted. 	pmb.chm	200000	0	0	0	0	0
+0x10013	0x26	0x50	0x53	0x81	0	"0,1"	L2_LINES_OUT.SELF.PREFETCH	L2 cache lines evicted. 	pmb.chm	200000	0	0	0	0	0
+0x10014	0x27	0x70	0x53	0x81	0	"0,1"	L2_M_LINES_OUT.SELF.ANY	Modified lines evicted from the L2 cache	pmb.chm	200000	0	0	0	0	0
+0x10014	0x27	0x40	0x53	0x81	0	"0,1"	L2_M_LINES_OUT.SELF.DEMAND	Modified lines evicted from the L2 cache	pmb.chm	200000	0	0	0	0	0
+0x10014	0x27	0x50	0x53	0x81	0	"0,1"	L2_M_LINES_OUT.SELF.PREFETCH	Modified lines evicted from the L2 cache	pmb.chm	200000	0	0	0	0	0
+0x10015	0x28	0x44	0x53	0x81	0	"0,1"	L2_IFETCH.SELF.E_STATE	L2 cacheable instruction fetch requests	pmb.chm	200000	0	0	0	0	0
+0x10015	0x28	0x41	0x53	0x81	0	"0,1"	L2_IFETCH.SELF.I_STATE	L2 cacheable instruction fetch requests	pmb.chm	200000	0	0	0	0	0
+0x10015	0x28	0x48	0x53	0x81	0	"0,1"	L2_IFETCH.SELF.M_STATE	L2 cacheable instruction fetch requests	pmb.chm	200000	0	0	0	0	0
+0x10015	0x28	0x42	0x53	0x81	0	"0,1"	L2_IFETCH.SELF.S_STATE	L2 cacheable instruction fetch requests	pmb.chm	200000	0	0	0	0	0
+0x10015	0x28	0x4F	0x53	0x81	0	"0,1"	L2_IFETCH.SELF.MESI	L2 cacheable instruction fetch requests	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x74	0x53	0x81	0	"0,1"	L2_LD.SELF.ANY.E_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x71	0x53	0x81	0	"0,1"	L2_LD.SELF.ANY.I_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x78	0x53	0x81	0	"0,1"	L2_LD.SELF.ANY.M_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x72	0x53	0x81	0	"0,1"	L2_LD.SELF.ANY.S_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x7F	0x53	0x81	0	"0,1"	L2_LD.SELF.ANY.MESI	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x44	0x53	0x81	0	"0,1"	L2_LD.SELF.DEMAND.E_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x41	0x53	0x81	0	"0,1"	L2_LD.SELF.DEMAND.I_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x48	0x53	0x81	0	"0,1"	L2_LD.SELF.DEMAND.M_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x42	0x53	0x81	0	"0,1"	L2_LD.SELF.DEMAND.S_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x4F	0x53	0x81	0	"0,1"	L2_LD.SELF.DEMAND.MESI	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x54	0x53	0x81	0	"0,1"	L2_LD.SELF.PREFETCH.E_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x51	0x53	0x81	0	"0,1"	L2_LD.SELF.PREFETCH.I_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x58	0x53	0x81	0	"0,1"	L2_LD.SELF.PREFETCH.M_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x52	0x53	0x81	0	"0,1"	L2_LD.SELF.PREFETCH.S_STATE	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10016	0x29	0x5F	0x53	0x81	0	"0,1"	L2_LD.SELF.PREFETCH.MESI	L2 cache reads	pmb.chm	200000	0	0	0	0	0
+0x10017	0x2A	0x44	0x53	0x81	0	"0,1"	L2_ST.SELF.E_STATE	L2 store requests	pmb.chm	200000	0	0	0	0	0
+0x10017	0x2A	0x41	0x53	0x81	0	"0,1"	L2_ST.SELF.I_STATE	L2 store requests	pmb.chm	200000	0	0	0	0	0
+0x10017	0x2A	0x48	0x53	0x81	0	"0,1"	L2_ST.SELF.M_STATE	L2 store requests	pmb.chm	200000	0	0	0	0	0
+0x10017	0x2A	0x42	0x53	0x81	0	"0,1"	L2_ST.SELF.S_STATE	L2 store requests	pmb.chm	200000	0	0	0	0	0
+0x10017	0x2A	0x4F	0x53	0x81	0	"0,1"	L2_ST.SELF.MESI	L2 store requests	pmb.chm	200000	0	0	0	0	0
+0x10018	0x2B	0x44	0x53	0x81	0	"0,1"	L2_LOCK.SELF.E_STATE	L2 locked accesses	pmb.chm	200000	0	0	0	0	0
+0x10018	0x2B	0x41	0x53	0x81	0	"0,1"	L2_LOCK.SELF.I_STATE	L2 locked accesses	pmb.chm	200000	0	0	0	0	0
+0x10018	0x2B	0x48	0x53	0x81	0	"0,1"	L2_LOCK.SELF.M_STATE	L2 locked accesses	pmb.chm	200000	0	0	0	0	0
+0x10018	0x2B	0x42	0x53	0x81	0	"0,1"	L2_LOCK.SELF.S_STATE	L2 locked accesses	pmb.chm	200000	0	0	0	0	0
+0x10018	0x2B	0x4F	0x53	0x81	0	"0,1"	L2_LOCK.SELF.MESI	L2 locked accesses	pmb.chm	200000	0	0	0	0	0
+0x10019	0x2C	0x44	0x53	0x81	0	"0,1"	L2_DATA_RQSTS.SELF.E_STATE	All data requests from the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x10019	0x2C	0x41	0x53	0x81	0	"0,1"	L2_DATA_RQSTS.SELF.I_STATE	All data requests from the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x10019	0x2C	0x48	0x53	0x81	0	"0,1"	L2_DATA_RQSTS.SELF.M_STATE	All data requests from the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x10019	0x2C	0x42	0x53	0x81	0	"0,1"	L2_DATA_RQSTS.SELF.S_STATE	All data requests from the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x10019	0x2C	0x4F	0x53	0x81	0	"0,1"	L2_DATA_RQSTS.SELF.MESI	All data requests from the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x1001A	0x2D	0x44	0x53	0x81	0	"0,1"	L2_LD_IFETCH.SELF.E_STATE	All read requests from L1 instruction and data caches	pmb.chm	200000	0	0	0	0	0
+0x1001A	0x2D	0x41	0x53	0x81	0	"0,1"	L2_LD_IFETCH.SELF.I_STATE	All read requests from L1 instruction and data caches	pmb.chm	200000	0	0	0	0	0
+0x1001A	0x2D	0x48	0x53	0x81	0	"0,1"	L2_LD_IFETCH.SELF.M_STATE	All read requests from L1 instruction and data caches	pmb.chm	200000	0	0	0	0	0
+0x1001A	0x2D	0x42	0x53	0x81	0	"0,1"	L2_LD_IFETCH.SELF.S_STATE	All read requests from L1 instruction and data caches	pmb.chm	200000	0	0	0	0	0
+0x1001A	0x2D	0x4F	0x53	0x81	0	"0,1"	L2_LD_IFETCH.SELF.MESI	All read requests from L1 instruction and data caches	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x74	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.ANY.E_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x71	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.ANY.I_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x78	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.ANY.M_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x72	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.ANY.S_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x7F	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.ANY.MESI	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x44	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.E_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x41	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.I_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x48	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.M_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x42	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.S_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x4F	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.MESI	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x54	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.PREFETCH.E_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x51	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.PREFETCH.I_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x58	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.PREFETCH.M_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x52	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.PREFETCH.S_STATE	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x5F	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.PREFETCH.MESI	L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x41	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.I_STATE	L2 cache demand requests from this core that missed the L2	pmb.chm	200000	0	0	0	0	0
+0x1001B	0x2E	0x4F	0x53	0x81	0	"0,1"	L2_RQSTS.SELF.DEMAND.MESI	L2 cache demand requests from this core	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x74	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.ANY.E_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x71	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.ANY.I_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x78	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.ANY.M_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x72	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.ANY.S_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x7F	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.ANY.MESI	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x44	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.DEMAND.E_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x41	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.DEMAND.I_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x48	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.DEMAND.M_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x42	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.DEMAND.S_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x4F	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.DEMAND.MESI	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x54	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.PREFETCH.E_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x51	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.PREFETCH.I_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x58	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.PREFETCH.M_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x52	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.PREFETCH.S_STATE	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001C	0x30	0x5F	0x53	0x81	0	"0,1"	L2_REJECT_BUSQ.SELF.PREFETCH.MESI	Rejected L2 cache requests	pmb.chm	200000	0	0	0	0	0
+0x1001D	0x32	0x40	0x53	0x81	0	"0,1"	L2_NO_REQ.SELF	Cycles no L2 cache requests are pending	pmb.chm	200000	0	0	0	0	0
+0x1001E	0x3A	0x0	0x53	0x2001	0	"0,1"	EIST_TRANS	Number of Enhanced Intel SpeedStep(R) Technology (EIST) transitions	pmb.chm	200000	0	0	0	0	0
+0x1001F	0x3B	0xC0	0x53	0x2001	0	"0,1"	THERMAL_TRIP	Number of thermal trips	pmb.chm	200000	0	0	0	0	0
+0x10020	0x3C	0x0	0x53	0x1001	0	"0,1"	CPU_CLK_UNHALTED.CORE_P	Core cycles when core is not halted	pmb.chm	2000000	5	0	0	0	0
+0x10020	0x3C	0x1	0x53	0x1001	0	"0,1"	CPU_CLK_UNHALTED.BUS	Bus cycles when core is not halted	pmb.chm	200000	5	0	0	0	0
+0x10021	0xA	0x0	0x53	0x1001	0	33	CPU_CLK_UNHALTED.CORE	Core cycles when core is not halted	pmb.chm	2000000	5	1	0	0	2
+0x10021	0xA	0x0	0x53	0x1001	0	34	CPU_CLK_UNHALTED.REF	Reference cycles when core is not halted.	pmb.chm	2000000	5	0	0	0	1
+0x10022	0x40	0xA1	0x53	0x21	0	"0,1"	L1D_CACHE.LD	L1 Cacheable Data Reads	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0xA2	0x53	0x21	0	"0,1"	L1D_CACHE.ST	L1 Cacheable Data Writes	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0x83	0x53	0x21	0	"0,1"	L1D_CACHE.ALL_REF	L1 Data reads and writes	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0xA3	0x53	0x21	0	"0,1"	L1D_CACHE.ALL_CACHE_REF	L1 Data Cacheable reads and writes	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0x8	0x53	0x21	0	"0,1"	L1D_CACHE.REPL	L1 Data line replacements	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0x48	0x53	0x21	0	"0,1"	L1D_CACHE.REPLM	Modified cache lines allocated in the L1 data cache	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0x10	0x53	0x21	0	"0,1"	L1D_CACHE.EVICT	Modified cache lines evicted from the L1 data cache	pmb.chm	2000000	0	0	0	0	0
+0x10023	0x60	0xE0	0x53	0x201	0	"0,1"	BUS_REQUEST_OUTSTANDING.ALL_AGENTS	Outstanding cacheable data read bus requests duration.	pmb.chm	200000	0	0	0	0	0
+0x10023	0x60	0x40	0x53	0x201	0	"0,1"	BUS_REQUEST_OUTSTANDING.SELF	Outstanding cacheable data read bus requests duration.	pmb.chm	200000	0	0	0	0	0
+0x10024	0x61	0x20	0x53	0x201	0	"0,1"	BUS_BNR_DRV.ALL_AGENTS	Number of Bus Not Ready signals asserted.	pmb.chm	200000	0	0	0	0	0
+0x10024	0x61	0x0	0x53	0x201	0	"0,1"	BUS_BNR_DRV.THIS_AGENT	Number of Bus Not Ready signals asserted.	pmb.chm	200000	0	0	0	0	0
+0x10025	0x62	0x20	0x53	0x201	0	"0,1"	BUS_DRDY_CLOCKS.ALL_AGENTS	Bus cycles when data is sent on the bus.	pmb.chm	200000	0	0	0	0	0
+0x10025	0x62	0x0	0x53	0x201	0	"0,1"	BUS_DRDY_CLOCKS.THIS_AGENT	Bus cycles when data is sent on the bus.	pmb.chm	200000	0	0	0	0	0
+0x10026	0x63	0xE0	0x53	0x201	0	"0,1"	BUS_LOCK_CLOCKS.ALL_AGENTS	Bus cycles when a LOCK signal is asserted.	pmb.chm	200000	0	0	0	0	0
+0x10026	0x63	0x40	0x53	0x201	0	"0,1"	BUS_LOCK_CLOCKS.SELF	Bus cycles when a LOCK signal is asserted.	pmb.chm	200000	0	0	0	0	0
+0x10027	0x64	0x40	0x53	0x201	0	"0,1"	BUS_DATA_RCV.SELF	Bus cycles while processor receives data.	pmb.chm	200000	0	0	0	0	0
+0x10028	0x65	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_BRD.ALL_AGENTS	Burst read bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10028	0x65	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_BRD.SELF	Burst read bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10029	0x66	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_RFO.ALL_AGENTS	RFO bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10029	0x66	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_RFO.SELF	RFO bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002A	0x67	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_WB.ALL_AGENTS	Explicit writeback bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002A	0x67	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_WB.SELF	Explicit writeback bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002B	0x68	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_IFETCH.ALL_AGENTS	Instruction-fetch bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002B	0x68	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_IFETCH.SELF	Instruction-fetch bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002C	0x69	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_INVAL.ALL_AGENTS	Invalidate bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002C	0x69	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_INVAL.SELF	Invalidate bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002D	0x6A	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_PWR.ALL_AGENTS	Partial write bus transaction.	pmb.chm	200000	0	0	0	0	0
+0x1002D	0x6A	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_PWR.SELF	Partial write bus transaction.	pmb.chm	200000	0	0	0	0	0
+0x1002E	0x6B	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_P.ALL_AGENTS	Partial bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002E	0x6B	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_P.SELF	Partial bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002F	0x6C	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_IO.ALL_AGENTS	IO bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x1002F	0x6C	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_IO.SELF	IO bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10030	0x6D	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_DEF.ALL_AGENTS	Deferred bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10030	0x6D	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_DEF.SELF	Deferred bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10031	0x6E	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_BURST.ALL_AGENTS	Burst (full cache-line) bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10031	0x6E	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_BURST.SELF	Burst (full cache-line) bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10032	0x6F	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_MEM.ALL_AGENTS	Memory bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10032	0x6F	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_MEM.SELF	Memory bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10033	0x70	0xE0	0x53	0x201	0	"0,1"	BUS_TRANS_ANY.ALL_AGENTS	All bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10033	0x70	0x40	0x53	0x201	0	"0,1"	BUS_TRANS_ANY.SELF	All bus transactions.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0xB	0x53	0x401	0	"0,1"	EXT_SNOOP.THIS_AGENT.ANY	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x1	0x53	0x401	0	"0,1"	EXT_SNOOP.THIS_AGENT.CLEAN	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x2	0x53	0x401	0	"0,1"	EXT_SNOOP.THIS_AGENT.HIT	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x8	0x53	0x401	0	"0,1"	EXT_SNOOP.THIS_AGENT.HITM	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x2B	0x53	0x401	0	"0,1"	EXT_SNOOP.ALL_AGENTS.ANY	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x21	0x53	0x401	0	"0,1"	EXT_SNOOP.ALL_AGENTS.CLEAN	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x22	0x53	0x401	0	"0,1"	EXT_SNOOP.ALL_AGENTS.HIT	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10034	0x77	0x28	0x53	0x401	0	"0,1"	EXT_SNOOP.ALL_AGENTS.HITM	External snoops.	pmb.chm	200000	0	0	0	0	0
+0x10035	0x7A	0x20	0x53	0x401	0	"0,1"	BUS_HIT_DRV.ALL_AGENTS	HIT signal asserted.	pmb.chm	200000	0	0	0	0	0
+0x10035	0x7A	0x0	0x53	0x401	0	"0,1"	BUS_HIT_DRV.THIS_AGENT	HIT signal asserted.	pmb.chm	200000	0	0	0	0	0
+0x10036	0x7B	0x20	0x53	0x401	0	"0,1"	BUS_HITM_DRV.ALL_AGENTS	HITM signal asserted.	pmb.chm	200000	0	0	0	0	0
+0x10036	0x7B	0x0	0x53	0x401	0	"0,1"	BUS_HITM_DRV.THIS_AGENT	HITM signal asserted.	pmb.chm	200000	0	0	0	0	0
+0x10037	0x7D	0x40	0x53	0x201	0	"0,1"	BUSQ_EMPTY.SELF	Bus queue is empty.	pmb.chm	200000	0	0	0	0	0
+0x10038	0x7E	0xE0	0x53	0x401	0	"0,1"	SNOOP_STALL_DRV.ALL_AGENTS	Bus stalled for snoops.	pmb.chm	200000	0	0	0	0	0
+0x10038	0x7E	0x40	0x53	0x401	0	"0,1"	SNOOP_STALL_DRV.SELF	Bus stalled for snoops.	pmb.chm	200000	0	0	0	0	0
+0x10039	0x7F	0x40	0x53	0x201	0	"0,1"	BUS_IO_WAIT.SELF	IO requests waiting in the bus queue.	pmb.chm	200000	0	0	0	0	0
+0x1003A	0x80	0x3	0x53	0x41	0	"0,1"	ICACHE.ACCESSES	Instruction fetches.	pmb.chm	200000	0	0	0	0	0
+0x1003A	0x80	0x1	0x53	0x41	0	"0,1"	ICACHE.HIT	Icache hit	pmb.chm	200000	0	0	0	0	0
+0x1003A	0x80	0x2	0x53	0x41	0	"0,1"	ICACHE.MISSES	Icache miss	pmb.chm	200000	0	0	0	0	0
+0x1003B	0x82	0x1	0x53	0x41	0	"0,1"	ITLB.HIT	ITLB hits.	pmb.chm	200000	0	0	0	0	0
+0x1003B	0x82	0x4	0x53	0x41	0	"0,1"	ITLB.FLUSH	ITLB flushes.	pmb.chm	200000	0	0	0	0	0
+0x1003B	0x82	0x2	0x53	0x51	0	"0,1"	ITLB.MISSES	ITLB misses.	pmb.chm	200000	0	0	0	1	0
+0x1003C	0x86	0x1	0x53	0x41	0	"0,1"	CYCLES_ICACHE_MEM_STALLED.ICACHE_MEM_STALLED	Cycles during which instruction fetches are  stalled.	pmb.chm	2000000	0	0	0	0	0
+0x1003D	0x87	0x1	0x53	0x3	0	"0,1"	DECODE_STALL.PFB_EMPTY	Decode stall due to PFB empty	pmb.chm	2000000	0	0	0	0	0
+0x1003D	0x87	0x2	0x53	0x3	0	"0,1"	DECODE_STALL.IQ_FULL	Decode stall due to IQ full 	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x1	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.COND	All macro conditional branch instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x2	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.UNCOND	"All macro unconditional branch instructions, excluding calls and indirects"	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x4	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.IND	All indirect branches that are not calls. 	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x8	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.RET	All indirect branches that have a return mnemonic	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x10	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.DIR_CALL	All non-indirect calls	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x20	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.IND_CALL	"All indirect calls, including both register and memory indirect."	pmb.chm	2000000	0	0	0	0	0
+0x1003E	0x88	0x41	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.COND_TAKEN	Only taken macro conditional branch instructions	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x1	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND	Mispredicted cond branch instructions retired	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x2	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND	Mispredicted ind branches that are not calls	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x4	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.RETURN	Mispredicted return branches	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x8	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND_CALL	"Mispredicted indirect calls, including both register and memory indirect. "	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x11	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND_TAKEN	Mispredicted and taken cond branch instructions retired	pmb.chm	2000000	0	0	0	0	0
+0x10040	0xAA	0x1	0x53	0x3	0	"0,1"	MACRO_INSTS.NON_CISC_DECODED	Non-CISC nacro instructions decoded 	pmb.chm	2000000	0	0	0	0	0
+0x10040	0xAA	0x2	0x53	0x3	0	"0,1"	MACRO_INSTS.CISC_DECODED	CISC macro instructions decoded 	pmb.chm	2000000	0	0	0	0	0
+0x10040	0xAA	0x3	0x53	0x3	0	"0,1"	MACRO_INSTS.ALL_DECODED	All Instructions decoded	pmb.chm	2000000	0	0	0	0	0
+0x10041	0xB0	0x0	0x53	0x9	0	"0,1"	SIMD_UOPS_EXEC.S	SIMD micro-ops executed (excluding stores).	pmb.chm	2000000	0	0	0	0	0
+0x10041	0xB0	0x80	0x53	0x19	0	"0,1"	SIMD_UOPS_EXEC.AR	SIMD micro-ops retired (excluding stores).	pmb.chm	2000000	0	0	0	1	0
+0x10042	0xB1	0x0	0x53	0x9	0	"0,1"	SIMD_SAT_UOP_EXEC.S	SIMD saturated arithmetic micro-ops executed.	pmb.chm	2000000	0	0	0	0	0
+0x10042	0xB1	0x80	0x53	0x9	0	"0,1"	SIMD_SAT_UOP_EXEC.AR	SIMD saturated arithmetic micro-ops retired.	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x1	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.MUL.S	SIMD packed multiply micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x81	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.MUL.AR	SIMD packed multiply micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x2	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.SHIFT.S	SIMD packed shift micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x82	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.SHIFT.AR	SIMD packed shift micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x4	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.PACK.S	SIMD packed micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x84	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.PACK.AR	SIMD packed micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x8	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.UNPACK.S	SIMD unpacked micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x88	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.UNPACK.AR	SIMD unpacked micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x10	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.LOGICAL.S	SIMD packed logical micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x90	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.LOGICAL.AR	SIMD packed logical micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0x20	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.ARITHMETIC.S	SIMD packed arithmetic micro-ops executed	pmb.chm	2000000	0	0	0	0	0
+0x10043	0xB3	0xA0	0x53	0x9	0	"0,1"	SIMD_UOP_TYPE_EXEC.ARITHMETIC.AR	SIMD packed arithmetic micro-ops retired	pmb.chm	2000000	0	0	0	0	0
+0x10044	0xC0	0x0	0x53	0x1019	0	"0,1"	INST_RETIRED.ANY_P	Instructions retired (precise event).	pmb.chm	2000000	5	0	0	1	0
+0x10045	0xA	0x0	0x53	0x1009	0	32	INST_RETIRED.ANY	Instructions retired.	pmb.chm	2000000	5	1	0	0	1
+0x10046	0xC2	0x10	0x53	0x1009	0	"0,1"	UOPS_RETIRED.ANY	Micro-ops retired.	pmb.chm	2000000	5	0	0	0	0
+0x10046	0xC2	0x10	0x1D3	0x1009	0	"0,1"	UOPS_RETIRED.STALLED_CYCLES	Cycles no micro-ops retired.	pmb.chm	2000000	0	0	0	0	0
+0x10046	0xC2	0x10	0x1D7	0x1009	0	"0,1"	UOPS_RETIRED.STALLS	Periods no micro-ops retired.	pmb.chm	2000000	0	0	0	0	0
+0x10046	0xA9	0x1	0x153	0x3	0	"0,1"	UOPS.MS_CYCLES	"This event counts the cycles where 1 or more uops are issued by the micro-sequencer (MS), including microcode assists and inserted flows, and written to the IQ. "	pmb.chm	2000000	0	0	0	0	0
+0x10047	0xC3	0x1	0x53	0x3	0	"0,1"	MACHINE_CLEARS.SMC	Self-Modifying Code detected.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x0	0x53	0x9	0	"0,1"	BR_INST_RETIRED.ANY	Retired branch instructions.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x1	0x53	0x9	0	"0,1"	BR_INST_RETIRED.PRED_NOT_TAKEN	Retired branch instructions that were predicted not-taken.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x2	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_NOT_TAKEN	Retired branch instructions that were mispredicted not-taken.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x4	0x53	0x9	0	"0,1"	BR_INST_RETIRED.PRED_TAKEN	Retired branch instructions that were predicted taken.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x8	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_TAKEN	Retired branch instructions that were mispredicted taken.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED.PS	Retired mispredicted branch instructions.	pmb.chm	2000000	0	0	0	1	0
+0x10048	0xC4	0xC	0x53	0x9	0	"0,1"	BR_INST_RETIRED.TAKEN	Retired taken branch instructions.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0xF	0x53	0x9	0	"0,1"	BR_INST_RETIRED.ANY1	Retired branch instructions.	pmb.chm	2000000	0	0	0	0	0
+0x10049	0xC5	0x0	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions (precise event).	pmb.chm	2000000	0	0	0	1	0
+0x1004A	0xC6	0x1	0x53	0x4001	0	"0,1"	CYCLES_INT_MASKED.CYCLES_INT_MASKED	Cycles during which interrupts are disabled.	pmb.chm	2000000	0	0	0	0	0
+0x1004A	0xC6	0x2	0x53	0x4001	0	"0,1"	CYCLES_INT_MASKED.CYCLES_INT_PENDING_AND_MASKED	Cycles during which interrupts are pending and disabled.	pmb.chm	2000000	0	0	0	0	0
+0x1004B	0xC7	0x1	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.PACKED_SINGLE	Retired Streaming SIMD Extensions (SSE) packed-single instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004B	0xC7	0x2	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.SCALAR_SINGLE	Retired Streaming SIMD Extensions (SSE) scalar-single instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004B	0xC7	0x8	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.SCALAR_DOUBLE	Retired Streaming SIMD Extensions 2 (SSE2) scalar-double instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004B	0xC7	0x10	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.VECTOR	Retired Streaming SIMD Extensions 2 (SSE2) vector instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004C	0xC8	0x0	0x53	0x4001	0	"0,1"	HW_INT_RCV	Hardware interrupts received.	pmb.chm	2000000	0	0	0	0	0
+0x1004D	0xCA	0x1	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.PACKED_SINGLE	Retired computational Streaming SIMD Extensions (SSE) packed-single instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004D	0xCA	0x2	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.SCALAR_SINGLE	Retired computational Streaming SIMD Extensions (SSE) scalar-single instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004D	0xCA	0x8	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.SCALAR_DOUBLE	Retired computational Streaming SIMD Extensions 2 (SSE2) scalar-double instructions.	pmb.chm	2000000	0	0	0	0	0
+0x1004E	0xCB	0x1	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.L2_HIT	Retired loads that hit the L2 cache (precise event).	pmb.chm	200000	0	0	0	0	0
+0x1004E	0xCB	0x81	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.L2_HIT.PS	Retired loads that hit the L2 cache (precise event).	pmb.chm	200000	0	0	0	1	0
+0x1004E	0xCB	0x2	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.L2_MISS	Retired loads that miss the L2 cache	pmb.chm	10000	0	0	0	0	0
+0x1004E	0xCB	0x82	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.L2_MISS.PS	Retired loads that miss the L2 cache (precise event).	pmb.chm	10000	0	0	0	1	0
+0x1004E	0xCB	0x4	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.DTLB_MISS	Retired loads that miss the DTLB (precise event).	pmb.chm	200000	0	0	0	0	0
+0x1004E	0xCB	0x4	0x53	0x9	0	"0,1"	MEM_LOAD_RETIRED.DTLB_MISS.PS	Retired loads that miss the DTLB (precise event).	pmb.chm	200000	0	0	0	1	0
+0x1004F	0xCD	0x0	0x53	0x9	0	"0,1"	SIMD_ASSIST	SIMD assists invoked.	pmb.chm	100000	0	0	0	0	0
+0x10050	0xCE	0x0	0x53	0x9	0	"0,1"	SIMD_INSTR_RETIRED	SIMD Instructions retired.	pmb.chm	2000000	0	0	0	0	0
+0x10051	0xCF	0x0	0x53	0x9	0	"0,1"	SIMD_SAT_INSTR_RETIRED	Saturated arithmetic instructions retired.	pmb.chm	2000000	0	0	0	0	0
+0x10052	0xDC	0x2	0x53	0x5	0	"0,1"	RESOURCE_STALLS.DIV_BUSY	Cycles issue is stalled due to div busy.	pmb.chm	2000000	0	0	0	0	0
+0x10053	0xE0	0x1	0x53	0x3	0	"0,1"	BR_INST_DECODED	Branch instructions decoded	pmb.chm	2000000	0	0	0	0	0
+0x10054	0xE4	0x1	0x53	0x3	0	"0,1"	BOGUS_BR	Bogus branches	pmb.chm	2000000	0	0	0	0	0
+0x10055	0xE6	0x1	0x53	0x3	0	"0,1"	BACLEARS.ANY	BACLEARS asserted.	pmb.chm	2000000	0	0	0	0	0
+0x10056	0x3	0x1	0x53	0x5	0	"0,1"	REISSUE.OVERLAP_STORE	Micro-op reissues on a store-load collision	pmb.chm	200000	0	0	0	0	0
+0x10057	0x3	0x81	0x53	0x5	0	"0,1"	REISSUE.OVERLAP_STORE.AR	Micro-op reissues on a store-load collision (At Retirement)	pmb.chm	200000	0	0	0	0	0

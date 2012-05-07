@@ -2,4 +2,4 @@
 powerdk=1
 .PHONY: apwr
 apwr: build_kernel
-	TARGET_TOOLS_PREFIX="$(ANDROID_BUILD_TOP)/$(TARGET_TOOLS_PREFIX)" vendor/intel/support/kernel-build.sh -c $(CUSTOM_BOARD) -M device/intel/PRIVATE/debug_tools/powerdk/src
+	TARGET_TOOLS_PREFIX="$(ANDROID_BUILD_TOP)/$(TARGET_TOOLS_PREFIX)" vendor/intel/support/kernel-build.sh -c $(CUSTOM_BOARD) -M device/intel/debug_tools/powerdk/src
