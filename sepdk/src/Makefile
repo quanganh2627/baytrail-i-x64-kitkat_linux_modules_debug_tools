@@ -1,7 +1,7 @@
 #
-# Version: 1.3
+# Version: 1.6
 #
-# Copyright (C) 2008-2011 Intel Corporation.  All Rights Reserved.
+# Copyright (C) 2008-2012 Intel Corporation.  All Rights Reserved.
 #
 #     This file is part of SEP Development Kit
 #
@@ -38,6 +38,7 @@ INSTALL = .
 
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
+# Example flags are "-Werror", "-Wno-error", etc.
 #EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1)
 EXTRA_CFLAGS += -I$(M)/../include -I$(M)/inc
 
@@ -45,100 +46,55 @@ EXTRA_CFLAGS += -I$(M)/../include -I$(M)/inc
 unexport ARCH
 
 # platform details
-#MACH := $(shell uname -m)
-MACH := i686
-
+MACH ?= i686
+export MACH
 ifeq ($(MACH),x86_64)
 PLATFORM=x32_64
 BUILD_CHIPSET=YES
-BUILD_GFX=YES
-endif
-ifeq ($(MACH),ia64)
-PLATFORM=x64
-BUILD_CHIPSET=NO
 BUILD_GFX=NO
 endif
-ifeq ($(MACH),i686)
+ifeq ($(PLATFORM),)
 PLATFORM=x32
-BUILD_CHIPSET=NO
+BUILD_CHIPSET=YES
 BUILD_GFX=NO
-endif
-#KERNEL_VERSION ?= $(shell uname -r)
-#SMP := $(shell uname -v | grep SMP)
-SMP := SMP
-ARITY=up
-ifneq ($(SMP),)
-ARITY=smp
 endif
 
-ifeq ($(PER_USER_MODE),YES)
-SEP_PER_USER=-pu
-endif
 # eventual filename of SEP driver
-#DRIVER_FILENAME=$(DRIVER_NAME)$(SEP_PER_USER)-$(PLATFORM)-$(KERNEL_VERSION)$(ARITY).ko
+DRIVER_MODE=$(DRIVER_NAME)
+DRIVER_FILENAME=$(DRIVER_NAME).ko
 
 # By default, build the EMON portions of the driver
 # unless building IPF, which EMON doesn't support currently
-ifeq ($(EMON),)
-    ifneq ($(PLATFORM),ia64)
-        EMON=YES
-    else
-        EMON=NO
-    endif
-endif
+EMON=YES
 
 # build options ...
 ifneq ($(KERNELRELEASE),)
 	obj-m := $(DRIVER_NAME).o
 
 ifeq ($(PLATFORM),x32)
-	arch-objs :=    core.o    \
-			core2.o   \
-			sys32.o   \
-			corei7_unc.o \
-			snbunc_cbo.o \
-			snbunc_imc.o \
-			wsmexunc_imc.o \
-			wsmexunc_qpi.o \
-			wsmexunc_wbox.o \
-			jktunc_imc.o \
-			pci.o    \
-			apic.o    \
-			pebs.o   \
-			snb_power.o
+	arch-objs :=              \
+			core2.o           \
+			sys32.o           \
+			pci.o             \
+			apic.o            \
+			pebs.o
 endif
 ifeq ($(PLATFORM),x32_64)
 	arch-objs :=    core2.o   \
-			sys64.o   \
-			corei7_unc.o \
-			snbunc_cbo.o \
-			snbunc_imc.o \
-			wsmexunc_imc.o \
-			wsmexunc_qpi.o \
-			wsmexunc_wbox.o \
-			jktunc_imc.o \
-			pci.o  \
-			apic.o    \
-			pebs.o  \
-			snb_power.o
-endif
-ifeq ($(PLATFORM),x64)
-	arch-objs :=    montecito.o \
-			poulson.o   \
-			sys_ia64.o
-endif
-
-ifeq ($(PER_USER_MODE),YES)
-    EXTRA_CFLAGS += -DSECURE_SEP
+			sys64.o           \
+			pci.o             \
+			apic.o            \
+			pebs.o
 endif
 
 ifeq ($(EMON),YES)
     EXTRA_CFLAGS += -DEMON -DEMON_INTERNAL
 endif
+EXTRA_CFLAGS += -DDRV_ANDROID
 
 ifeq ($(BUILD_CHIPSET),YES)
     EXTRA_CFLAGS += -DBUILD_CHIPSET
-	chipset-objs :=	pci.o             \
+	chipset-objs :=	pci.o     \
 			chap.o            \
 			gmch.o
 endif
@@ -148,7 +104,8 @@ ifeq ($(BUILD_GFX),YES)
 	gfx-objs    :=	gfx.o
 endif
 
-	sep3_7-objs :=	lwpmudrv.o        \
+	$(DRIVER_NAME)-objs :=    \
+			lwpmudrv.o        \
 			control.o         \
 			cpumon.o          \
 			eventmux.o        \
@@ -164,7 +121,7 @@ endif
 # targets ...
 
 # Otherwise, we were called directly from the command
-# line; invoke the kernel build system.
+# line, so the kernel build system will be used.
 else
 	#KERNEL_SRC_DIR ?= /lib/modules/$(shell uname -r)/build
 	PWD := $(shell pwd)
@@ -175,20 +132,24 @@ else
 all: default
 
 default:
-	ARCH=i386 CROSS_COMPILE=i686-android-linux- $(MAKE) -C $(KERNEL_SRC_DIR) M=$(PWD) LDDINCDIR=$(PWD)/../include LDDINCDIR1=$(PWD)/inc modules PWD=$(PWD)
-	#cp $(DRIVER_NAME).ko $(DRIVER_FILENAME)
+	$(MAKE) -C $(KERNEL_SRC_DIR) M=$(PWD) LDDINCDIR=$(PWD)/../include LDDINCDIR1=$(PWD)/inc modules PWD=$(PWD)
 	@(cd pax && make all)
 
 endif
 
 install:
-	cp $(DRIVER_NAME).ko $(INSTALL)/
+	@cp $(DRIVER_NAME).ko $(INSTALL)/$(DRIVER_FILENAME)
 	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
 	@(cd pax && make install INSTALL=$(INSTALL)/pax)
 
 clean:
 	rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
-	rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned $(DRIVER_FILENAME)
+	rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
+	rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
 	rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers
 	rm -rf .tmp_versions
 	@(cd pax && make clean)
+
+distclean: clean
+	rm -f $(DRIVER_NAME)*.ko
+	@(cd pax && make distclean)

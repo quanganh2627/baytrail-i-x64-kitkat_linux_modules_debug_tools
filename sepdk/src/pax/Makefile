@@ -1,7 +1,7 @@
 #
-# Version: 1.2
+# Version: 1.5
 #
-# Copyright (C) 2009-2011 Intel Corporation.  All Rights Reserved.
+# Copyright (C) 2009-2012 Intel Corporation.  All Rights Reserved.
 #
 #     This file is part of SEP Development Kit
 #
@@ -38,7 +38,7 @@ INSTALL = .
 
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
-#EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1)
+#EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1) -DDRV_ANDROID
 EXTRA_CFLAGS += -I$(M)/../../include -I$(M)/../inc
 
 # if ARCH variable is set, unset it to avoid conflicts with kbuild
@@ -50,22 +50,12 @@ MACH := i686
 ifeq ($(MACH),x86_64)
 PLATFORM=x32_64
 endif
-ifeq ($(MACH),ia64)
-PLATFORM=x64
-endif
-ifeq ($(MACH),i686)
+ifeq ($(PLATFORM),)
 PLATFORM=x32
-endif
-#KERNEL_VERSION ?= $(shell uname -r)
-#SMP := $(shell uname -v | grep SMP)
-SMP := SMP
-ARITY=up
-ifneq ($(SMP),)
-ARITY=smp
 endif
 
 # eventual filename of the driver
-#DRIVER_FILENAME=$(DRIVER_NAME)-$(PLATFORM)-$(KERNEL_VERSION)$(ARITY).ko
+DRIVER_FILENAME=$(DRIVER_NAME).ko
 
 # build options ...
 ifneq ($(KERNELRELEASE),)
@@ -84,12 +74,11 @@ all: default
 
 default:
 	$(MAKE) -C $(KERNEL_SRC_DIR) M=$(PWD) LDDINCDIR=$(PWD)/../../include LDDINCDIR1=$(PWD)/../inc modules PWD=$(PWD)
-	#cp $(DRIVER_NAME).ko $(DRIVER_FILENAME)
 
 endif
 
 install:
-	cp $(DRIVER_NAME).ko $(INSTALL)/
+	@cp $(DRIVER_NAME).ko $(INSTALL)/$(DRIVER_FILENAME)
 	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
 
 clean:
@@ -97,3 +86,6 @@ clean:
 	rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned $(DRIVER_FILENAME)
 	rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers
 	rm -rf .tmp_versions
+
+distclean: clean
+	rm -f $(DRIVER_NAME)*.ko

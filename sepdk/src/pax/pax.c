@@ -33,6 +33,9 @@
 #include <linux/fs.h>
 #include <linux/kobject.h>
 #include <linux/cdev.h>
+#if defined (DRV_ANDROID)
+#include <linux/device.h>
+#endif
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/version.h>
@@ -70,6 +73,10 @@ static dev_t            pax_devnum;            // the major char device number f
 static PAX_VERSION_NODE pax_version;           // version of PAX
 static PAX_INFO_NODE    pax_info;              // information on PAX
 static PAX_STATUS_NODE  pax_status;            // PAX reservation status
+
+#if defined (DRV_ANDROID)
+static struct class     *pax_class   = NULL;
+#endif
 
 // Print macros for kernel debugging
 
@@ -570,6 +577,15 @@ pax_Load (
         PAX_PRINT_ERROR("unable to alloc chrdev_region for %s!\n", PAX_NAME);
         return result;
     }
+
+#if defined (DRV_ANDROID)
+    pax_class = class_create(THIS_MODULE, "pax");
+    if (IS_ERR(pax_class)) {
+        PAX_PRINT_ERROR("Error registering pax class\n");
+    }
+    device_create(pax_class, NULL, pax_devnum, NULL, "pax");
+#endif
+
     PAX_PRINT_DEBUG("%s major number is %d\n", PAX_NAME, MAJOR(pax_devnum));
     /* Allocate memory for the PAX control device */
     pax_control = (PVOID)kmalloc(sizeof(PAX_DEV_NODE), GFP_KERNEL);
@@ -627,6 +643,12 @@ pax_Unload (
     }
 
     // unregister PAX device
+#if defined (DRV_ANDROID)
+    unregister_chrdev(MAJOR(pax_devnum), "pax");
+    device_destroy(pax_class, pax_devnum);
+    class_destroy(pax_class);
+#endif
+
     cdev_del(&PAX_DEV_cdev(pax_control));
     unregister_chrdev_region(pax_devnum, 1);
     if (pax_control != NULL) {

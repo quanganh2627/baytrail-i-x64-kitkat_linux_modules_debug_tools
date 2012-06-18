@@ -66,7 +66,7 @@ LINUXOS_Uninstall_Hooks (
 );
 
 extern S32
-LINUXOS_Enum_User_Mode_Modules (
+LINUXOS_Enum_Process_Modules (
     DRV_BOOL at_end
 );
 

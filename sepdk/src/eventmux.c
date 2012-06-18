@@ -176,6 +176,12 @@ eventmux_Prepare_Timer_Threads (
     pcpu = &pcb[CONTROL_THIS_CPU()];
     preempt_enable();
     CPU_STATE_em_timer(pcpu) = (struct timer_list*)CONTROL_Allocate_Memory(sizeof(struct timer_list));
+
+    if (CPU_STATE_em_timer(pcpu) == NULL) {
+       SEP_PRINT_ERROR("eventmux_Prepare_Timer_Threads skipped pcpu=NULL\n")
+       return;
+    }
+
     init_timer(CPU_STATE_em_timer(pcpu));
 }
 

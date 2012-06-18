@@ -10,7 +10,7 @@
 **COPYRIGHT*/
 /*
  *  File  : lwpmudrv_version.h
- *  cvsid[] = "$Id: lwpmudrv_version.h 146320 2011-04-22 19:10:16Z drajan $"
+ *  cvsid[] = "$Id: lwpmudrv_version.h 203263 2011-12-09 07:15:49Z hmaiya $"
  */
 
 #ifndef _LWPMUDRV_VERSION_H_
@@ -25,7 +25,7 @@
 
 #define SEP_MAJOR_VERSION 3
 #define SEP_MINOR_VERSION 7
-#define SEP_API_VERSION   0
+#define SEP_API_VERSION   1
 
 #define SEP_NAME          "sep"
 #define SEP_NAME_W        L"sep"

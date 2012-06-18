@@ -501,7 +501,8 @@ PEBS_Modify_IP (
     DRV_BOOL     is_64bit_addr
 )
 {
-    return pebs_dispatch->modify_ip(sample, is_64bit_addr);
+    pebs_dispatch->modify_ip(sample, is_64bit_addr);
+    return;
 }
 
 /* ------------------------------------------------------------------------- */

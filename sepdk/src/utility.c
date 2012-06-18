@@ -43,8 +43,9 @@
 #include "lwpmudrv_ecb.h"
 #include "lwpmudrv.h"
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-#include "core.h"
 #include "core2.h"
+#if !defined (DRV_ANDROID)
+#include "core.h"
 #include "corei7_unc.h"
 #include "snbunc_cbo.h"
 #include "snbunc_imc.h"
@@ -53,6 +54,7 @@
 #include "wsmexunc_wbox.h"
 #include "jktunc_imc.h"
 #include "snb_power.h"
+#endif
 #endif
 #if defined(DRV_IA64)
 #include "montecito.h"
@@ -313,7 +315,7 @@ UTILITY_Configure_CPU (
 {
     DISPATCH     dispatch = NULL;
     switch (dispatch_id) {
-#if defined(DRV_IA32)
+#if defined(DRV_IA32) && !defined(DRV_ANDROID)
         case 0:
             SEP_PRINT_DEBUG("Set up the Core(TM) processor dispatch table\n");
             dispatch = &core_dispatch;
@@ -324,6 +326,7 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the Core(TM)2 processor dispatch table\n");
             dispatch = &core2_dispatch;
             break;
+#if !defined(DRV_ANDROID)
         case 2:
             dispatch = &corei7_dispatch;
             SEP_PRINT_DEBUG("Set up the Core i7(TM) processor dispatch table\n");
@@ -364,6 +367,7 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the SNB Power dispatch table\n");
             dispatch = &snb_power_dispatch;
             break;
+#endif
 #endif
 #if defined(DRV_IA64)
         case 4:

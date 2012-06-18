@@ -233,7 +233,7 @@ DEVNUM=`${GREP} ${DRIVER_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1
 if [ -n "${DEVNUM}" ] ; then
   if [ $reload_driver -ne 1 ] ; then
     print_err ""
-    print_err "The ${DRIVER_NAME} driver is already loaded!  Use ${DRIVER_DIRECTORY}/rmmod-${DRIVER_NAME} to remove it."
+    print_err "The ${DRIVER_NAME} driver is already loaded!  Use rmmod-${DRIVER_NAME} to remove it."
     print_err ""
     exit 236
   fi

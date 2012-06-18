@@ -189,6 +189,14 @@ linuxos_VMA_For_Process (
     S8   name[MAXNAMELEN];
     S8  *pname = NULL;
     U32  ppid  = 0;
+#if defined(DRV_ANDROID)
+    char andr_app[MAXNAMELEN +1];
+#endif
+
+    if (p == NULL) {
+       SEP_PRINT_ERROR("linuxos_VMA_For_Process skipped p=NULL\n")
+       return OS_SUCCESS;
+    }
 
     pname = D_PATH(vma->vm_file, name, MAXNAMELEN);
     if (!IS_ERR(pname)) {
@@ -199,6 +207,13 @@ linuxos_VMA_For_Process (
         // that is being used to name the module
         if (vma->vm_flags & VM_EXECUTABLE) {
             options |= LOPTS_EXE;
+#if defined(DRV_ANDROID)
+            if(!strcmp (pname, "/system/bin/app_process")){
+               memset(andr_app, '\0', MAXNAMELEN + 1);
+               strncpy(andr_app, p->comm, MAXNAMELEN);
+               pname = andr_app;
+            }
+#endif
         }
         // mark the first of the bunch...
         if (*first == 1) {
@@ -328,51 +343,62 @@ linuxos_Exec_Unmap_Notify(
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          S32 LINUXOS_Enum_User_Mode_Modules(DRV_BOOL at_end) 
+ * @fn          S32 LINUXOS_Enum_Process_Modules(DRV_BOOL at_end) 
  *
- * @brief       gather all the user mode modules that are present.
+ * @brief       gather all the process modules that are present.
  *
  * @param       at_end - the collection happens at the end of the sampling run 
  *
  * @return      OS_SUCCESS
  *
  * <I>Special Notes:</I>
- *              This routine gathers all the user mode modules that are present
+ *              This routine gathers all the process modules that are present
  *              in the system at this time.  If at_end is set to be TRUE, then
  *              act as if all the modules are being unloaded.
  *
  */
 extern S32
-LINUXOS_Enum_User_Mode_Modules (
+LINUXOS_Enum_Process_Modules (
     DRV_BOOL  at_end
 )
 {
     int                 n=0;
     struct task_struct *p;
-    SEP_PRINT_DEBUG("Enum_User_Mode_Modules begin tasks\n");
-
+    SEP_PRINT_DEBUG("Enum_Process_Modules begin tasks\n");
     FOR_EACH_TASK(p) {
+        SEP_PRINT_DEBUG("Enum_Process_Modules looking at task %d\n", n);
         /*
          *  Call driver notification routine for each module 
          *  that is mapped into the process created by the fork
          */
-        if ((!p) || (!p->mm)) {
-#if defined(MYDEBUG)
-            if (p) {
-                SEP_PRINT_DEBUG("Enum_User_Mode_Modules skipped p 0x%p, null ->mm\n", p);
+          
+        if (p == NULL) { 
+            SEP_PRINT_DEBUG("Enum_Process_Modules skipped p=NULL\n");
+            continue;
+        }
+        if (p->mm == NULL) {
+            SEP_PRINT_DEBUG("Enum_Process_Modules skipped p=0x%p (pid=%d), p->mm=NULL, p->comm=%s\n", p, p->pid, p->comm);
+            if (p->comm) {
+                linuxos_Load_Image_Notify_Routine(p->comm,
+                                                  NULL,
+                                                  0,
+                                                  p->pid,
+                                                  (p->parent) ? p->parent->tgid : 0,
+                                                  LOPTS_EXE | LOPTS_1ST_MODREC,
+                                                  linuxos_Get_Exec_Mode(p),
+                                                  1);
             }
-#endif
             continue;
         }
         if (!UTILITY_down_read_mm(p)) {
-            SEP_PRINT_ERROR("Linux_Enum_User_Mode_Modules_End: unable to get lock on mmap_sem!\n");
+            SEP_PRINT_ERROR("Linux_Enum_Process_Modules_End: unable to get lock on mmap_sem!\n");
             return OS_SUCCESS;
         }
         linuxos_Enum_Modules_For_Process(p, p->mm, at_end?-1:0);
         UTILITY_up_read_mm(p);
         n++;
     }
-    SEP_PRINT_DEBUG("Enum_User_Mode_Modules done with %d tasks\n", n);
+    SEP_PRINT_DEBUG("Enum_Process_Modules done with %d tasks\n", n);
     return OS_SUCCESS;
 }
 

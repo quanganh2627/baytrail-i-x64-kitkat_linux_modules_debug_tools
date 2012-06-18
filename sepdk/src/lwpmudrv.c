@@ -144,7 +144,7 @@ U32                     cur_device             = 0;
 LWPMU_DEVICE            devices                = NULL;
 U32                     invoking_processor_id  = 0;
 
-static   spinlock_t     ioctl_lock;
+static   struct mutex   ioctl_lock;
 volatile int            in_finish_code;
 
 #define  PMU_DEVICES            2   // pmu, mod
@@ -165,6 +165,11 @@ BUFFER_DESC      module_buf = NULL;
 static dev_t     lwpmu_DevNum;  /* the major and minor parts for SEP3 base */
 static dev_t     lwsamp_DevNum; /* the major and minor parts for SEP3 percpu */
 
+#if defined (DRV_ANDROID)
+#define DRV_DEVICE_DELIMITER "_"  
+static struct class          *pmu_class   = NULL; 
+#endif
+
 extern volatile int      config_done;
 
 CPU_STATE          pcb           = NULL;
@@ -176,16 +181,11 @@ static U64              cpu0_TSC;
 #endif
 
 #if !defined(DRV_USE_UNLOCKED_IOCTL)
-#define SPIN_LOCK(lock, flags)
-#define SPIN_UNLOCK(lock, flags)
+#define MUTEX_LOCK(lock, flags)
+#define MUTEX_UNLOCK(lock, flags)
 #else
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,32)
-#define SPIN_LOCK(lock, flags)     spin_lock_irqsave((lock), (flags))
-#define SPIN_UNLOCK(lock, flags)   spin_unlock_irqrestore((lock), (flags))
-#else
-#define SPIN_LOCK(lock, flags)     spin_lock((lock))
-#define SPIN_UNLOCK(lock, flags)   spin_unlock((lock))
-#endif
+#define MUTEX_LOCK(lock, flags)     mutex_lock(&(lock))
+#define MUTEX_UNLOCK(lock, flags)   mutex_unlock(&(lock))
 #endif
 
 
@@ -413,6 +413,10 @@ lwpmudrv_Initialize (
      *   Program State Initializations
      */
     pcfg = CONTROL_Allocate_Memory(in_buf_len);
+    if (!pcfg) {
+        return OS_NO_MEM;
+    }
+
     if (copy_from_user(pcfg, in_buf, in_buf_len)) {
         return -EFAULT;
     }
@@ -1074,6 +1078,9 @@ lwpmudrv_Read_MSR_All_Cores (
     }
     
     msr_data = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(MSR_DATA_NODE));
+    if (!msr_data) {
+        return OS_NO_MEM;
+    }
 
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
         node                = &msr_data[i];
@@ -1174,6 +1181,9 @@ lwpmudrv_Write_MSR_All_Cores (
     val     = (U64)EVENT_REG_reg_value(in_buf,0);
 
     msr_data = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(MSR_DATA_NODE));
+    if (!msr_data) {
+        return OS_NO_MEM;
+    }
 
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
         node                 = &msr_data[i];
@@ -1985,6 +1995,11 @@ lwpmudrv_Prepare_Stop (
     if (current_state == DRV_STATE_UNINITIALIZED) {
         return OS_SUCCESS;
     }
+
+    if (pcfg == NULL) {
+        return OS_SUCCESS;
+    }
+
     if (DRV_CONFIG_use_pcl(pcfg) == TRUE) {
         return OS_SUCCESS;
     }
@@ -2086,7 +2101,7 @@ lwpmudrv_Finish_Stop (
          *  thread has not been terminated.
          */
         if (current_state != DRV_STATE_IDLE && current_state != DRV_STATE_RESERVED) {
-            LINUXOS_Enum_User_Mode_Modules(TRUE);
+            LINUXOS_Enum_Process_Modules(TRUE);
         }
         OUTPUT_Flush();
         /*
@@ -2224,6 +2239,10 @@ lwpmudrv_Set_CPU_Mask (
     }
 
     cpu_mask_bits = CONTROL_Allocate_Memory((int)in_buf_len);
+    if (!cpu_mask_bits) {
+        return OS_NO_MEM;
+    }
+
     if (copy_from_user(cpu_mask_bits, (S8*)in_buf, (int)in_buf_len)) {
         return OS_FAULT;
     }
@@ -2966,7 +2985,7 @@ lwpmu_Device_Control (
         return status;
     }
 
-    SPIN_LOCK(&ioctl_lock, flags);
+    MUTEX_LOCK(ioctl_lock, flags);
     switch (cmd) {
 
        /*
@@ -3431,7 +3450,7 @@ lwpmu_Device_Control (
             break;
     }
 cleanup:
-    SPIN_UNLOCK(&ioctl_lock, flags);
+    MUTEX_UNLOCK(ioctl_lock, flags);
 
     if (cmd == LWPMUDRV_IOCTL_STOP &&
         GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_PREPARE_STOP) {
@@ -3463,7 +3482,7 @@ lwpmu_Device_Control_Compat (
         return OS_ILLEGAL_IOCTL;
     }
 
-    SPIN_LOCK(&ioctl_lock, flags);
+    MUTEX_LOCK(ioctl_lock, flags);
     switch (cmd) {
         case LWPMUDRV_IOCTL_VERSION:
             SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_VERSION\n");
@@ -3494,7 +3513,7 @@ lwpmu_Device_Control_Compat (
 
     }
 cleanup:
-    SPIN_UNLOCK(&ioctl_lock, flags);
+    MUTEX_UNLOCK(ioctl_lock, flags);
 
     return status;
 }
@@ -3599,6 +3618,9 @@ lwpmu_Load (
 {
     int   i, result, num_cpus;
     dev_t lwmod_DevNum;
+#if defined (DRV_ANDROID)
+    char       dev_name[MAXNAMELEN];
+#endif
 
     /* Get one major device number and two minor numbers. */
     /*   The result is formatted as major+minor(0) */
@@ -3632,6 +3654,15 @@ lwpmu_Load (
     }
 
     /* Register the file operations with the OS */
+
+#if defined (DRV_ANDROID)
+    pmu_class = class_create(THIS_MODULE, SEP_DRIVER_NAME);
+    if (IS_ERR(pmu_class)) {
+        SEP_PRINT_ERROR("Error registering SEP control class\n");
+    }
+    device_create(pmu_class, NULL, lwpmu_DevNum, NULL, SEP_DRIVER_NAME DRV_DEVICE_DELIMITER"c");
+#endif
+
     result = lwpmu_setup_cdev(lwpmu_control,&lwpmu_Fops,lwpmu_DevNum);
     if (result) {
         SEP_PRINT_ERROR("Error %d adding lwpmu as char device\n", result);
@@ -3639,6 +3670,11 @@ lwpmu_Load (
     }
     /* _c init was fine, now try _m */
     lwmod_DevNum = MKDEV(MAJOR(lwpmu_DevNum),MINOR(lwpmu_DevNum)+1);
+
+#if defined (DRV_ANDROID)
+    device_create(pmu_class, NULL, lwmod_DevNum, NULL, SEP_DRIVER_NAME DRV_DEVICE_DELIMITER"m");
+#endif
+
     result = lwpmu_setup_cdev(lwmod_control,&lwmod_Fops,lwmod_DevNum);
     if (result) {
         SEP_PRINT_ERROR("Error %d adding lwpmu as char device\n", result);
@@ -3657,6 +3693,10 @@ lwpmu_Load (
 
     /* Register the file operations with the OS */
     for (i=0; i<num_cpus; i++) {
+#if defined (DRV_ANDROID)
+        snprintf(dev_name, MAXNAMELEN, "%s%ss%d", SEP_DRIVER_NAME, DRV_DEVICE_DELIMITER, i);
+        device_create(pmu_class, NULL, lwsamp_DevNum+i, NULL, dev_name);
+#endif
         result = lwpmu_setup_cdev(lwsamp_control+i,
                                   &lwsamp_Fops,
                                   lwsamp_DevNum+i);
@@ -3678,7 +3718,7 @@ lwpmu_Load (
         output_buffer_size = OUTPUT_SMALL_BUFFER;
     }
 
-    spin_lock_init(&ioctl_lock);
+    mutex_init(&ioctl_lock);
     in_finish_code = 0;
 
     /*
@@ -3749,12 +3789,29 @@ lwpmu_Unload (
     module_buf              = CONTROL_Free_Memory(module_buf);
     pcb                     = CONTROL_Free_Large_Memory(pcb, pcb_size);
     pcb_size                = 0;
+#if defined (DRV_ANDROID)
+    unregister_chrdev(MAJOR(lwpmu_DevNum), SEP_DRIVER_NAME);
+    device_destroy(pmu_class, lwpmu_DevNum);
+    device_destroy(pmu_class, lwpmu_DevNum+1);
+#endif
+
     cdev_del(&LWPMU_DEV_cdev(lwpmu_control));
     cdev_del(&LWPMU_DEV_cdev(lwmod_control));
     unregister_chrdev_region(lwpmu_DevNum, PMU_DEVICES);
+#if defined (DRV_ANDROID)
+    unregister_chrdev(MAJOR(lwsamp_DevNum), SEP_SAMPLES_NAME);
+#endif
+
     for (i = 0; i < num_cpus; i++) {
+#if defined (DRV_ANDROID)
+        device_destroy(pmu_class, lwsamp_DevNum+i);
+#endif
         cdev_del(&LWPMU_DEV_cdev(&lwsamp_control[i]));
     }
+
+#if defined (DRV_ANDROID)
+    class_destroy(pmu_class);
+#endif
     unregister_chrdev_region(lwsamp_DevNum, num_cpus);
     lwpmu_control  = CONTROL_Free_Memory(lwpmu_control);
     lwmod_control  = CONTROL_Free_Memory(lwmod_control);
