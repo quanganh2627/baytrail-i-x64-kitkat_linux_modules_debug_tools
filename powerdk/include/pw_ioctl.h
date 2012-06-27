@@ -102,7 +102,7 @@
  * From the kernel documentation:
  * "_IOR" ==> Read IOCTL
  * "_IOW" ==> Write IOCTL
- * "_IORW" ==> Read/Write IOCTL
+ * "_IOWR" ==> Read/Write IOCTL
  *
  * Where "Read" and "Write" are from the user's perspective
  * (similar to the file "read" and "write" calls).

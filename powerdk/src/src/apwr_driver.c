@@ -86,10 +86,11 @@
  * Current driver version is 2.2.6
  * Current driver version is 2.2.7
  * Current driver version is 3.0.0
+ * Current driver version is 3.0.1
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 0
-#define PW_VERSION_OTHER 0
+#define PW_VERSION_OTHER 1
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -231,6 +232,12 @@ static unsigned long startJIFF, stopJIFF;
  * '0' ==> NO, use IA32_FIXED_CTR{1,2}
  */
 #define USE_APERF_MPERF_FOR_DYNAMIC_FREQUENCY 0
+/*
+ * PERF_STATUS MSR addr -- bits 12:8, multiplied by the
+ * bus clock freq, give the freq the H/W is currently
+ * executing at.
+ */
+#define IA32_PERF_STATUS_MSR_ADDR 0x198
 /*
  * Do we use the cpufreq notifier
  * for p-state transitions?
@@ -759,10 +766,12 @@ struct sys_node{
 /*
  * Function declarations (incomplete).
  */
-bool is_sleep_syscall_i(long id) __attribute__((always_inline));
-void sys_enter_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
-void sys_exit_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
-void sched_wakeup_helper_i(struct task_struct *task) __attribute__((always_inline));
+/*
+bool is_sleep_syscall_i(long id);
+void sys_enter_helper_i(long id, pid_t tid, pid_t pid);
+void sys_exit_helper_i(long id, pid_t tid, pid_t pid);
+void sched_wakeup_helper_i(struct task_struct *task);
+*/
 
 /*
  * Variable declarations.
@@ -1357,7 +1366,7 @@ static int init_irq_map(void)
 static void irq_destroy_callback(struct rcu_head *head)
 {
     struct irq_node *node = container_of(head, struct irq_node, rcu);
-  
+
     if(node->name){
 	pw_kfree(node->name);
 	node->name = NULL;
@@ -2858,14 +2867,18 @@ static inline void produce_s_residency_sample(u64 usec)
     PWCollector_sample_t sample;
 
     /*
-     * No residency counters available 
-     */ 
+     * No residency counters available
+     */
     tscval(&tsc);
     sample.sample_type = S_RESIDENCY;
     sample.cpuidx = cpu;
     sample.tsc = tsc;
     sample.s_residency_sample.usec = (unsigned int)usec;
-    memcpy(sample.s_residency_sample.counters, mmio_s_residency_base, sizeof(u32) * 3);
+    if (usec) {
+        memcpy(sample.s_residency_sample.counters, mmio_s_residency_base, sizeof(u32) * 3);
+    } else {
+        memset(sample.s_residency_sample.counters, 0, sizeof(u32) * 3);
+    }
 
     /*
      * OK, everything computed. Now copy
@@ -2881,9 +2894,9 @@ static inline void produce_s_residency_sample(u64 usec)
 /*
  * Insert a D Residency counter sample into a (per-cpu) output buffer.
  */
-static inline void produce_d_sc_residency_sample(void)
+static inline void produce_d_sc_residency_sample(u64 usec)
 {
-    u64 tsc, usec;
+    u64 tsc, msec;
     int cpu = raw_smp_processor_id();
     int i,j;
     int start_idx = 0;
@@ -2891,7 +2904,7 @@ static inline void produce_d_sc_residency_sample(void)
     int numofsamples = (d_sc_count_num + 5) / 6;  // Currently, 6 devices info can be included into a single sample
 
     tscval(&tsc);
-    usec = readl(mmio_cumulative_residency_base)*1000;
+    msec = readl(mmio_cumulative_residency_base);
 
     for (i=0; i<numofsamples; i++) {
         PWCollector_sample_t sample;
@@ -2905,10 +2918,10 @@ static inline void produce_d_sc_residency_sample(void)
         for (j=start_idx; j<MAX_LSS_NUM_IN_SC; j++) {
             if ((d_sc_mask >> j) & 0x1) {
                 sample.d_residency_sample.mask[num] = j;
-                sample.d_residency_sample.d_residency_counters[num].usec = (unsigned int)usec;
-                sample.d_residency_sample.d_residency_counters[num].D0i0_ACG = readl(mmio_d_residency_base + sizeof(u32)*j);
-                sample.d_residency_sample.d_residency_counters[num].D0i1 = readl(mmio_d_residency_base + 40*4 + sizeof(u32)*j);
-                sample.d_residency_sample.d_residency_counters[num].D0i3 = readl(mmio_d_residency_base + 40*4*2 + sizeof(u32)*j);
+                sample.d_residency_sample.d_residency_counters[num].usec = (!usec) ? 0 : (unsigned int)msec*1000;
+                sample.d_residency_sample.d_residency_counters[num].D0i0_ACG = (!usec) ? 0 : readl(mmio_d_residency_base + sizeof(u32)*j);
+                sample.d_residency_sample.d_residency_counters[num].D0i1 = (!usec) ? 0 : readl(mmio_d_residency_base + 40*4 + sizeof(u32)*j);
+                sample.d_residency_sample.d_residency_counters[num].D0i3 = (!usec) ? 0 : readl(mmio_d_residency_base + 40*4*2 + sizeof(u32)*j);
 
                 start_idx = j+1;
                 if (++num == 6) {
@@ -2975,7 +2988,7 @@ static inline void produce_d_nc_state_sample(void)
     if (get_D_NC_states(&ncstates)) {
         return;
     }
-   
+
     sample.sample_type = D_STATE;
     sample.cpuidx = cpu;
     sample.tsc = tsc;
@@ -3054,18 +3067,19 @@ static inline void produce_w_sample(int cpu, u64 tsc, w_sample_type_t type, pid_
 /*
  * Insert a P-state transition sample into a (per-cpu) output buffer.
  */
-static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 freq, u8 is_boundary_sample, u64 aperf, u64 mperf)
+static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 req_freq, u32 act_freq, u8 is_boundary_sample)
 {
     struct PWCollector_sample sample;
 
     sample.sample_type = P_STATE;
     sample.cpuidx = cpu;
     sample.tsc = tsc;
-    sample.p_sample.frequency = freq;
+    sample.p_sample.prev_req_frequency = req_freq;
+    sample.p_sample.frequency = act_freq;
     sample.p_sample.is_boundary_sample = is_boundary_sample;
 
-    sample.p_sample.unhalted_core_value = aperf;
-    sample.p_sample.unhalted_ref_value = mperf;
+    sample.p_sample.unhalted_core_value = 0;
+    sample.p_sample.unhalted_ref_value = 0;
 
     /*
      * OK, everything computed. Now copy
@@ -3915,9 +3929,9 @@ static u64 my_local_arch_irq_stats_cpu(void)
 
     BEGIN_LOCAL_IRQ_STATS_READ(stats);
     {
-#ifdef CONFIG_X86_LOCAL_APIC
+// #ifdef CONFIG_X86_LOCAL_APIC
         sum += stats->apic_timer_irqs;
-#endif
+// #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
         sum += stats->x86_platform_ipis;
 #endif // 2,6,34
@@ -4061,7 +4075,7 @@ static void tps(unsigned int type, unsigned int state)
     }
 
     /*
-     * Controls the sampling frequency to reduce data collection overheads 
+     * Controls the sampling frequency to reduce data collection overheads
      */
     if ((CURRENT_TIME_IN_USEC() - prev_sample_usec) > INTERNAL_STATE.d_state_sample_interval*1000) {
         prev_sample_usec = CURRENT_TIME_IN_USEC();
@@ -4284,35 +4298,64 @@ unsigned long get_actual_frequency(unsigned long avg_freq)
 };
 
 
+static DEFINE_PER_CPU(u32, pcpu_prev_req_freq) = 0;
+
 /*
  * New methodology -- We're now using APERF/MPERF
  * collected within the TPS probe to calculate actual
  * frequencies. Only calculate TSC values within
  * the 'power_frequency' tracepoint.
  */
-static void tpf(unsigned int type, unsigned int state)
+static void tpf(int cpu, unsigned int type, u32 req_freq)
 {
-    int cpu = CPU();
     u64 tsc = 0;
-    u64 aperf = 0, mperf = 0;
+    u32 l=0, h=0;
+    u32 prev_req_freq = 0;
+    u32 prev_act_freq = INTERNAL_STATE.bus_clock_freq_khz;
+    u32 perf_status = 0;
 
 #if DO_IOCTL_STATS
     stats_t *pstats = NULL;
 #endif
 
     /*
+     * We're not guaranteed that 'cpu' (which is the CPU on which the frequency transition is occuring) is
+     * the same as the cpu on which the callback i.e. the 'TPF' probe is executing. This is why we use 'rdmsr_safe_on_cpu()'
+     * to read the various MSRs.
+     */
+    /*
      * Read TSC value
      */
-    tscval(&tsc);
+    WARN_ON(rdmsr_safe_on_cpu(cpu, 0x10, &l, &h));
+    tsc = (u64)h << 32 | (u64)l;
+
     /*
-     * Read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE
+     * Read the IA32_PERF_STATUS MSR. Bits 12:8 (on Atom ) or 15:0 (on big-core) of this determines
+     * the frequency the H/W is currently running at.
      */
-    {
-        rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[APERF], aperf);
-        rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], mperf);
+    WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
+    perf_status = l; // We're only interested in the lower 16 bits!
+
+    /*
+     * OK, try and get the actual frequency; this is the perf_status value multiplied by the
+     * FSB frequency.
+     */
+    if (PW_is_atm) {
+        prev_act_freq *= ((perf_status >> 8) & 0x1f); // bits [12:8]
+    } else {
+        prev_act_freq *= (perf_status & 0xffff); // bits [15:0]
     }
 
-    produce_p_sample(cpu, tsc, 0 /* frequency */, 0, aperf, mperf); // "0" ==> NOT a boundary sample
+    /*
+     * Retrieve the previous requested frequency, if any. Note that we're GUARANTEED this
+     * will be non-zero because it's set in 'get_current_cpu_frequency()' on collection START/STOP.
+     */
+    prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
+    per_cpu(pcpu_prev_req_freq, cpu) = req_freq;
+
+    produce_p_sample(cpu, tsc, prev_req_freq, prev_act_freq, 0 /* boundary */); // "0" ==> NOT a boundary sample
+
+    OUTPUT(0, KERN_INFO "[%d]: TSC = %llu, OLD_req_freq = %u, NEW_REQ_freq = %u, perf_status = %u, ACT_freq = %u\n", cpu, tsc, prev_req_freq, req_freq, perf_status, prev_act_freq);
 
 #if DO_IOCTL_STATS
     {
@@ -4335,13 +4378,16 @@ static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val
 {
     struct cpufreq_freqs *freq = data;
     u32 state = freq->new; // "state" is frequency CPU is ABOUT TO EXECUTE AT
+    int cpu = freq->cpu;
 
     if (unlikely(!IS_FREQ_MODE())) {
 	return SUCCESS;
     }
 
     if (val == CPUFREQ_PRECHANGE) {
-        DO_PER_CPU_OVERHEAD_FUNC(tpf, 2, state);
+    // if (val == CPUFREQ_POSTCHANGE) {
+        // printk(KERN_INFO "[%d]: OLD_freq = %u, NEW_freq = %u\n", cpu, freq->old, state);
+        DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, state);
     }
     return SUCCESS;
 };
@@ -4425,7 +4471,7 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
-void __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
+inline void sched_wakeup_helper_i(struct task_struct *task)
 {
     int target_cpu = task_cpu(task), source_cpu = CPU();
     /*
@@ -4469,8 +4515,7 @@ static void probe_sched_wakeup(void *ignore, struct task_struct *task, int succe
     }
 };
 
-
-bool __attribute__((always_inline)) is_sleep_syscall_i(long id)
+inline bool is_sleep_syscall_i(long id)
 {
     switch (id) {
         case __NR_poll: // 7
@@ -4494,7 +4539,7 @@ bool __attribute__((always_inline)) is_sleep_syscall_i(long id)
     return false;
 };
 
-void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
+inline void  sys_enter_helper_i(long id, pid_t tid, pid_t pid)
 {
     if (check_and_add_proc_to_sys_list(tid, pid)) {
         printk(KERN_INFO "ERROR: could NOT add proc to sys list!\n");
@@ -4502,7 +4547,7 @@ void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_
     return;
 };
 
-void  __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
+inline void  sys_exit_helper_i(long id, pid_t tid, pid_t pid)
 {
     check_and_remove_proc_from_sys_list(tid, pid);
 };
@@ -5038,7 +5083,7 @@ static int register_pausable_probes(void)
      * ALWAYS required.
      */
 #if DO_PROBE_ON_SYSCALL_ENTER_EXIT
-   
+
 #endif // DO_PROBE_ON_SYSCALL_ENTER_EXIT
 
     /*
@@ -5095,7 +5140,7 @@ static int register_pausable_probes(void)
      * ALWAYS required.
      */
 #if DO_PROBE_ON_SYSCALL_ENTER_EXIT
-   
+
 #endif // DO_PROBE_ON_SYSCALL_ENTER_EXIT
 
     /*
@@ -6075,60 +6120,55 @@ static void reset_trace_sent_fields(void)
  */
 static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
 {
-    u32 act_freq = 0;
     u32 l=0, h=0;
     u64 tsc = 0;
-    struct PWCollector_sample sample;
+    u32 perf_status = 0;
+    u8 is_boundary = (is_start) ? 1 : 2; // "0" ==> NOT boundary, "1" ==> START boundary, "2" ==> STOP boundary
+    u32 act_freq = INTERNAL_STATE.bus_clock_freq_khz;
+    u32 prev_req_freq = 0;
 
-    /*
-     * Try and get the current operating
-     * frequency -- THIS IS ON A BEST-EFFORT
-     * BASIS!
-     * We use the 'cpufreq' subsystem for this.
-     */
-    act_freq = cpufreq_quick_get(cpu);
-
-    OUTPUT(3, KERN_INFO "CPU[%d]: act_freq = %u\n", cpu, act_freq);
     {
-	/*
-	 * We KNOW TSC exists -- no
-	 * need for 'safe' variant.
-	 */
-	int ret = rdmsr_safe_on_cpu(cpu, 0x10, &l, &h);
-	if(ret){
-	    printk(KERN_INFO "WARNING: rdmsr of TSC failed with code %d\n", ret);
-	}
-	tsc = h;
-	tsc <<= 32;
-	tsc += l;
-    }
-
-    sample.sample_type = P_STATE;
-    sample.cpuidx = cpu;
-    sample.tsc = tsc;
-    sample.p_sample.frequency = act_freq;
-    sample.p_sample.is_boundary_sample = is_start ? 1 : 2; // "1" ==> START boundary, "2" ==> STOP boundary
-
-    /*
-     * New scheme also requires we read APERF, MPERF MSRs.
-     */
-    {
-        u64 aperf = 0, mperf = 0;
-
-        rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[APERF], aperf);
-        rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], mperf);
-
-        sample.p_sample.unhalted_core_value = aperf;
-        sample.p_sample.unhalted_ref_value = mperf;
+        int ret = rdmsr_safe_on_cpu(cpu, 0x10, &l, &h);
+        if(ret){
+            OUTPUT(0, KERN_INFO "WARNING: rdmsr of TSC failed with code %d\n", ret);
+        }
+        tsc = h;
+        tsc <<= 32;
+        tsc += l;
     }
 
     /*
-     * OK, everything computed. Now copy
-     * this sample into an output buffer
+     * Read the IA32_PERF_STATUS MSR. Bits 12:8 (Atom) or 15:0 (big-core) of this determines the frequency
+     * the H/W is currently running at.
      */
-    copy_sample_i(cpu, &sample, false); // "false" ==> don't wake any sleeping readers (required from scheduling context, or from "smp_call_function" context)
+    {
+        WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
+        perf_status = l; // We're only interested in the lower 16 bits!
+    }
+
+    /*
+     * OK, try and get the actual frequency; this is the perf_status value multiplied by the
+     * FSB frequency.
+     */
+    if (PW_is_atm) {
+        act_freq *= ((perf_status >> 8) & 0xf); // bits [12:8]
+    } else {
+        act_freq *= (perf_status & 0xffff); // bits [15:0]
+    }
+
+    /*
+     * Retrieve the previous requested frequency.
+     */
+    if (is_start == false) {
+        prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
+    }
+    per_cpu(pcpu_prev_req_freq, cpu) = act_freq;
+
+    produce_p_sample(cpu, tsc, prev_req_freq, act_freq, is_boundary);
+
 };
 
+#if DO_GENERATE_CURRENT_FREQ_IN_PARALLEL
 static void generate_cpu_frequency(void *start)
 {
     int cpu = raw_smp_processor_id();
@@ -6136,6 +6176,7 @@ static void generate_cpu_frequency(void *start)
 
     generate_cpu_frequency_per_cpu(cpu, is_start);
 }
+#endif
 
 /*
  * Measure current CPU operating
@@ -6306,6 +6347,7 @@ int start_collection(PWCollector_cmd_t cmd)
 	    start_s_residency_counter();
             //do_gettimeofday(cur_time);
             startJIFF_s_residency = CURRENT_TIME_IN_USEC();
+            produce_s_residency_sample(0);
     }
 #endif
 
@@ -6314,6 +6356,7 @@ int start_collection(PWCollector_cmd_t cmd)
 	    start_d_sc_residency_counter();
             startJIFF_d_sc_residency = CURRENT_TIME_IN_USEC();
             prev_sample_usec = CURRENT_TIME_IN_USEC();
+            produce_d_sc_residency_sample(0);
     }
 #endif
 
@@ -6352,8 +6395,9 @@ int stop_collection(PWCollector_cmd_t cmd)
 
 #if DO_D_SC_RESIDENCY_SAMPLE
     if(PW_is_atm && IS_D_SC_RESIDENCY_MODE()){
-        if (dump_d_sc_residency_counter() > 0) {
-            produce_d_sc_residency_sample();
+        u64 usec = dump_d_sc_residency_counter();
+        if (usec > 0) {
+            produce_d_sc_residency_sample(usec);
         }
         stop_d_sc_residency_counter();
     }
@@ -6399,7 +6443,7 @@ int stop_collection(PWCollector_cmd_t cmd)
         }
     }
 
-   
+
 
     // Reset the (per-cpu) "per_cpu_t" structs that hold MSR residencies
     {
@@ -6942,9 +6986,14 @@ bool is_atm(void)
      * be updated for each new
      * architecture type!!!
      */
-    if (family == 0x6 && model == 0x27) {
-        // MFLD
-        return true;
+    if (family == 0x6) {
+        if (model == 0x27) {
+            // MFLD
+            return true;
+        } else if (model == 0x35) {
+            // CLV
+            return true;
+        }
     }
     return false;
 };
