@@ -87,10 +87,11 @@
  * Current driver version is 2.2.7
  * Current driver version is 3.0.0
  * Current driver version is 3.0.1
+ * Current driver version is 3.0.2
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 0
-#define PW_VERSION_OTHER 1
+#define PW_VERSION_OTHER 2
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -1536,7 +1537,7 @@ static int init_output_sets(void)
     }
 
     curr_output_set_index = 0;
-	
+
     current_output_set = output_sets[curr_output_set_index];
     return SUCCESS;
 };
@@ -3067,7 +3068,7 @@ static inline void produce_w_sample(int cpu, u64 tsc, w_sample_type_t type, pid_
 /*
  * Insert a P-state transition sample into a (per-cpu) output buffer.
  */
-static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 req_freq, u32 act_freq, u8 is_boundary_sample)
+static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 req_freq, u32 act_freq, u8 is_boundary_sample, u64 aperf, u64 mperf)
 {
     struct PWCollector_sample sample;
 
@@ -3078,8 +3079,8 @@ static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 req_fre
     sample.p_sample.frequency = act_freq;
     sample.p_sample.is_boundary_sample = is_boundary_sample;
 
-    sample.p_sample.unhalted_core_value = 0;
-    sample.p_sample.unhalted_ref_value = 0;
+    sample.p_sample.unhalted_core_value = aperf;
+    sample.p_sample.unhalted_ref_value = mperf;
 
     /*
      * OK, everything computed. Now copy
@@ -3929,9 +3930,9 @@ static u64 my_local_arch_irq_stats_cpu(void)
 
     BEGIN_LOCAL_IRQ_STATS_READ(stats);
     {
-// #ifdef CONFIG_X86_LOCAL_APIC
+#ifdef CONFIG_X86_LOCAL_APIC
         sum += stats->apic_timer_irqs;
-// #endif
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
         sum += stats->x86_platform_ipis;
 #endif // 2,6,34
@@ -4308,7 +4309,7 @@ static DEFINE_PER_CPU(u32, pcpu_prev_req_freq) = 0;
  */
 static void tpf(int cpu, unsigned int type, u32 req_freq)
 {
-    u64 tsc = 0;
+    u64 tsc = 0, aperf = 0, mperf = 0;
     u32 l=0, h=0;
     u32 prev_req_freq = 0;
     u32 prev_act_freq = INTERNAL_STATE.bus_clock_freq_khz;
@@ -4328,7 +4329,17 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
      */
     WARN_ON(rdmsr_safe_on_cpu(cpu, 0x10, &l, &h));
     tsc = (u64)h << 32 | (u64)l;
+    /*
+     * Read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE. These required ONLY for AXE import
+     * backward compatibility!
+     */
+    {
+        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[APERF], &l, &h));
+        aperf = (u64)h << 32 | (u64)l;
 
+        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], &l, &h));
+        mperf = (u64)h << 32 | (u64)l;
+    }
     /*
      * Read the IA32_PERF_STATUS MSR. Bits 12:8 (on Atom ) or 15:0 (on big-core) of this determines
      * the frequency the H/W is currently running at.
@@ -4353,7 +4364,7 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
     prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
     per_cpu(pcpu_prev_req_freq, cpu) = req_freq;
 
-    produce_p_sample(cpu, tsc, prev_req_freq, prev_act_freq, 0 /* boundary */); // "0" ==> NOT a boundary sample
+    produce_p_sample(cpu, tsc, prev_req_freq, prev_act_freq, 0 /* boundary */, aperf, mperf); // "0" ==> NOT a boundary sample
 
     OUTPUT(0, KERN_INFO "[%d]: TSC = %llu, OLD_req_freq = %u, NEW_REQ_freq = %u, perf_status = %u, ACT_freq = %u\n", cpu, tsc, prev_req_freq, req_freq, perf_status, prev_act_freq);
 
@@ -5645,9 +5656,9 @@ static inline bool is_cmd_valid(PWCollector_cmd_t cmd)
 	    return false;
     }
     else if(is_collecting && (cmd == START || cmd == RESUME))
-    	return false;
+        return false;
     else if(!is_collecting && (cmd == STOP || cmd == PAUSE || cmd == CANCEL))
-    	return false;
+        return false;
 
     return true;
 };
@@ -6121,7 +6132,7 @@ static void reset_trace_sent_fields(void)
 static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
 {
     u32 l=0, h=0;
-    u64 tsc = 0;
+    u64 tsc = 0, aperf = 0, mperf = 0;
     u32 perf_status = 0;
     u8 is_boundary = (is_start) ? 1 : 2; // "0" ==> NOT boundary, "1" ==> START boundary, "2" ==> STOP boundary
     u32 act_freq = INTERNAL_STATE.bus_clock_freq_khz;
@@ -6151,7 +6162,7 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      * FSB frequency.
      */
     if (PW_is_atm) {
-        act_freq *= ((perf_status >> 8) & 0xf); // bits [12:8]
+        act_freq *= ((perf_status >> 8) & 0x1f); // bits [12:8]
     } else {
         act_freq *= (perf_status & 0xffff); // bits [15:0]
     }
@@ -6164,7 +6175,17 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
     }
     per_cpu(pcpu_prev_req_freq, cpu) = act_freq;
 
-    produce_p_sample(cpu, tsc, prev_req_freq, act_freq, is_boundary);
+    /*
+     * Also read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE. These required ONLY for AXE import
+     * backward compatibility!
+     */
+    {
+        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[APERF], &l, &h));
+        aperf = (u64)h << 32 | (u64)l;
+        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], &l, &h));
+        mperf = (u64)h << 32 | (u64)l;
+    }
+    produce_p_sample(cpu, tsc, prev_req_freq, act_freq, is_boundary, aperf, mperf);
 
 };
 
