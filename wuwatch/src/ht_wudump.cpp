@@ -346,10 +346,10 @@ void CDumper::operator()(const PWCollector_sample_t& sample)
          * the 'm_tps_state_to_c_state' mapping. No
          * need to do so again.
          */
-        sprintf(req_str, "%d", cs->prev_state);
+        snprintf(req_str, sizeof(req_str), "%d", cs->prev_state);
     }
 
-    sprintf(cx_str, "%d", which_cx);
+    snprintf(cx_str, sizeof(req_str), "%d", which_cx);
 
     if (m_do_dump_tscs) {
         // fprintf(output_fp, "%20llu\t%8d\t%7s\t%15s\t%20llu K", tsc, cpu, cx_str, req_str, cx_res / 1000); // print Cx
@@ -494,7 +494,7 @@ void PDumper::operator()(const PWCollector_sample_t& sample)
         req_str = DONT_CARE;
     } else {
         char tmp[10];
-        sprintf(tmp, "%u", act_freq);
+        snprintf(tmp, sizeof(tmp), "%u", act_freq);
         req_str = tmp;
     }
 

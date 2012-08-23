@@ -47,6 +47,14 @@
  * How many frame addresses do we want for the backtrace?
  */
 #define MAX_BACKTRACE_SIZE 20
+/*
+ * Do we dump traces in binary format?
+ * '1' ==> YES, traces will be in binary.
+ * '0' ==> NO, traces will be in plain-text.
+ *
+ * WARNING: do NOT set to '1'!!!
+ */
+#define DO_DUMP_BINARY_TRACE 0
 
 /* **************************************
  * Typedefs and forward declarations.
@@ -104,9 +112,11 @@ struct trace {
     trace(pid_t p=-1, pid_t t=-1, void *r=NULL);
     ~trace();
 
+#if DO_DUMP_BINARY_TRACE 
     void serialize(FILE *fp);
     void deserialize(FILE *fp);
     void deserialize(FILE *fp, trace_pair_map_t&);
+#endif
 
     void read(std::deque<std::string>&, trace_pair_map_t&);
 
@@ -150,10 +160,12 @@ class Tracer {
     static Tracer *instance();
     static void destroy();
 
+#if DO_DUMP_BINARY_TRACE 
     void serialize_traces(trace_map_t*, FILE *fp=stderr);
     void deserialize_traces(FILE *fp=stderr, trace_vec_t *output=NULL);
     void deserialize_traces(FILE *, trace_vec_t&, trace_pair_map_t&);
     void deserialize_traces(FILE *, trace_list_t&, trace_pair_map_t&);
+#endif
 
     void read_traces(FILE *, trace_vec_t&, trace_pair_map_t&, std::string&);
 

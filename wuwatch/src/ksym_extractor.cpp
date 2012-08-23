@@ -239,9 +239,9 @@ namespace wuwatch
 	    memset(tmp_str, 0, sizeof(char) * 1024);
 	    {
 #if ADD_NEWLINE_TO_K_BACKTRACE
-		sprintf(tmp_str, "%s+0x%x %s [<%lx>]\n", sym_name, offset, mod_name, addr);
+		snprintf(tmp_str, sizeof(tmp_str), "%s+0x%x %s [<%lx>]\n", sym_name, offset, mod_name, addr);
 #else
-		sprintf(tmp_str, "%s+0x%x %s [<%lx>]", sym_name, offset, mod_name, addr);
+		snprintf(tmp_str, sizeof(tmp_str), "%s+0x%x %s [<%lx>]", sym_name, offset, mod_name, addr);
 #endif // ADD_NEWLINE_TO_K_BACKTRACE
 	    }
 	    out_vec.push_back(std::string(tmp_str));

@@ -71,6 +71,7 @@ void Tracer::destroy(){
     s_tracer = NULL;
 };
 
+#if DO_DUMP_BINARY_TRACE 
 /*
  * INTERNAL helper: write data to disk.
  * @d: ptr to data to write to disk
@@ -131,6 +132,17 @@ static inline void write_string(char *str, FILE *fp)
  */
 static inline char *read_string(int len, FILE *fp)
 {
+    /*
+     * Sanity: make sure the string being read is not TOO large!
+     * It's OK to make this check here: 'read_string' is only called
+     * to deserialize backtrace information, and it's reasonable
+     * to assume a single entry in a call trace won't be larger than
+     * 1024 bytes!
+     */
+    if (len > 1024) {
+        fprintf(stderr, "Warning: trace was %d bytes long; truncating to 1024 bytes!\n", len);
+        len = 1024;
+    }
     char *retVal = (char *)malloc(len+1);
     int num = len;
 
@@ -267,6 +279,7 @@ void Tracer::deserialize_traces(FILE *fp, trace_list_t& trace_list, trace_pair_m
 	trace_list.push_back(trace);
     }
 };
+#endif // DO_DUMP_BINARY_TRACE 
 
 /*
  * INTERNAL helper: remove the first string from 'lines'
@@ -384,6 +397,7 @@ trace::~trace(){
     }
 };
 
+#if DO_DUMP_BINARY_TRACE 
 /*
  * Function to serialize a single trace.
  * @fp: the output file.
@@ -424,6 +438,7 @@ void trace::serialize(FILE *fp){
 	exit(-1);
     }
 };
+#endif // DO_DUMP_BINARY_TRACE 
 /*
  * Helper funtion. Checks to ensure 'tok' is present
  * in 'line'.
@@ -517,6 +532,7 @@ void trace::read(std::deque<std::string>& lines, trace_pair_map_t& pair_map)
 
 };
 
+#if DO_DUMP_BINARY_TRACE 
 /*
  * Function to deserialize a single trace.
  * @fp: the input file.
@@ -527,6 +543,11 @@ void trace::deserialize(FILE *fp, trace_pair_map_t& pair_map){
     uint64_t begin, end;
 
     read_data(len, fp);
+
+    /*
+     * Sanity: assume the total size of the trace can't be more than 64KB!
+     */
+    assert(len <= 65536);
 
     char *data = new char[len+1];
 
@@ -602,6 +623,11 @@ void trace::deserialize(FILE *fp){
     // # trace entries
     read_data(num_trace, fp);
     int numTrace = num_trace;
+    /*
+     * Sanity: assume the number of entries in the call stack
+     * can't be more than 1024.
+     */
+    assert(numTrace <= 1024);
     bt_symbols = (char **)calloc(numTrace, sizeof(char *));
     for(int j=0; j<numTrace; ++j){
 	read_data(len, fp);
@@ -614,6 +640,7 @@ void trace::deserialize(FILE *fp){
 	head_tsc = new tsc_pair_t(cpu, begin, end, head_tsc);
     }
 };
+#endif // DO_DUMP_BINARY_TRACE 
 
 
 /*

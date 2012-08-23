@@ -1,49 +1,12 @@
-/*****************************************************************************
-#                      INTEL CONFIDENTIAL
-#
-# Copyright 2009-2012 Intel Corporation All Rights Reserved.
-#
-# This file is provided for internal use only. You are free to modify it
-# for your own internal purposes, but you cannot release it to the external
-# open source community under any circumstances without SSG.DPD's approval.
-#
-# If you make significant improvements, fix bugs, or have suggestions for
-# additional features or improvements, please provide your changes to
-# Robert or Gautam for inclusion in this tool.
-#
-# Please contact Robert Knight (robert.knight@intel.com) or Gautam Upadhyaya
-# (gautam.upadhyaya@intel.com) if you have any questions.
-#
-*****************************************************************************
-*/
-
-/* ******************************************
- * The HT-aware power library.
- * Contains code to read/parse/correlate raw
- * power driver information.
- * ******************************************
- */
-
 #include <stdio.h>
 #include <fcntl.h>		/* open */
-#include <unistd.h>		/* exit */
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include <sys/time.h>
 #include <signal.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <dirent.h>
 #include <errno.h>
-//#include <sys/un.h>
-#include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/mman.h>
-#include <semaphore.h>
 #include <assert.h>
-#include <sys/utsname.h>
 
 #include <string>
 #include <iostream>
@@ -56,20 +19,30 @@
 #include <algorithm> // for "std::sort"
 #include <sstream>
 
-#include "pw_ioctl.h" // IOCTL stuff.
-#include "pw_arch.h" // Architecture info.
-#include "pw_bt.h"
-#include "pw_utils.hpp"
-#include "ksym_extractor.hpp"
-#include "defines.h"
-#include "wulib_defines.h"
-#include "wulib.h"
+#include <boost/tokenizer.hpp>
+#include <boost/algorithm/string.hpp>
+// #include <boost/filesystem.hpp>
 
-/* *****************************************
+#include "../inc/pwr.hpp"
+#include "../inc/pwr_types.hpp"
+#include "../inc/pwr_wulib.hpp"
+
+#if defined(__linux__)
+#define ATOULL(nptr, endptr, base) strtoull(nptr, endptr, base)
+#elif defined(_WIN32)
+#define ATOULL(nptr, endptr, base) (unsigned long long)_strtoui64(nptr, endptr, base)
+#endif
+
+#define PWR_WULIB_VERSION_VERSION 2
+#define PWR_WULIB_VERSION_INTERFACE 2
+#define PWR_WULIB_VERSION_OTHER 6
+
+
+/*
  * Debugging tools.
- * *****************************************
  */
-extern bool g_do_debugging;
+bool g_do_dump_samples = false;
+bool g_do_debugging = false;
 #define db_fprintf(...) do { \
     if (g_do_debugging) { \
         fprintf(__VA_ARGS__); \
@@ -93,18 +66,62 @@ extern bool g_do_debugging;
     } \
 } while(0)
 
-/* *****************************************
+/*
+ * Some usefule macros and constants.
+ */
+/*
+ * The default output file name.
+ */
+#define DEFAULT_WUWATCH_OUTPUT_FILE_NAME "wuwatch_output.ww1"
+/*
+ * How many samples to read at one go?
+ */
+#define NUM_MSGS_TO_READ 1024
+/*
+ * Some useful macros.
+ */
+/*
+ * Get string equivalent of a boolean var.
+ */
+#define GET_BOOL_STRING(b) ( (b) ? "TRUE" : "FALSE" )
+/*
+ * Does this "SCHED_WAKEUP" sample have the same
+ * source and destination cpus?
+ */
+#define IS_SELF_SCHED_SAMPLE(sample) ( GET_CORE_GIVEN_LCPU((sample)->cpuidx) == GET_CORE_GIVEN_LCPU((sample)->e_sample.data[1]) )
+/*
+ * Is this a valid wakeup cause?
+ */
+#define IS_INVALID_WAKEUP_CAUSE(c_group) ( (c_group).wakeup_sample == NULL || ( (c_group).wakeup_sample->sample_type == SCHED_SAMPLE && IS_SELF_SCHED_SAMPLE((c_group).wakeup_sample) ) )
+/*
+ * Helper macro to iterate over a range.
+ */
+#define FOR_EACH(index, begin, end) \
+    for (index = (begin); index <= (end); index = advance_i(index))
+/*
+ * Helper macro to iterate (in reverse) over a
+ * range.
+ */
+#define FOR_EACH_REVERSE(index, begin, end) \
+    for (index = (end); index >= (begin); index = radvance_i(index))
+
+#define ME(w) ( (w).m_me )
+#define PER_CPU_PW_LIST(w) ( (w).m_pw_samples )
+#define PER_CPU_SAMPLE_LIST(w) ( (w).m_samples )
+
+#define NUMBER_OF_BREAKTYPES_DEPRECATED 5
+#define NUMBER_OF_BREAKTYPES 6
+
+/*
  * Forward declarations.
- * *****************************************
  */
 namespace pwr {
     class WuParser;
     struct CGroup;
 }
 
-/* *****************************************
+/*
  * Some useful typedefs.
- * *****************************************
  */
 typedef std::list<PWCollector_sample_t> sample_list_t;
 typedef std::vector<std::string> str_vec_t;
@@ -118,16 +135,23 @@ typedef std::pair <int,int> int_pair_t;
 typedef std::vector <int_pair_t> pair_vec_t;
 typedef std::vector <pwr::CGroup> c_group_vec_t;
 
-typedef std::pair <uint64_t, uint64_t> u64_pair_t;
-typedef std::list <u64_pair_t> p_sample_list_t;
+typedef std::pair <pw_u64_t, pw_u64_t> p_sample_pair_t;
+typedef std::list <p_sample_pair_t> p_sample_list_t;
 typedef std::map <int, p_sample_list_t> p_sample_map_t;
-typedef std::map <int, u64_pair_t> core_tsc_map_t;
-typedef std::map <int, std::pair <u64, u64> > aperf_mperf_map_t;
 
-/* *****************************************
- * Data structure definitions.
- * *****************************************
+typedef std::map <int, std::pair <pw_u64_t, pw_u64_t> > core_tsc_map_t;
+typedef std::map <int, std::pair <pw_u64_t, pw_u64_t> > aperf_mperf_map_t;
+
+typedef boost::tokenizer<boost::char_separator<char> > StringTokenizer;
+
+/*
+ * Helper data structs.
  */
+typedef enum{
+    NHM=0,
+    SNB,
+    MFD
+}arch_type_t;
 
 /*
  * Template specializations to allow
@@ -155,7 +179,7 @@ namespace pwr {
 
 
     /*
-     * Parser class -- reads wuwatch data, parses it and converts v3 pwr samples to v2 format.
+     * Parser class -- reads wuwatch data, parses it and converts 226 pwr samples to 224 format.
      */
     class WuParser {
         private:
@@ -180,15 +204,9 @@ namespace pwr {
              */
             fp_vec_t m_lib_input_fps;
             /*
-             * A list of valid frequencies. We will eventually
-             * get this either from the driver, or from
-             * the "sys" file system. For now, default to MFLD
-             * values.
-             * **********************************************
-             * WARNING: LAST ENTRY IN ARRAY MUST BE ZERO!!!
-             * **********************************************
+             * A list of valid frequencies, obtained from driver.
              */
-            std::vector <u32> m_availableFrequenciesKHz;
+            std::vector <pw_u32_t> m_availableFrequenciesKHz;
             /*
              * # cpus on TARGET machine
              * i.e. on machine where experiment
@@ -197,14 +215,10 @@ namespace pwr {
             int PW_max_num_cpus;
             /*
              * List of PWCollector_sample_t instances
-             * output by the DD, organized by (logical) CPU.
+             * output by the DD, organized by
+             * (logical)CPU.
              */
             sample_list_t *m_per_cpu_sample_lists;
-            /*
-             * List of P-state sample instances output by the DD, organized
-             * by (logical) CPU.
-             */
-            sample_list_t *m_per_cpu_p_sample_lists;
             /*
              * List of SCHED_SAMPLE PWCollector_sample_t instances
              * output by the DD, organized by the (logical)
@@ -215,19 +229,6 @@ namespace pwr {
 #if DO_TPS_EPOCH_COUNTER
             sample_list_t *m_per_cpu_sched_sample_lists;
 #endif // DO_TPS_EPOCH_COUNTER
-            /*
-             * Map to hold tid <-> backtrace information.
-             * This info is generated by the hook library,
-             * and by the kernel (for kernel call stacks).
-             */
-            trace_pair_map_t m_trace_pair_map;
-            /*
-             * Convenience vector to hold dynamically allocated
-             * (user-space) back traces. Storing those traces
-             * here allows us to (quickly) track and deallocate
-             * them when the time comes.
-             */
-            trace_vec_t m_trace_vec;
             /*
              * Map to hold the FIRST and LAST TSCs of each core. Basically
              * the first sample that we see and the last sample that we
@@ -242,11 +243,6 @@ namespace pwr {
              */
             sample_list_t m_all_samples_list;
             /*
-             * A copy of ALL samples returned by the driver. Used ONLY
-             * if we want to dump original samples.
-             */
-            sample_list_t *m_all_orig_samples;
-            /*
              * List of samples to output. We have one
              * list for each CORE.
              * (For now -- assume single-core ala MFLD).
@@ -259,31 +255,9 @@ namespace pwr {
              */
             sample_list_t m_output_p_samples;
             /*
-             * Flag to indicate whether
-             * we should dump backtrace
-             * information.
-             */
-            bool m_do_dump_backtraces;
-            /*
              * Should we dump TPS groups?
              */
             bool m_do_dump_tps_groups;
-            /*
-             * Should we try and do a basic sanity test?
-             * This test involves summing up all of the
-             * C0, C1, C2 ... residencies and ensuring
-             * this sum is equal to the difference in
-             * the TSC values of the last C-state sample
-             * and the first C-state sample i.e. ensure
-             * Sigma(Cx, 0<=x<=9) == TSC(last C-state sample) - TSC (first C-state sample)
-             */
-            bool m_do_cx_c0_sanity_test;
-            /*
-             * Should we dump original samples i.e. samples as returned by
-             * the driver (without any post-processing other than basic
-             * sorting wrt tsc)?
-             */
-            bool m_do_dump_orig_samples;
             /*
              * Should we try and determine C1 residencies?
              */
@@ -296,35 +270,6 @@ namespace pwr {
              * 'sys_params_found' section.
              */
             bool m_was_any_tpf_sample_present;
-            /*
-             * We need to keep track of the total collection time. This is merely
-             * the TSC of the last C-state sample - TSC of the first core mwait.
-             * We need a bit of extra logic because the collection time is really
-             * the MAX of the collection times of the individual cores.
-             */
-            u64 m_total_collection_time;
-            /*
-             * Number of online cores to be considered for wakeup purposes. 
-             * Same as 'sysInfo.m_coreCount' EXCEPT FOR MEDFIELD (where it
-             * is ALWAYS 1).
-             */
-            int m_wakeupCoreCount;
-            /*
-             * Helper map to associate threads with cores.
-             * Same as 'sysInfo.m_htMap' EXCEPT FOR MEDFIELD!
-             */
-            std::map <int, int> m_htMap;
-            /*
-             * Helper map to retrieve all threads belonging to a given core i.e. the 'sibling threads'
-             * of a given core.
-             * (Basically, the inverse of 'sysInfo.m_htMap'
-             */
-            std::map <int, std::vector <int> > m_threadSiblingMap;
-            /*
-             * Should we inject duplicate C-state samples for the various cores in a given
-             * package? ONLY FOR CLOVERVIEW/CLOVERTRAIL.
-             */
-            bool m_do_inject_dup_c_sample; 
             /*
              * Repository for system configuration info.
              */
@@ -340,26 +285,29 @@ namespace pwr {
             int do_parse_i();
             int do_sort_and_collate_i();
 
-            int get_sys_params_i(FILE *, u64&);
+            int get_sys_params_i(FILE *, pw_u64_t&);
 
-            std::string get_required_token_i(std::string , int , int , const char *);
+            std::string get_required_token_i(const std::string& , int , int , const char *);
+            void get_all_tokens_i(str_vec_t&, const std::string&, const char *) const;
+            int my_getline_i(std::string& line, FILE *fp);
+            int get_all_lines_i(FILE *fp, std::deque<std::string>& lines);
 
             int fsm_begin_i(const sample_vec_t& samples, int from, int to, c_group_vec_t& c1_groups);
             int fsm_c_half_i(const sample_vec_t& samples, int to, int index, c_group_vec_t& c1_groups);
             int fsm_c_one_i(const sample_vec_t& samples, int to, int index, int group_beg_index, c_group_vec_t& c1_groups);
-            int inlined_fsm_i(const sample_vec_t& samples, int from, int to, int core, c_group_vec_t& c1_groups);
+            int inlined_fsm_i(const sample_vec_t& samples, int from, int to, c_group_vec_t& c1_groups);
 
-            int do_c1_calcs_i(const sample_vec_t& samples, int from, int to, sample_vec_t& c1_output_samples, int core, int which_group, u64& prev_cx_end_tsc);
-            int calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_beg, int curr_end, int group_num, u64& c1_delta, u64& c0);
-            int calc_last_c1_c0_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_end, u64& c1_delta, u64& c0);
+            int do_c1_calcs_i(const sample_vec_t& samples, int from, int to, sample_vec_t& c1_output_samples, int core, int which_group, pw_u64_t& prev_cx_end_tsc);
+            int calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_beg, int curr_end, int group_num, pw_u64_t& c1_delta, pw_u64_t& c0);
+            int calc_last_c1_c0_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_end, pw_u64_t& c1_delta, pw_u64_t& c0);
 
             int calc_cx_mwait_hint_i(const sample_vec_t& samples, int from, int to, int& requested_cx);
-            int calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev_end, const PWCollector_sample_t& curr_end, int& which, u64& cx_delta, u64& c0, const u64 &prev_cx_begin_tsc, const u64& prev_cx_end_tsc);
-            int calc_wakeup_cause_i(const sample_vec_t& samples, int from, int to, bool allow_sched_wakeups, PWCollector_sample_t *wakeup_sample);
+            int calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev_end, const PWCollector_sample_t& curr_end, int& which, pw_u64_t& cx_delta, pw_u64_t& c0, const pw_u64_t &prev_cx_begin_tsc, const pw_u64_t& prev_cx_end_tsc);
+            int calc_wakeup_cause_i(const sample_vec_t& samples, int from, int to, bool allow_self_sched_wakeups, PWCollector_sample_t *wakeup_sample);
 
             int calc_aperf_mperf_deltas_i(const sample_vec_t& samples, int prev_end, int curr_end, aperf_mperf_map_t& aperf_mperf_map, sample_list_t& tmp_p_samples);
-            int calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const u64& min_tsc, const u64& max_tsc);
-            int calc_actual_frequency_i(const double& aperf_mperf_ratio, u32& actual_freq);
+            int calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const pw_u64_t& min_tsc, const pw_u64_t& max_tsc);
+            int calc_actual_frequency_i(const double& aperf_mperf_ratio, pw_u32_t& actual_freq);
 
             int advance_i(int index);
 
@@ -367,16 +315,13 @@ namespace pwr {
             void dump_tps_groups_i(const sample_vec_t& sorted_vec, const pair_vec_t& indices);
             void dump_tps_groups_i(const sample_vec_t& sorted_vec, const c_group_vec_t& indices);
 
-            PWCollector_sample_t create_tps_collector_sample_i(u8 break_type, u8 which_cx, u8 req_cx, u16 cpu, const u64& tsc, const u64& c0, const u64& cx, const PWCollector_sample_t& wu_sample);
-            PWCollector_sample_t create_tpf_collector_sample_i(u16 is_boundary, u16 cpu, u32 freq, const u64& tsc, const u64& unhlt_core, const u64& unhlt_ref);
+            PWCollector_sample_t create_tps_collector_sample_i(pw_u8_t break_type, pw_u8_t which_cx, pw_u8_t req_cx, pw_u16_t cpu, const pw_u64_t& tsc, const pw_u64_t& c0, const pw_u64_t& cx, const PWCollector_sample_t& wu_sample);
+            PWCollector_sample_t create_tpf_collector_sample_i(pw_u16_t is_boundary, pw_u16_t cpu, pw_u32_t freq, const pw_u64_t& tsc, const pw_u64_t& unhlt_core, const pw_u64_t& unhlt_ref);
 
             void dump_pwcollector_sample_i(const PWCollector_sample_t& pwc_sample);
 
             bool check_sorted_i(int cpu);
             void sort_data_i(int cpu);
-
-            std::vector <int> get_all_threads_of_i(int core);
-            int get_core_given_lcpu_i(int lcpu);
 
 #if DO_TPS_EPOCH_COUNTER
             void do_sort_sched_list_i(int core);
@@ -385,19 +330,19 @@ namespace pwr {
 
         public:
 
-            WuParser(SystemInfo&, bool, bool);
+            WuParser(SystemInfo&);
             ~WuParser();
 
             int do_work();
 
             void set_wuwatch_output_file_name(const std::string&, const std::string&);
+            // void set_wuwatch_output_file_name(const std::string&);
     };
 } // pwr
 
 
-/* *****************************************
- * Some useful function declarations.
- * *****************************************
+/*
+ * Some useful functions.
  */
 void operator<<(std::ostream& os, const PWCollector_sample_t& samp);
 void operator<<(std::ostream& os, const int_pair_t& p);
@@ -405,10 +350,6 @@ bool operator==(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2);
 bool operator!=(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2);
 bool operator<(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2);
 
-/* *****************************************
- * Variable declarations.
- * *****************************************
- */
 /*
  * For HT-testing. These correspond to the various
  * "sample_type_t" enum values. We have a long and 
@@ -418,29 +359,15 @@ static const char *s_long_sample_names[] = {"FREE_SAMPLE", "TPS", "TPF", "K_CALL
 static const char *s_short_sample_names[] = {"FREE_SAMPLE", "C", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "T", "I", "W", "S", "IPI", "TPE", "WL", "?"};
 
 
-/* *****************************************
- * Function definitions.
- * *****************************************
- */
-
-/*
- * The parser constructor.
- */
-pwr::WuParser::WuParser(SystemInfo& info, bool should_calc_c1, bool should_dump_orig) : sysInfo(info),
-    PW_max_num_cpus(-1), m_per_cpu_sample_lists(NULL), m_per_cpu_p_sample_lists(NULL),
+pwr::WuParser::WuParser(SystemInfo& info) : sysInfo(info),
+    PW_max_num_cpus(-1), m_per_cpu_sample_lists(NULL), 
 #if DO_TPS_EPOCH_COUNTER
     m_per_cpu_sched_sample_lists(NULL),
 #endif
-    m_do_dump_backtraces(false), m_do_check_c1_res(should_calc_c1),
-    m_do_dump_tps_groups(false), m_do_cx_c0_sanity_test(false),
-    m_do_dump_orig_samples(should_dump_orig), m_was_any_tpf_sample_present(false),
-    m_total_collection_time(0), 
-    m_wakeupCoreCount(0), m_do_inject_dup_c_sample(false),
+    m_do_check_c1_res(true),
+    m_do_dump_tps_groups(false), m_was_any_tpf_sample_present(false),
     m_combined_input_file_name(""), m_output_file_name("./parser_output.txt") {};
 
-/*
- * The parser destructor.
- */
 pwr::WuParser::~WuParser()
 {
     fp_vec_t::iterator iter;
@@ -451,15 +378,10 @@ pwr::WuParser::~WuParser()
         }
     }
 
-    if (m_do_dump_orig_samples) {
-        delete []m_all_orig_samples;
-    }
-
 #if DO_TPS_EPOCH_COUNTER
     delete []m_per_cpu_sched_sample_lists;
 #endif // DO_TPS_EPOCH_COUNTER
     delete []m_per_cpu_sample_lists;
-    delete []m_per_cpu_p_sample_lists;
 };
 
 /*
@@ -469,28 +391,12 @@ pwr::WuParser::~WuParser()
 pwr::SystemInfo::SystemInfo():m_microPatchVer(0) {};
 pwr::SystemInfo::~SystemInfo() {};
 
+
 pwr::WuData *pwr::WuData::s_data = NULL;
 
-/*
- * INTERNAL API:
- * Create a PWCollector_sample for a given 'wakeup'.
- *
- * @break_type: the wakeup type. One of the 'sample_type_t' enum values.
- * @which_cx: the C-state the core was actually executing at.
- * @req_cx: the C-state the OS had requested. May be different from @which_cx due to promotion/demotion.
- * @cpu: the logical processor that entered the C-state.
- * @tsc: TSC at which the core exitted the C-state.
- * @c0: The C0 residency.
- * @cx: the C-state residency
- * @wu_sample: Description of the wakeup cause.
- *
- * @returns: a PWCollector_sample instance corresponding to the given sleep state.
- */
-PWCollector_sample_t pwr::WuParser::create_tps_collector_sample_i(u8 break_type, u8 which_cx, u8 req_cx, u16 cpu, const u64& tsc, const u64& c0, const u64& cx, const PWCollector_sample_t& wu_sample)
+PWCollector_sample_t pwr::WuParser::create_tps_collector_sample_i(pw_u8_t break_type, pw_u8_t which_cx, pw_u8_t req_cx, pw_u16_t cpu, const pw_u64_t& tsc, const pw_u64_t& c0, const pw_u64_t& cx, const PWCollector_sample_t& wu_sample)
 {
     PWCollector_sample_t sample;
-    int wakeup_cpuidx = wu_sample.cpuidx;
-
     memset(&sample, 0, sizeof(sample));
 
     sample.sample_type = C_STATE;
@@ -498,17 +404,18 @@ PWCollector_sample_t pwr::WuParser::create_tps_collector_sample_i(u8 break_type,
     sample.tsc = tsc;
 
     sample.c_sample.prev_state = req_cx;
-    
+    /*
+     * We no longer need the 'EPOCH' field.
+     * Use it to store the ACTUAL 'Cx' granted.
+     */
+    sample.c_sample.tps_epoch = which_cx;
+
     RES_COUNT(sample.c_sample, MPERF) = c0; RES_COUNT(sample.c_sample, which_cx) = cx;
     /*
      * Need to convert 'break_type' to its 'PW_BREAK_TYPE_xxx' equivalent.
      * e.g. "TIMER_SAMPLE" <--> PW_BREAK_TYPE_T etc.
      */
     switch (break_type) {
-        case FREE_SAMPLE:
-            /* Only happens if we're inserting a 'Ghost' sample. */
-            sample.c_sample.break_type = PW_BREAK_TYPE_B;
-            break;
         case TIMER_SAMPLE:
             sample.c_sample.break_type = PW_BREAK_TYPE_T;
             sample.c_sample.pid = wu_sample.e_sample.data[0];
@@ -525,13 +432,6 @@ PWCollector_sample_t pwr::WuParser::create_tps_collector_sample_i(u8 break_type,
             break;
         case SCHED_SAMPLE:
             sample.c_sample.break_type = PW_BREAK_TYPE_S;
-            /*
-             * For SCHED_WAKEUP events, we need the CPUID of the
-             * (Logical) CPU that was TARGETED, and NOT the CPUID
-             * of the (Logical) CPU that sent the SCHED_WAKEUP!
-             */
-            wakeup_cpuidx = wu_sample.e_sample.data[1]; // TARGET cpu!
-            sample.c_sample.c_data = wu_sample.e_sample.data[0]; // SOURCE cpu == wu_sample.cpuidx!
             break;
         case IPI_SAMPLE:
             sample.c_sample.break_type = PW_BREAK_TYPE_IPI;
@@ -542,34 +442,12 @@ PWCollector_sample_t pwr::WuParser::create_tps_collector_sample_i(u8 break_type,
             break;
     }
     /*
-     * We no longer need the 'EPOCH' field.
-     * Use it to store the ACTUAL 'Cx' granted.
-     * UPDATE: we also use it to store the CPUID
-     * of the wakeup event.
-     */
-    // sample.c_sample.tps_epoch = which_cx;
-    sample.c_sample.tps_epoch = COMBINED_CX_CPUID(which_cx, wakeup_cpuidx);
-
-    /*
      * GCC *should* do a Return-Value-Optimization here!
      */
     return sample;
 };
-/*
- * INTERNAL API:
- * Create a PWCollector_sample instance for a given P-state transition.
- *
- * @is_boundary: 0 ==> Non-boundary sample; 1 ==> START boundary sample; 2 ==> STOP boundary sample
- * @cpu: the logical processor that entered a new p-state.
- * @freq: the frequency corresponding to the p-state.
- * @tsc: the tsc at which the transition occured.
- * @unhlt_core: the number of unhalted core cycles elapsed.
- * @unhlt_ref: the number of unhalted reference cycles elapsed.
- *
- * @returns: the newly constructed PWCollector_sample instance corresponding
- * to this p-state transition.
- */
-PWCollector_sample_t pwr::WuParser::create_tpf_collector_sample_i(u16 is_boundary, u16 cpu, u32 freq, const u64& tsc, const u64& unhlt_core, const u64& unhlt_ref)
+
+PWCollector_sample_t pwr::WuParser::create_tpf_collector_sample_i(pw_u16_t is_boundary, pw_u16_t cpu, pw_u32_t freq, const pw_u64_t& tsc, const pw_u64_t& unhlt_core, const pw_u64_t& unhlt_ref)
 {
     PWCollector_sample_t sample;
 
@@ -587,6 +465,23 @@ PWCollector_sample_t pwr::WuParser::create_tpf_collector_sample_i(u16 is_boundar
      */
     return sample;
 };
+#if 0
+PWCollector_sample_t create_tpf_collector_sample_i(pw_u16_t is_boundary, pw_u16_t cpu, pw_u32_t freq, pw_u64_t tsc)
+{
+    PWCollector_sample_t sample;
+
+    memset(&sample, 0, sizeof(sample));
+    sample.sample_type = P_STATE;
+    sample.cpuidx = cpu;
+    sample.tsc = tsc;
+    sample.p_sample.is_boundary_sample = is_boundary;
+    sample.p_sample.frequency = freq;
+    /*
+     * GCC *should* do a Return-Value-Optimization here!
+     */
+    return sample;
+};
+#endif
 
 
 pwr::CGroup::CGroup(int begin, int end) : group(begin, end), wakeup_sample(NULL){};
@@ -597,9 +492,9 @@ pwr::CGroup::CGroup(int begin, int end) : group(begin, end), wakeup_sample(NULL)
  **********************************************/
 
 /*
- * INTERNAL API:
  * Helper function: tokenize 'line', using delim set
- * 'd', and return the 'tok_num'th token.
+ * 'd', and return the 'tok_num'th token. Uses Min's
+ * tokenizer code for boost compatibility.
  *
  * @line: the string to tokenize
  * @tok_num: the token number to return
@@ -608,34 +503,93 @@ pwr::CGroup::CGroup(int begin, int end) : group(begin, end), wakeup_sample(NULL)
  *
  * @returns: the 'tok_num'th token in 'line'
  */
-std::string pwr::WuParser::get_required_token_i(std::string line, int tok_num, int max_num_toks, const char *d = NULL) {
+std::string pwr::WuParser::get_required_token_i(const std::string& line, int tok_num, int max_num_toks, const char *d = NULL) {
+    str_vec_t toks;
     const char *delims = d ? d : " ";
-    str_vec_t toks = Tokenizer(line, delims).get_all_tokens();
-
-    db_assert(toks.size() == max_num_toks, "ERROR: invalid # toks = %d\n", toks.size());
-
+    boost::char_separator <char> sep(delims);
+    StringTokenizer tokens(line, sep);
+    toks.assign(tokens.begin(), tokens.end());
+    boost::trim(toks[tok_num - 1]);
     return toks[tok_num - 1];
 };
 
+void pwr::WuParser::get_all_tokens_i(str_vec_t& tokens, const std::string& line, const char *d=NULL) const
+{
+    const char *delims = d ? d : " ";
+    boost::char_separator <char> sep(delims);
+    StringTokenizer toks(line, sep);
+    tokens.assign(toks.begin(), toks.end());
+
+    return;
+};
+
+int pwr::WuParser::my_getline_i(std::string& line, FILE *fp)
+{
+    char tmp_buf[1024];
+    int tmp_size = -1;
+    tmp_buf[0] = '\0';
+
+    line.clear();
+
+    do {
+        if (fgets(tmp_buf, sizeof(tmp_buf), fp) == NULL) {
+            if (!feof(fp)) {
+                return -PW_ERROR;
+            }
+            break;
+        }
+        line.append(tmp_buf);
+        tmp_size = strlen(tmp_buf);
+    } while (tmp_buf[tmp_size-1] != '\n');
+
+    /*
+     * We do NOT want the terminating '\n' or any trailing whitespace.
+     */
+    if (line.size() > 0) {
+        line[line.size()-1] = '\0';
+    }
+    boost::trim(line);
+
+    return line.size();
+};
+
+int pwr::WuParser::get_all_lines_i(FILE *fp, std::deque<std::string>& lines)
+{
+    if(!fp){
+	return -PW_ERROR;
+    }
+    std::string line;
+    char tmp_buf[1024];
+    int tmp_size = -1;
+
+    while (!feof(fp)) {
+        line.clear();
+        do {
+            tmp_buf[0] = '\0';
+            if (fgets(tmp_buf, sizeof(tmp_buf), fp) == NULL) {
+                break;
+            }
+            line.append(tmp_buf);
+            tmp_size = strlen(tmp_buf);
+        } while (tmp_buf[tmp_size-1] != '\n');
+        /*
+         * We do NOT want the terminating '\n' or any trailing whitespace.
+         */
+        boost::trim(line);
+        lines.push_back(line);
+    }
+
+    if (!feof(fp)) {
+        return -PW_ERROR;
+    }
+    return PW_SUCCESS;
+};
+
+
 /*
- * INTERNAL API:
- * Function to create "TPS groups". A "TPS group" is a group of C-state
- * (and other) samples that all have the same 'Cx' MSR values. In other words,
- * a TPS group marks the beginning or end of a c-state transition and provides
- * a guarantee that the core never entered "C2" or a deeper sleep state because
- * the 'Cx' MSRs never counted.
- *
- * Requires the input list to
+ * Function to create "TPS groups". Requires the input list to
  * (1) Be sorted (in ascending TSC order) and
  * (2) Have elements of both logical CPUs.
- *
- * @sorted_list: the sorted input list of PWCollector samples, sorted wrt TSC
- * @indices: a set of [begin,end] pairs indicating the begin and end of the
- * various TPS groups.
- * @num_tps: the number of c-state samples encountered during the parsing; primarily
- * used in debugging.
- *
- * @returns: 0 on success, -1 on error.
  */
 int pwr::WuParser::create_tps_groups_i(const sample_list_t *sorted_list, pair_vec_t& indices, int& num_tps)
 {
@@ -687,23 +641,14 @@ int pwr::WuParser::create_tps_groups_i(const sample_list_t *sorted_list, pair_ve
         }
         indices.push_back(int_pair_t(begin_index, end_index));
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
-/*
- * INTERNAL API:
- * Helper function to iterate over a range. Currently
- * only increments an index.
- */
+
 int pwr::WuParser::advance_i(int index)
 {
     return ++index;
 };
 
-/*
- * INTERNAL API:
- * A stage in the C1-determination FSM representing when the core is thought to
- * be in a C1 sleep state.
- */
 int pwr::WuParser::fsm_c_one_i(const sample_vec_t& samples, int to, int index, int group_beg_index, c_group_vec_t& c1_groups)
 {
     if (c1_groups.size() && IS_INVALID_WAKEUP_CAUSE(c1_groups.back())) {
@@ -744,13 +689,9 @@ int pwr::WuParser::fsm_c_one_i(const sample_vec_t& samples, int to, int index, i
         }
     }
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
-/*
- * INTERNAL API:
- * A stage in the C1-determination FSM representing when one of two logical processors is
- * in 'mwait' (but the other processor may still be executing).
- */
+
 int pwr::WuParser::fsm_c_half_i(const sample_vec_t& samples, int to, int index, c_group_vec_t& c1_groups)
 {
     bool wakeup_cause_calculated = c1_groups.empty() || c1_groups.back().wakeup_sample != NULL;
@@ -776,14 +717,9 @@ int pwr::WuParser::fsm_c_half_i(const sample_vec_t& samples, int to, int index, 
             }
         }
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
-/*
- * INTERNAL API:
- * A stage in the C1-determination FSM representing when the core is known to be executing
- * i.e. in the C0 state.
- * This is also the begin state of the FSM.
- */
+
 int pwr::WuParser::fsm_begin_i(const sample_vec_t& samples, int from, int to, c_group_vec_t& c1_groups)
 {
     int index = from;
@@ -796,56 +732,34 @@ int pwr::WuParser::fsm_begin_i(const sample_vec_t& samples, int from, int to, c_
             }
         }
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
- * INTERNAL API:
  * Inlined version of our C1 group FSM. Avoids stack corruption on very large
  * data sets.
- *
- * The primary purpose of this FSM is to try and determine when, within a 
- * particular "TPS Group", the core enters "C1". We need an algorithmic
- * approach to C1 determination because we don't have any hardware counters
- * to give us this information.
- * Note that this is applicable only to the samples within a TPS group.
- *
- * @samples: the (sorted) list of PWCollector samples.
- * @from: the start of the current TPS group.
- * @to: the end of the current TPS group.
- * @c1_groups: the set of "C1" groups for the current TPS group, as determined by
- * our FSM-based algorithm.
- *
- * @returns: 0 on success, -1 on error.
  */
-int pwr::WuParser::inlined_fsm_i(const sample_vec_t& samples, int from, int to, int core, c_group_vec_t& c1_groups)
+int pwr::WuParser::inlined_fsm_i(const sample_vec_t& samples, int from, int to, c_group_vec_t& c1_groups)
 {
     int index = from, group_beg_index = -1;
     bool wakeup_cause_calculated = false;
     int beg_cpu = -1, curr_cpu = -1;
-    const std::vector <int> &threads = m_threadSiblingMap[core];
-    std::map <int, bool> c_half_map;
-    int num_threads_in_c_half = 0;
 
     int orig_from = from, orig_to = to;
 
     typedef enum {
-        FSM_BEGIN=0, /* Core is known to be in C0 */
-        FSM_HALF, /* 1 of 2 logical procs is known to be in mwait */
-        FSM_ONE, /* Core is *thought* to be in C1 */
-        FSM_END /* We've reached the end of this TPS group */
+        FSM_BEGIN=0,
+        FSM_HALF,
+        FSM_ONE,
+        FSM_END
     } fsm_state_t;
 
     fsm_state_t curr_state = FSM_BEGIN;
 
-    for (std::vector<int>::const_iterator citer = threads.begin(); citer != threads.end(); ++citer) {
-        c_half_map[*citer] = false;
-    }
-
     while (curr_state != FSM_END) {
         switch (curr_state) {
 
-            case FSM_BEGIN: /* Core is known to be in C0 */
+            case FSM_BEGIN:
                 /* fsm_begin_i */
                 FOR_EACH(index, from, to) {
                     if (samples[index].sample_type == C_STATE) {
@@ -866,35 +780,27 @@ int pwr::WuParser::inlined_fsm_i(const sample_vec_t& samples, int from, int to, 
                 }
                 break;
 
-            case FSM_HALF: /* 1 of 2 logical procs is known to be in mwait */
+            case FSM_HALF:
                 /* fsm_c_half_i */
                 wakeup_cause_calculated = c1_groups.empty() || c1_groups.back().wakeup_sample != NULL;
                 group_beg_index = index;
                 beg_cpu = samples[index].cpuidx;
-                num_threads_in_c_half = 1;
-
-                for (std::map<int, bool>::iterator iter = c_half_map.begin(); iter != c_half_map.end(); ++iter) {
-                    iter->second = false;
-                }
-                c_half_map[beg_cpu] = true;
 
                 FOR_EACH(index, advance_i(group_beg_index), to) {
                     const PWCollector_sample_t& curr_sample = samples[index];
                     curr_cpu = curr_sample.cpuidx;
                     if (curr_sample.sample_type == C_STATE) {
-                        if (c_half_map[curr_cpu] == false) {
-                            c_half_map[curr_cpu] = true;
-                            if (++num_threads_in_c_half == threads.size()) {
-                                curr_state = FSM_ONE;
-                                break;
-                            }
+                        if (curr_cpu != beg_cpu) { // OTPS
+                            curr_state = FSM_ONE;
+                            break;
+                            // return fsm_c_one_i(samples, to, index, group_beg_index, c1_groups);
                         }
                     } else { // NTPS
                         if (!wakeup_cause_calculated) {
                             c1_groups.back().wakeup_sample = &curr_sample;
                             wakeup_cause_calculated = true;
                         }
-                        if (c_half_map[curr_cpu] == true) { // SNTPS
+                        if (curr_cpu == beg_cpu) { // SNTPS
                             curr_state = FSM_BEGIN;
                             from = index; to = to;
                             break;
@@ -910,7 +816,7 @@ int pwr::WuParser::inlined_fsm_i(const sample_vec_t& samples, int from, int to, 
                 }
                 break;
 
-            case FSM_ONE: /* Core is *thought* to be in C1 */
+            case FSM_ONE:
                 /* fsm_c_one_i */
                 if (c1_groups.size() && IS_INVALID_WAKEUP_CAUSE(c1_groups.back())) {
                     /*
@@ -965,18 +871,17 @@ int pwr::WuParser::inlined_fsm_i(const sample_vec_t& samples, int from, int to, 
                 break;
         }
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
- * INTERNAL API:
  * Calculate 'C1' and 'C0' residency for a given C1 "Group".
  */
-int pwr::WuParser::calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_beg, int curr_end, int group_num, u64& c1_delta, u64& c0)
+int pwr::WuParser::calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_beg, int curr_end, int group_num, pw_u64_t& c1_delta, pw_u64_t& c0)
 {
     const PWCollector_sample_t& prev_beg_sample = samples[prev_beg], &prev_end_sample = samples[prev_end], &curr_beg_sample = samples[curr_beg], &curr_end_sample = samples[curr_end];
 
-    u64 tsc_delta = curr_end_sample.tsc - prev_end_sample.tsc;
+    pw_u64_t tsc_delta = curr_end_sample.tsc - prev_end_sample.tsc;
     
     if (prev_end_sample.cpuidx == curr_beg_sample.cpuidx) {
         /*
@@ -986,9 +891,9 @@ int pwr::WuParser::calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, i
          *       " ==> curr beg
          *       ''' => curr end
          */
-        u64 mperf_delta = RES_COUNT(curr_beg_sample.c_sample, MPERF) - RES_COUNT(prev_end_sample.c_sample, MPERF);
+        pw_u64_t mperf_delta = RES_COUNT(curr_beg_sample.c_sample, MPERF) - RES_COUNT(prev_end_sample.c_sample, MPERF);
         c0 = (curr_end_sample.tsc - curr_beg_sample.tsc) + mperf_delta;
-        if ((s64)c0 < 0) {
+        if ((pw_s64_t)c0 < 0) {
             c0 = 0;
             assert(false);
         }
@@ -999,31 +904,12 @@ int pwr::WuParser::calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, i
          * Where ' ==> prev end
          *       " ==> curr beg
          *       ''' => curr end
-         * UPDATE: to accomodate CLV (where we associate all 4 threads with a single core for wakeup purposes), 
-         * we cannot assume "prev_end.cpuidx" == "curr_end.cpuidx". Instead, we must iterate over the previous group
-         * until we come to a compatible cpuidx.
          */
-        if (m_threadSiblingMap[get_core_given_lcpu_i(curr_beg_sample.cpuidx)].size() > 2) {
-            c0 = 0;
-            for (int __tmp_idx = prev_end; __tmp_idx >= prev_beg; --__tmp_idx) {
-                const PWCollector_sample_t& __tmp_sample = samples[__tmp_idx];
-                if (__tmp_sample.cpuidx == curr_end_sample.cpuidx) {
-                    c0 = RES_COUNT(curr_end_sample.c_sample, MPERF) - RES_COUNT(__tmp_sample.c_sample, MPERF);
-                    break;
-                }
-            }
-            assert(c0 > 0);
-        } else {
-            if (true && prev_end_sample.cpuidx != curr_end_sample.cpuidx) {
-                std::cerr << "prev_end: " << prev_end_sample;
-                std::cerr << "curr_end: " << curr_end_sample;
-            }
-            assert(prev_end_sample.cpuidx == curr_end_sample.cpuidx);
+        assert(prev_end_sample.cpuidx == curr_end_sample.cpuidx);
 
-            u64 mperf_delta = RES_COUNT(curr_end_sample.c_sample, MPERF) - RES_COUNT(prev_end_sample.c_sample, MPERF);
-            c0 = mperf_delta;
-        }
-        if ((s64)c0 < 0) {
+        pw_u64_t mperf_delta = RES_COUNT(curr_end_sample.c_sample, MPERF) - RES_COUNT(prev_end_sample.c_sample, MPERF);
+        c0 = mperf_delta;
+        if ((pw_s64_t)c0 < 0) {
             c0 = 0;
             assert(false);
         }
@@ -1043,18 +929,14 @@ int pwr::WuParser::calc_c1_c0_res_i(const sample_vec_t& samples, int prev_beg, i
      */
     c1_delta = tsc_delta - c0;
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
-/*
- * INTERNAL API:
- * Special case for calculating C1, C0 residencies for the last C1 group.
- */
-int pwr::WuParser::calc_last_c1_c0_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_end, u64& c1_delta, u64& c0)
+int pwr::WuParser::calc_last_c1_c0_i(const sample_vec_t& samples, int prev_beg, int prev_end, int curr_end, pw_u64_t& c1_delta, pw_u64_t& c0)
 {
     const PWCollector_sample_t& prev_beg_sample = samples[prev_beg], &prev_end_sample = samples[prev_end], &curr_end_sample = samples[curr_end];
 
-    u64 tsc_delta = curr_end_sample.tsc - prev_end_sample.tsc;
+    pw_u64_t tsc_delta = curr_end_sample.tsc - prev_end_sample.tsc;
 
     assert(prev_end_sample.sample_type == curr_end_sample.sample_type == C_STATE);
     if (prev_end_sample.cpuidx == curr_end_sample.cpuidx) {
@@ -1066,27 +948,10 @@ int pwr::WuParser::calc_last_c1_c0_i(const sample_vec_t& samples, int prev_beg, 
         c0 = tsc_delta;
     }
     c1_delta = tsc_delta - c0;
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
-/*
- * INTERNAL API:
- * Parse a given "TPS Group", determining possible C1 transitions, calculating
- * C1 and C0 residencies for those transitions and extracting wakeup causes
- * for those transitions.
- *
- * @samples: the (sorted) list of PWCollector samples, as returned by the power driver.
- * @from: the start of the current TPS group.
- * @to: the end of the current TPS group.
- * @c1_output_samples: the list of C1 C-state samples, as determined by our algorithm.
- * @core: the core we're currently considering.
- * @which_group: an index representing which "TPS group" we're currently parsing; used
- * (mostly) for debugging.
- * @prev_cx_end_tsc: the (calculated) TSC when the core LAST entered Cx.
- *
- * @returns: 0 on success, -1 on error.
- */
-int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, sample_vec_t& c1_output_samples, int core, int which_group, u64& prev_cx_end_tsc)
+int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, sample_vec_t& c1_output_samples, int core, int which_group, pw_u64_t& prev_cx_end_tsc)
 {
     int start = from, stop = to;
 
@@ -1097,9 +962,9 @@ int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, 
      * the actual 'C1' "Groups" (use an FSM for this).
      */
     // if (fsm_begin_i(samples, start, stop, c1_groups)) {
-    if (inlined_fsm_i(samples, start, stop, core, c1_groups)) {
+    if (inlined_fsm_i(samples, start, stop, c1_groups)) {
         db_fprintf(stderr, "ERROR retrieving C1 groups!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
 
     /*
@@ -1135,21 +1000,17 @@ int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, 
 
     prev_cx_end_tsc = 0;
 
-    u64 delta_tsc = samples[to].tsc - samples[from].tsc, c0_res = 0; // for debugging
-    u64 c1_res = 0;
+    pw_u64_t delta_tsc = samples[to].tsc - samples[from].tsc, c0_res = 0; // for debugging
+    pw_u64_t c1_res = 0;
 
-    /*
-     * Iterate over the C1 groups and calculate residencies. Also construct
-     * C-state samples from the C1 transitions.
-     */
     for (int i=1; i<size; ++i) {
         int_pair_t prev_c1_group = c1_groups[i-1].group, curr_c1_group = c1_groups[i].group;
         int prev_beg = prev_c1_group.first, prev_end = prev_c1_group.second, curr_beg = curr_c1_group.first, curr_end = curr_c1_group.second;
         db_assert(prev_beg <= prev_end && curr_beg <= curr_end, "ERROR in samples! p-beg = %d, p-end = %d, c-beg = %d, c-end = %d\n", prev_beg, prev_end, curr_beg, curr_end);
         const PWCollector_sample_t& prev_beg_sample = samples[prev_beg], &prev_end_sample = samples[prev_end], &curr_beg_sample = samples[curr_beg], &curr_end_sample = samples[curr_end];
         PWCollector_sample_t wakeup_sample = *(c1_groups[i-1].wakeup_sample);
-        u32 cause = wakeup_sample.sample_type;
-        u64 c0 = 0, c1 = 0;
+        pw_u32_t cause = wakeup_sample.sample_type;
+        pw_u64_t c0 = 0, c1 = 0;
 
         assert(IS_INVALID_WAKEUP_CAUSE(c1_groups[i-1]) == false);
 
@@ -1187,8 +1048,8 @@ int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, 
                 }
                 db_fprintf(stderr, "[%d]: non-NULL wakeup sample!\n", which_group);
 
-                u32 cause = wakeup_sample->sample_type;
-                u64 c0 = 0, c1 = 0;
+                pw_u32_t cause = wakeup_sample->sample_type;
+                pw_u64_t c0 = 0, c1 = 0;
 
                 if (calc_last_c1_c0_i(samples, last_c1_group.first, last_c1_group.second, to, c1, c0)) {
                     db_fprintf(stderr, "ERROR calculating last c0/c1!\n");
@@ -1206,25 +1067,29 @@ int pwr::WuParser::do_c1_calcs_i(const sample_vec_t& samples, int from, int to, 
         db_fprintf(stderr, "[%d]: size = %d C0-res = %llu C1-res = %llu Delta-TSC = %llu diff = %llu\n", which_group, size, c0_res, c1_res, delta_tsc, (delta_tsc - c0_res - c1_res));
     }
 
-    return SUCCESS;
+    if (true && (c1_res + c0_res > delta_tsc)) {
+        assert(false);
+    }
+    return PW_SUCCESS;
 };
-
-/*
- * INTERNAL API:
- * Read collection/system params from the 'sys_params_found.txt'
- * file -- adapted from 'wudump' code.
- *
- * @in_fp: the file to read.
- * @sys_params_off: the offset (within the wuwatch ".ww1" output file) from
- * which to begin reading system configuration information.
- *
- * @returns: 0 on success, -1 on error.
- */
-int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
-{
 
 #define DOES_LINE_CONTAIN(line, str) ( (line).find(str) != std::string::npos )
 
+/*
+ * Read collection/system params
+ * from the 'sys_params_found.txt'
+ * file -- adapted from 'wudump'
+ * code.
+ * **************************************************
+ * TODO:
+ * (1) Make this a DFA!
+ * (2) Android has weird ACPI <-> H/W C-state
+ *	   mappings -- use STRING values to represent
+ *	   (instead of integers)
+ * **************************************************
+ */
+int pwr::WuParser::get_sys_params_i(FILE *in_fp, pw_u64_t& sys_params_off)
+{
     str_deq_t lines;
     /*
      * Make sure the 'init()'
@@ -1239,7 +1104,7 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
     sys_params_off = 0;
     if (fread(&sys_params_off, sizeof(sys_params_off), 1, in_fp) != 1) {
         perror("fread error in get_sys_params_i()");
-        return -ERROR;
+        return -PW_ERROR;
     }
     db_fprintf(stderr, "SYS PARAMS OFFSET = %llu\n", sys_params_off);
     /*
@@ -1247,41 +1112,24 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
      */
     if (fseek(in_fp, sys_params_off, SEEK_SET)) {
         perror("fseek error");
-        return -ERROR;
+        return -PW_ERROR;
     }
     /*
      * Next line MUST be "--SYS_PARAMS_BEGIN---"!!!
      */
-//    char *line = NULL;
-//    size_t len = 0;
-//    ssize_t read = 0;
-//    if ( (read = getline(&line, &len, in_fp)) == -1) {
-//        perror("getline error");
-//        return -ERROR;
-//    }
-//    line[read-1] = '\0';
-
-    char line[1024];
-    /*
-     * We ASSUME 1024 characters is enough!
-     */
-    if (fgets(line, sizeof(line), in_fp) == NULL) {
-        perror("fgets error");
-        return -ERROR; 
+    std::string line;
+    if (my_getline_i(line, in_fp) < 0) {
+        db_fprintf(stderr, "my_getline error");
+        return -PW_ERROR;
     }
-    /*
-     * Get rid of terminating newline
-     */
-    line[strlen(line) - 1] = '\0';
-
-    db_fprintf(stderr, "NEXT LINE IS: %s\n", line);
-    assert(!strcmp(line, "---SYS_PARAMS_BEGIN---"));
+    db_fprintf(stderr, "NEXT LINE IS: %s\n", line.c_str());
+    assert(!strcmp(line.c_str(), "---SYS_PARAMS_BEGIN---"));
     /*
      * OK, we're ready to begin. Start by reading in
      * all the remaining lines in the input file. Then parse
      * them to extract system configuration information.
      */
-    LineReader::get_all_lines(in_fp, lines);
+    get_all_lines_i(in_fp, lines);
 
     /*
      * Users expect to see a copy of the system config in its entirety.
@@ -1297,8 +1145,8 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
             /*
              * Found Driver/Wuwatch version info.
              */
-            str_vec_t toks = Tokenizer(line, " ").get_all_tokens();
-            db_assert(toks.size() == 4, "ERROR: invalid # tokens = %d\n", toks.size());
+            str_vec_t toks;
+            get_all_tokens_i(toks, line, " ");
             str_t ver_str = toks[3];
             if (toks[0] == "Driver") {
                 sysInfo.m_driverVersion = ver_str;
@@ -1313,17 +1161,12 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
             }
         }
         else if (DOES_LINE_CONTAIN(line, "Start TSC")) {
-            uint64_t start_tsc = strtoull(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
+            pw_u64_t start_tsc = ATOULL(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
             sysInfo.m_startTsc = start_tsc;
             db_assert(true, "Found start tsc = %llu\n", start_tsc);
         }
-        else if (DOES_LINE_CONTAIN(line, "Stop TSC")) {
-            uint64_t stop_tsc = strtoull(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
-            sysInfo.m_stopTsc = stop_tsc;
-            db_assert(true, "Found stop tsc = %llu\n", stop_tsc);
-        }
         else if (DOES_LINE_CONTAIN(line, "Start Timeval")) {
-            uint64_t start_timeval = strtoull(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
+            pw_u64_t start_timeval = ATOULL(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
             sysInfo.m_startTimeval = start_timeval;
             db_assert(true, "Found start timeval = %llu\n", start_timeval);
         }
@@ -1360,7 +1203,7 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
             db_assert(true, "Found CPU stepping = %u\n", sysInfo.m_cpuStepping);
         }
         else if (DOES_LINE_CONTAIN(line, "Turbo Threshold")) {
-            sysInfo.m_turboThreshold = strtoull(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
+            sysInfo.m_turboThreshold = ATOULL(get_required_token_i(line, 4, 4).c_str(), NULL, 10);
             db_assert(true, "Found turbo threshold = %llu\n", sysInfo.m_turboThreshold);
         }
         else if (line.find("Platform Architecture") != std::string::npos) {
@@ -1382,98 +1225,50 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
         }
         else if (line.find("CPU Topology") != std::string::npos) {
             sysInfo.m_cpuTopology = line.substr(line.find_first_of("=")+2); // +2 ==> 1 for the '=' and 1 for the space after it.
-            str_vec_t toks = Tokenizer(line, " ").get_all_tokens();
+            str_vec_t toks;
+            get_all_tokens_i(toks, line, " ");
             assert(toks.size() > 3);
             int size = toks.size();
             /*
              * We don't need the first 3 tokens (i.e. "Cpu Topology =")
              */
             std::map <int, int_vec_t> tmp_map;
-            int max_core_id = -1, curr_core_id = -1;
-            if (sysInfo.m_cpuCount == 1) {
-                sysInfo.m_htMap[0] = 0;
-                sysInfo.m_coreCount = 1;
-                m_wakeupCoreCount = 1;
-            } else {
-                for (int i=3; i<size; ) {
-                    str_t tokens[5];
+            int max_core_id = -1;
+            for (int i=3; i<size; ) {
+                str_t tokens[5];
+                /*
+                 * Format of each logical CPU is:
+                 * proc # <space> physical id <space> siblings <space> core id <space> cores <space>"
+                 */
+                for (int j=0; j<5; ++j, ++i) {
+                    tokens[j] = toks[i];
+                }
+                int proc = atoi(tokens[0].c_str()), phys_id = atoi(tokens[1].c_str()), core_id = atoi(tokens[3].c_str());
+                tmp_map[((phys_id << 16) | core_id)].push_back(proc);
+            }
+            for (std::map <int,int_vec_t>::iterator iter = tmp_map.begin(); iter != tmp_map.end(); ++iter) {
+                int_vec_t procs = iter->second;
+                /*
+                 * We assign the first LCPU in the list as the core ID.
+                 */
+                int core_id = procs[0];
+                sysInfo.m_htMap[core_id] = core_id;
+                for (int i=1; i<procs.size(); ++i) {
                     /*
-                     * Format of each logical CPU is:
-                     * proc # <space> physical id <space> siblings <space> core id <space> cores <space>"
+                     * Subsequent LCPUs in this list are assigned to the same core.
                      */
-                    for (int j=0; j<5; ++j, ++i) {
-                        tokens[j] = toks[i];
-                    }
-                    int proc = atoi(tokens[0].c_str()), phys_id = atoi(tokens[1].c_str()), core_id = atoi(tokens[3].c_str());
-                    tmp_map[((phys_id << 16) | core_id)].push_back(proc);
+                    sysInfo.m_htMap[procs[i]] = core_id;
                 }
-#if 0
-                for (std::map <int,int_vec_t>::iterator iter = tmp_map.begin(); iter != tmp_map.end(); ++iter) {
-                    int_vec_t procs = iter->second;
-                    /*
-                     * We assign the first LCPU in the list as the core ID.
-                     */
-                    int core_id = procs[0];
-                    sysInfo.m_htMap[core_id] = core_id;
-                    for (int i=1; i<procs.size(); ++i) {
-                        /*
-                         * Subsequent LCPUs in this list are assigned to the same core.
-                         */
-                        sysInfo.m_htMap[procs[i]] = core_id;
-                    }
-                    if (core_id > max_core_id) {
-                        max_core_id = core_id;
-                    }
+                if (core_id > max_core_id) {
+                    max_core_id = core_id;
                 }
-#endif
-                for (std::map <int, int_vec_t>::iterator iter = tmp_map.begin(); iter != tmp_map.end(); ++iter) {
-                    int_vec_t procs = iter->second;
-                    int core_id = ++curr_core_id;
-                    for (int i=0; i<procs.size(); ++i) {
-                        sysInfo.m_htMap[procs[i]] = core_id;
-                        if (sysInfo.m_arch != MFD) {
-                            m_htMap[procs[i]] = core_id;
-                            m_threadSiblingMap[core_id].push_back(procs[i]);
-                        }
-                    }
-                    if (core_id > max_core_id) {
-                        max_core_id = core_id;
-                    }
-                }
-                sysInfo.m_coreCount = max_core_id + 1;
-                if (sysInfo.m_arch == MFD) {
-                    /*
-                     * For Cloverview/Clovertrail/Saltwell (basically, all Saltwell derivatives), associate all threads with a single core (for wakeups ONLY).
-                     */
-                    for (int i=0; i<sysInfo.m_cpuCount; ++i) {
-                        m_htMap[i] = 0;
-                        m_threadSiblingMap[0].push_back(i);
-                    }
-                    m_wakeupCoreCount = 1;
-                    if (sysInfo.m_coreCount > 1) {
-                        m_do_inject_dup_c_sample = true;
-                    }
-                } else {
-                    m_wakeupCoreCount = sysInfo.m_coreCount;
-                }
-                {
-                    int cpu;
-                    db_fprintf(stderr, "SystemInfo::HT map dump...\n");
-                    for_each_online_cpu(cpu) {
-                        db_fprintf(stderr, "%d -> %d\n", cpu, sysInfo.m_htMap[cpu]);
-                    }
-                    db_fprintf(stderr, "WuParser::HT map dump...\n");
-                    for_each_online_cpu(cpu) {
-                        db_fprintf(stderr, "%d -> %d\n", cpu, m_htMap[cpu]);
-                    }
-                    if (g_do_debugging) {
-                        fprintf(stderr, "Rev-HT map dump...\n");
-                        for (cpu = 0; cpu < sysInfo.m_coreCount; ++cpu) {
-                            std::cerr << cpu << ":->";
-                            std::copy(m_threadSiblingMap[cpu].begin(), m_threadSiblingMap[cpu].end(), std::ostream_iterator<int>(std::cerr, ","));
-                            std::cerr << "\n";
-                        }
-                    }
+            }
+            sysInfo.m_coreCount = max_core_id + 1;
+            {
+                int cpu;
+                db_fprintf(stderr, "HT map dump...\n");
+                for_each_online_cpu(cpu) {
+                    db_fprintf(stderr, "%d -> %d\n", cpu, sysInfo.m_htMap[cpu]);
                 }
             }
             db_assert(true, "Found CPU Topology=%s\n", sysInfo.m_cpuTopology.c_str());
@@ -1511,7 +1306,8 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
             /*
              * Found profiled app details.
              */
-            str_vec_t toks = Tokenizer(line, " \t").get_all_tokens();
+            str_vec_t toks;
+            get_all_tokens_i(toks, line, " \t");
             assert(toks.size() == 8);
             sysInfo.m_appPID = atoi(toks[4].c_str());
             sysInfo.m_appProfiled = toks[7];
@@ -1539,11 +1335,11 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
                     break;
                 }
 
-#define GET_NEXT_TOKEN(tok) ({const char *__tmp = tok.get_next_token(); assert(__tmp != NULL); __tmp;})
-
-                Tokenizer tok(line, " \t");
-                int ac = atoi(GET_NEXT_TOKEN(tok));
-                str_t hws = GET_NEXT_TOKEN(tok);
+                str_vec_t toks;
+                get_all_tokens_i(toks, line, " \t");
+                int ac = atoi(toks[0].c_str());
+                str_t hws = toks[1];
+                
                 size_t endpos = hws.rfind('C');
                 db_assert(endpos != std::string::npos, "MALFORMED ACPI mapping line!\n");
                 /*
@@ -1569,22 +1365,24 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
                     break;
                 }
 
-                str_vec_t tokens = Tokenizer(line, " ").get_all_tokens();
+                str_vec_t tokens;
+                get_all_tokens_i(tokens, line, " ");
                 assert(tokens.size() == 3);
                 int state = atoi(&(tokens[0].c_str())[1]);
-                // sysInfo.m_targetRes[state] = (atoi(tokens[2].c_str())/1000);
-                sysInfo.m_targetRes[state] = (atoi(tokens[2].c_str()));
+                sysInfo.m_targetRes[state] = (atoi(tokens[2].c_str())/1000);
+
             }
 
         }
         else if (DOES_LINE_CONTAIN(line, "AVAILABLE FREQUENCIES")) {
-            str_vec_t tokens = Tokenizer(line, " ").get_all_tokens();
+            str_vec_t tokens;
+            get_all_tokens_i(tokens, line, " ");
+
             assert(tokens.size() > 3);
             for (int i=3; i<tokens.size(); ++i) {
                 m_availableFrequenciesKHz.push_back(atoi(tokens[i].c_str()));
             }
-            db_copy(m_availableFrequenciesKHz.begin(), m_availableFrequenciesKHz.end(), std::ostream_iterator<u32>(std::cerr, "\n"));
-            db_assert(true, "Found available freqs list! Size = %d\n", m_availableFrequenciesKHz.size());
+            db_copy(m_availableFrequenciesKHz.begin(), m_availableFrequenciesKHz.end(), std::ostream_iterator<pw_u32_t>(std::cerr, "\n"));
         }
         else if (line.find("DESCENDENT PIDS LIST") != std::string::npos) {
             while (!lines.empty()) {
@@ -1613,20 +1411,17 @@ int pwr::WuParser::get_sys_params_i(FILE *in_fp, u64& sys_params_off)
      * Also populate the timeline version.
      */
     char wudump_ver[100];
-    sprintf(wudump_ver, "%d.%d.%d", WUWATCH_VERSION_VERSION, WUWATCH_VERSION_INTERFACE, WUWATCH_VERSION_OTHER);
+    sprintf(wudump_ver, "%d.%d.%d", PWR_WULIB_VERSION_VERSION, PWR_WULIB_VERSION_INTERFACE, PWR_WULIB_VERSION_OTHER);
     sysInfo.m_wudumpVersion = wudump_ver;
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 
 /*
- * INTERNAL API:
  * A function to read samples from the
  * binary file and check that they meet
  * sorting requirements.
- *
- * @returns: 0 on success, -1 on error.
  */
 int pwr::WuParser::do_read_i(void)
 {
@@ -1634,12 +1429,14 @@ int pwr::WuParser::do_read_i(void)
      * We have a combined input file, containing driver output
      * and also system configuration information.
      */
+
     FILE *in_fp = fopen(m_combined_input_file_name.c_str(), "rb");
     if(!in_fp){
         perror("fopen error");
-        return -ERROR;
+        // wu_exit(-PW_ERROR);
+        return -PW_ERROR;
     }
-    u64 driver_beg_off = sizeof(u64), driver_end_off = 0;
+    pw_u64_t driver_beg_off = sizeof(pw_u64_t), driver_end_off = 0;
     /*
      * Step (1): read the 'sys_params_found.txt'
      * file.
@@ -1647,7 +1444,7 @@ int pwr::WuParser::do_read_i(void)
     {
         if (get_sys_params_i(in_fp, driver_end_off)) {
             db_fprintf(stderr, "ERROR retrieving sys params!\n");
-            return -ERROR;
+            return -PW_ERROR;
         }
     }
 
@@ -1664,19 +1461,15 @@ int pwr::WuParser::do_read_i(void)
      */
     {
         m_per_cpu_sample_lists = new sample_list_t[NUM_ONLINE_CPUS()];
-        m_per_cpu_p_sample_lists = new sample_list_t[NUM_ONLINE_CORES()];
 #if DO_TPS_EPOCH_COUNTER
         /*
          * Allocate per-core, NOT per-cpu.
          */
         m_per_cpu_sched_sample_lists = new sample_list_t[NUM_ONLINE_CORES()];
 #endif
-        if (m_do_dump_orig_samples) {
-            m_all_orig_samples = new sample_list_t[NUM_ONLINE_CORES()];
-        }
     }
 
-    sample_vec_t samples(NUM_MSGS_TO_READ + 1);
+    PWCollector_sample_t *samples = new PWCollector_sample_t[NUM_MSGS_TO_READ];
     int num_read = 0;
     int cpu = 0;
 
@@ -1684,36 +1477,11 @@ int pwr::WuParser::do_read_i(void)
 
     /*
      * Step (2): read the lib_outputXXX.txt files (if any).
+     * UPDATE: we don't support importing call stacks into
+     * AXE at the moment!
      */
     {
-        db_fprintf(stderr, "Size = %d\n", m_lib_input_fps.size());
-        for(fp_iter_t iter = m_lib_input_fps.begin(); iter != m_lib_input_fps.end(); ++iter) {
-            db_fprintf(stderr, "FP = %p\n", *iter);
-            if (*iter == NULL) {
-                db_fprintf(stderr, "WARNING: NULL fp for trace file; NOT opening!\n");
-                continue;
-            }
-#if WAS_BINARY_DUMP
-            Tracer::instance()->deserialize_traces((*iter), m_trace_vec, m_trace_pair_map);
-            assert(false);
-#else
-            str_t ver_str;
-            Tracer::instance()->read_traces((*iter), m_trace_vec, m_trace_pair_map, ver_str);
-            /*
-             * Ensure we get rid of any pesky
-             * newlines.
-             */
-            size_t pos;
-            if ( (pos = ver_str.rfind('\n')) != std::string::npos) {
-                ver_str.erase(pos, std::string::npos);
-            }
-            sysInfo.m_hookLibraryVersion = ver_str;
-#endif
-        }
-        /*
-         * Make sure 'Tracer' is destroyed.
-         */
-        Tracer::destroy();
+        /* TODO */
     }
 
     /*
@@ -1725,9 +1493,9 @@ int pwr::WuParser::do_read_i(void)
      */
     if (fseek(in_fp, driver_beg_off, SEEK_SET)) {
         perror("fseek error in do_read_i()");
-        return -ERROR;
+        return -PW_ERROR;
     }
-    u64 num_driver_output_samples = (driver_end_off - driver_beg_off) / sizeof(PWCollector_sample_t);
+    pw_u64_t num_driver_output_samples = (driver_end_off - driver_beg_off) / sizeof(PWCollector_sample_t);
     size_t num_samples_to_read = 0;
     db_fprintf(stderr, "DRIVER OUTPUT SIZE = %llu\n", num_driver_output_samples);
 
@@ -1735,22 +1503,16 @@ int pwr::WuParser::do_read_i(void)
      * Then we read in the driver samples.
      */
     while (num_driver_output_samples > 0) {
-        num_samples_to_read = std::min(num_driver_output_samples, (u64)NUM_MSGS_TO_READ);
-        if ( (num_read = fread(&samples[0], sizeof(PWCollector_sample_t), num_samples_to_read, in_fp)) < num_samples_to_read) {
+        num_samples_to_read = std::min(num_driver_output_samples, (pw_u64_t)NUM_MSGS_TO_READ);
+        if ( (num_read = fread(samples, sizeof(PWCollector_sample_t), num_samples_to_read, in_fp)) < num_samples_to_read) {
             perror("fread error while reading driver samples");
             break;
         }
         num_driver_output_samples -= num_read;
         
         for (int i=0; i<num_read; ++i) {
-            PWCollector_sample_t *sample = &samples[i];
+            PWCollector_sample_t *sample = samples + i;
             sample_type_t sample_type = (sample_type_t)sample->sample_type;
-            int coreid = get_core_given_lcpu_i(sample->cpuidx);
-            bool is_boundary = sample->sample_type == P_STATE ? sample->p_sample.is_boundary_sample > 0 : false;
-
-            if (m_do_dump_orig_samples) {
-                m_all_orig_samples[coreid].push_back(*sample);
-            }
 
             assert(sample->cpuidx < NUM_ONLINE_CPUS());
             /*
@@ -1773,41 +1535,15 @@ int pwr::WuParser::do_read_i(void)
                      * UPDATE: we're now also measuring APERF, MPERF in P-state samples.
                      */
                     m_was_any_tpf_sample_present = true;
-                    // m_per_cpu_sample_lists[sample->cpuidx].push_back(*sample);
-                    m_per_cpu_p_sample_lists[GET_CORE_GIVEN_LCPU(sample->cpuidx)].push_back(*sample);
+                    m_per_cpu_sample_lists[sample->cpuidx].push_back(*sample);
                     break;
                 case K_CALL_STACK:
                     /*
                      * Store the kernel backtrace.
+                     * UPDATE: we don't support importing user or kernel traces
+                     * at the moment!!!
                      */
                     m_all_samples_list.push_back(*sample);
-                    {
-                        k_sample_t *ks = &sample->k_sample;
-                        pid_t tid = ks->tid;
-                        trace_t *trace = new trace_t(0, 0, NULL);
-                        /*   
-                         * Extract kernel backtrace symbols from
-                         * the '/proc/kallsyms' file and append
-                         * to SWAPPERs list of traces.
-                         */
-                        {    
-                            std::vector<std::string> ksym_vec;
-                            wuwatch::KernelSymbolExtractor::get_backtrace_symbols((const wuwatch::u64 *)ks->trace, ks->trace_len, ksym_vec);
-
-                            trace->num_trace = ks->trace_len; // ksym_vec.size();
-                            trace->bt_symbols = (char **)calloc(trace->num_trace, sizeof(char *)); 
-                            assert(trace->bt_symbols);
-                            for (int i=0; i<trace->num_trace; ++i) {
-                                trace->bt_symbols[i] = strdup(ksym_vec[i].c_str());
-                            }
-
-                            trace_pair_list_t tlist;
-                            tlist.push_back(trace_pair(ks->entry_tsc, ks->exit_tsc, trace));
-                            m_trace_pair_map[tid].merge(tlist, std::less<trace_pair_t>());
-                            db_fprintf(stderr, "BT: tid = %d, entry tsc = %llu, exit tsc = %llu\n", tid, (unsigned long long)ks->entry_tsc, (unsigned long long)ks->exit_tsc);
-                        }
-                        ++num_k_call_stacks; // Debugging ONLY!
-                    }
                     break;
                 case IRQ_MAP:
                 case PROC_MAP:
@@ -1835,8 +1571,8 @@ int pwr::WuParser::do_read_i(void)
                         int target_cpu = sample->e_sample.data[1];
 #if DO_TPS_EPOCH_COUNTER
                         if (NUM_ONLINE_CORES() > 1) {
-                            m_per_cpu_sched_sample_lists[get_core_given_lcpu_i(target_cpu)].push_back(*sample);
-                        } else {
+                            m_per_cpu_sched_sample_lists[GET_CORE_GIVEN_LCPU(target_cpu)].push_back(*sample);
+                        }  else {
                             /*
                              * SINGLE-core system: no need to try and correlate SCHED_WAKEUP samples with 
                              * TPS samples because SCHED_WAKEUP cannot cause wakeups on a single-core
@@ -1867,7 +1603,11 @@ int pwr::WuParser::do_read_i(void)
         }
     }
     /*
-     * We don't need to read anything else from the file.
+     * We don't need the samples array anymore...
+     */
+    delete []samples;
+    /*
+     * ...nor do we need to read anything else from the file.
      */
     fclose(in_fp);
     /*
@@ -1875,7 +1615,7 @@ int pwr::WuParser::do_read_i(void)
      * Check for errors here.
      */
     if (num_driver_output_samples > 0) {
-      return -ERROR;
+      return -PW_ERROR;
     }
 
     /*
@@ -1885,22 +1625,16 @@ int pwr::WuParser::do_read_i(void)
         db_fprintf(stderr, "[%d]: SIZE = %d\n", cpu, (int)m_per_cpu_sample_lists[cpu].size());
     }
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 #if DO_TPS_EPOCH_COUNTER
-/*
- * Utility data structures / functions to account for the EPOCH-based
- * TPS <--> SCHED_WAKEUP synchronization.
- * Useful for big-core only!
- */
 struct sched_sample_sorter {
     bool operator()(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2) {
         assert(s1.sample_type == SCHED_SAMPLE && s2.sample_type == SCHED_SAMPLE);
         return s1.e_sample.data[2] < s2.e_sample.data[2];
     };
 };
-
 void pwr::WuParser::do_sort_sched_list_i(int core)
 {
     sample_list_t& sched_list = m_per_cpu_sched_sample_lists[core];
@@ -1912,7 +1646,7 @@ void pwr::WuParser::do_sort_sched_list_i(int core)
     for (sample_list_t::const_iterator citer = sched_list.begin(); citer != sched_list.end(); ++citer) {
         int curr_epoch = citer->e_sample.data[2];
         if (prev_epoch > curr_epoch) {
-            fprintf(stderr, "[%d]: prev epoch = %d, current epoch = %d\n", core, prev_epoch, curr_epoch);
+            db_fprintf(stderr, "[%d]: prev epoch = %d, current epoch = %d\n", core, prev_epoch, curr_epoch);
         }
         assert(curr_epoch >= prev_epoch);
         prev_epoch = curr_epoch;
@@ -1925,7 +1659,6 @@ void pwr::WuParser::do_merge_sched_list_i(int core)
     if (sample_list.empty()) {
         return;
     }
-
     sample_list_t::iterator sample_iter = sample_list.begin();
 
     while (sched_list.size()) {
@@ -1956,19 +1689,14 @@ void pwr::WuParser::do_merge_sched_list_i(int core)
 #endif // DO_TPS_EPOCH_COUNTER
 
 /*
- * INTERNAL API:
  * The meat of the algorithm. Sort (previously read) samples, 
  * create TPS groupings, measure Cx residencies, determine
  * wakeup causes etc.
- *
- * @returns: 0 on success, -1 on error
  */
 int pwr::WuParser::do_parse_i(void)
 {
     int cpu = 0, core = 0;
     sample_list_t *merged_list = NULL;
-    u64 min_collection_start_tsc = 0, max_collection_stop_tsc = 0;
-    std::map <int, sample_list_t> output_c_samples, output_p_samples;
 
     std::vector <sample_list_t *> merged_lists(NUM_ONLINE_CORES());
 #if DO_TPS_EPOCH_COUNTER
@@ -1995,15 +1723,12 @@ int pwr::WuParser::do_parse_i(void)
             sort_data_i(cpu);
             assert (check_sorted_i(cpu) == true);
         }
-        int core_id = get_core_given_lcpu_i(cpu);
+        int core_id = GET_CORE_GIVEN_LCPU(cpu);
         if (merged_lists[core_id] == NULL) {
             merged_lists[core_id] = m_per_cpu_sample_lists + cpu;
         } else {
             merged_lists[core_id]->merge(m_per_cpu_sample_lists[cpu]);
         }
-        m_per_cpu_p_sample_lists[core_id].sort();
-        core_id = GET_CORE_GIVEN_LCPU(cpu);
-        output_p_samples[core_id] = m_per_cpu_p_sample_lists[core_id];
     }
     /*
      * We do a final "post-process" sort to rearrange
@@ -2013,8 +1738,7 @@ int pwr::WuParser::do_parse_i(void)
      * between SCHED and TPS samples).
      */
 #if DO_TPS_EPOCH_COUNTER
-    // for_each_online_core(core) {
-    for (core=0; core<m_wakeupCoreCount; ++core) {
+    for_each_online_core(core) {
         /*
          * First, sort the list of sched samples (in EPOCH order).
          */
@@ -2028,40 +1752,17 @@ int pwr::WuParser::do_parse_i(void)
 #endif
     
     db_fprintf(stderr, "There are %d online cpus and %d online cores!\n", NUM_ONLINE_CPUS(), NUM_ONLINE_CORES());
-    db_fprintf(stderr, "m_wakeupCoreCount = %d\n", m_wakeupCoreCount);
-    // for_each_online_core(core) {
-    for (core=0; core<m_wakeupCoreCount; ++core) {
+    for_each_online_core(core) {
         db_assert(merged_lists[core] != NULL, "ERROR: core %d had a NULL list!\n", core);
-        db_fprintf(stderr, "Core [%d]: # samples = %d\n", core, merged_lists[core]->size());
-    }
-
-    /*
-     * Sort and print out the list of original samples, but
-     * only if asked to do so.
-     */
-    if (m_do_dump_orig_samples) {
-        db_fprintf(stderr, "DUMPING original samples\n");
-        sample_list_t tmp_merged_list;
-        // for_each_online_core(core) {
-        for (core=0; core<m_wakeupCoreCount; ++core) {
-            sample_list_t& samples = m_all_orig_samples[core];
-            samples.sort();
-            // std::copy(samples.begin(), samples.end(), std::ostream_iterator<PWCollector_sample_t>(std::cerr, ""));
-            tmp_merged_list.merge(samples);
-        }
-        std::copy(tmp_merged_list.begin(), tmp_merged_list.end(), std::ostream_iterator<PWCollector_sample_t>(std::cerr, ""));
     }
 
 
-    // for_each_online_core(core) {
-    for (core=0; core<m_wakeupCoreCount; ++core) {
+    for_each_online_core(core) {
         int num_tps = 0;
         pair_vec_t group_indices;
         aperf_mperf_map_t aperf_mperf_map;
-        sample_list_t& core_output_c_samples = output_c_samples[core];
-        sample_list_t& core_output_p_samples = output_p_samples[core];
-
-        db_fprintf(stderr, "core %d: # tpf samples = %u\n", core, core_output_p_samples.size());
+        sample_list_t core_output_samples;
+        sample_list_t core_tmp_p_samples;
 
         merged_list = merged_lists[core];
 
@@ -2070,7 +1771,7 @@ int pwr::WuParser::do_parse_i(void)
          */
         if (create_tps_groups_i(merged_list, group_indices, num_tps)) {
             db_fprintf(stderr, "ERROR creating TPS group indices!\n");
-            return -ERROR;
+            return -PW_ERROR;
         }
         db_fprintf(stderr, "There were %d groups in total! # TPS = %d\n", (int)group_indices.size(), num_tps);
 
@@ -2081,16 +1782,29 @@ int pwr::WuParser::do_parse_i(void)
         std::copy(merged_list->begin(), merged_list->end(), merged_vec.begin());
         db_fprintf(stderr, "Merged vec size = %d\n", (int)merged_vec.size());
 
+        /*
+         * Sanity check -- count # TPS in the 'merged' vector.
+         */
+        if (true) {
+            int ntps = 0;
+            for (sample_vec_t::const_iterator citer = merged_vec.begin(); citer != merged_vec.end(); ++citer) {
+                if (citer->sample_type == C_STATE) {
+                    ++ntps;
+                }
+            }
+            db_fprintf(stderr, "INTERMEDIATE: # TPS = %d\n", ntps);
+        }
+
         if (m_do_dump_tps_groups) {
             dump_tps_groups_i(merged_vec, group_indices);
         }
 
         /*
          * (4) Calculate wakeup causes, Cx residencies etc. between
-         *     the various TPS groups.
+         *	   the various TPS groups.
          */
         int size = group_indices.size();
-        u32 prev_actual_freq = 0;
+        pw_u32_t prev_actual_freq = 0;
         int first_group_beg = -1, first_group_end = -1;
 
         if (size == 0) {
@@ -2123,18 +1837,8 @@ int pwr::WuParser::do_parse_i(void)
          * a sleep state. This first sleep state may (or may not) be a C1 state. 
          * So we need to calculate this state, regardless of whether we're going 
          * to display it.
-         *
-         * UPDATE: collection START TSC now defined as the first {IRQ,TIMER,TPS,TPF} sample
-         * returned by the driver. This is to avoid a large "white space" at the start
-         * of the collection in cases where the cores are heavily loaded and are mostly in
-         * C0.
          */
-        if (merged_vec.empty() == false) {
-            if (min_collection_start_tsc == 0 || min_collection_start_tsc > merged_vec.front().tsc) {
-                min_collection_start_tsc = merged_vec.front().tsc;
-            }
-        }
-        if (m_do_check_c1_res) {
+        if (true) {
             /*
              * We need to generate C1 samples. We have two cases:
              * (1) No TPS group was found. See comments above regarding when this
@@ -2144,7 +1848,7 @@ int pwr::WuParser::do_parse_i(void)
              *     off with the second group.
              */
             sample_vec_t c1_output_samples;
-            u64 dont_care_tsc = 0;
+            pw_u64_t dont_care_tsc = 0;
 
             if (first_group_beg >= 0 && first_group_end > 0) {
                 /*
@@ -2156,14 +1860,11 @@ int pwr::WuParser::do_parse_i(void)
                     /*
                      * We have some initial C1 samples -- calculate the 'start tsc' from those.
                      */
-                    u64 first_c1_tsc = c1_output_samples.front().tsc;
+                    pw_u64_t first_c1_tsc = c1_output_samples.front().tsc;
                     const c_sample_t *cs = &c1_output_samples.front().c_sample;
-                    // u64 &collection_start_tsc = m_core_tsc_map[get_core_given_lcpu_i(c1_output_samples.front().cpuidx)].first;
-                    u64 first_c0_res = RES_COUNT(*cs, MPERF), first_c1_res = RES_COUNT(*cs, APERF);
-                    u64 collection_start_tsc = first_c1_tsc - first_c0_res - first_c1_res;
-                    if (min_collection_start_tsc == 0 || collection_start_tsc < min_collection_start_tsc) {
-                        min_collection_start_tsc = collection_start_tsc;
-                    }
+                    pw_u64_t &collection_start_tsc = m_core_tsc_map[GET_CORE_GIVEN_LCPU(c1_output_samples.front().cpuidx)].first;
+                    pw_u64_t first_c0_res = RES_COUNT(*cs, MPERF), first_c1_res = RES_COUNT(*cs, APERF);
+                    collection_start_tsc = first_c1_tsc - first_c0_res - first_c1_res;
                     db_fprintf(stderr, "First C1 tsc = %llu, C0 res = %llu, C1 res = %llu, first_mwait_tsc = %llu\n", first_c1_tsc, first_c0_res, first_c1_res, collection_start_tsc);
                     /*
                      * OK, computed collection_start_tsc. Now add these to the list of output samples
@@ -2172,17 +1873,7 @@ int pwr::WuParser::do_parse_i(void)
                         /*
                          * Used asked for C1 samples.
                          */
-                        core_output_c_samples.insert(core_output_c_samples.end(), c1_output_samples.begin(), c1_output_samples.end());
-#if 0
-                        if (m_do_inject_dup_c_sample) {
-                            int other_core = 1 - core; // should ALWAYS be '1'!!!
-                            assert(other_core == 1);
-                            for (sample_vec_t::iterator c1_iter = c1_output_samples.begin(); c1_iter != c1_output_samples.end(); ++c1_iter) {
-                                c1_iter->cpuidx = other_core;
-                                output_c_samples[other_core].push_back(*c1_iter);
-                            }
-                        }
-#endif
+                        core_output_samples.insert(core_output_samples.end(), c1_output_samples.begin(), c1_output_samples.end());
                     }
                 }
             }
@@ -2209,31 +1900,28 @@ int pwr::WuParser::do_parse_i(void)
             }
             assert(tpf_end >= 0);
 
-#if 0
             if (calc_aperf_mperf_deltas_i(merged_vec, -1, tpf_end, aperf_mperf_map, tmp_p_samples)) { // "-1" because algo starts with 'prev_end+1'
                 db_fprintf(stderr, "ERROR cannot calculate aperf/mperf deltas!\n");
                 db_assert(false, "ERROR cannot calculate aperf/mperf deltas!\n");
             }
-#endif
-            core_output_p_samples.insert(core_output_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
+            core_tmp_p_samples.insert(core_tmp_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
         }
+
 
         for (int i=1; i<size; ++i) {
             int prev_beg = group_indices[i-1].first, prev_end = group_indices[i-1].second, curr_begin = group_indices[i].first, curr_end = group_indices[i].second;
             PWCollector_sample_t prev_beg_sample = merged_vec[prev_beg], prev_end_sample = merged_vec[prev_end], curr_begin_sample = merged_vec[curr_begin], curr_end_sample = merged_vec[curr_end];
             int which_cx = -1;
-            u64 cx_delta = 0, c0 = 0, c0_c1 = 0;
-            u32 cause = SAMPLE_TYPE_END;
+            pw_u64_t cx_delta = 0, c0 = 0, c0_c1 = 0;
+            pw_u32_t cause = SAMPLE_TYPE_END;
             PWCollector_sample_t wakeup_sample;
             int requested_cx = -1;
             double aperf_mperf_ratio = 0.0;
-            u32 actual_freq = 0;
+            pw_u32_t actual_freq = 0;
             sample_vec_t c1_output_samples;
             sample_list_t tmp_p_samples;
-            u64 prev_cx_begin_tsc = prev_end_sample.tsc;
-            u64 prev_cx_end_tsc = curr_end_sample.tsc;
-
-            memset(&wakeup_sample, 0, sizeof(wakeup_sample));
+            pw_u64_t prev_cx_begin_tsc = prev_end_sample.tsc;
+            pw_u64_t prev_cx_end_tsc = curr_end_sample.tsc;
 
 
             /*
@@ -2260,7 +1948,7 @@ int pwr::WuParser::do_parse_i(void)
                     std::cerr << prev_end_sample;
                     std::cerr << curr_end_sample;
                 }
-                return -ERROR;
+                return -PW_ERROR;
             }
             /*
              * Calculate requested Cx state for this current group.
@@ -2274,7 +1962,11 @@ int pwr::WuParser::do_parse_i(void)
                     std::cerr << prev_beg_sample;
                     std::cerr << prev_end_sample;
                 }
-                requested_cx = prev_end_sample.c_sample.prev_state;
+                if (false) {
+                    return -PW_ERROR;
+                } else {
+                    requested_cx = prev_end_sample.c_sample.prev_state;
+                }
             }
             /*
              * The only reason we can't determine the 'mwait hint' is if
@@ -2283,7 +1975,7 @@ int pwr::WuParser::do_parse_i(void)
              * TPS sample in this group.
              */
             if (requested_cx < 0) {
-                assert (prev_end == prev_beg);
+                db_assert (prev_end == prev_beg, "ERROR: prev_end = %d, prev_beg = %d\n", prev_end, prev_beg);
                 requested_cx = prev_end_sample.c_sample.prev_state;
             }
 
@@ -2292,6 +1984,7 @@ int pwr::WuParser::do_parse_i(void)
              * our mapping table.
              */
             requested_cx = GET_C_STATE_GIVEN_TPS_HINT(requested_cx);
+
             /*
              * Find wakeup cause for this TPS "group".
              * We use the END of the PREV group and the END of the
@@ -2318,14 +2011,13 @@ int pwr::WuParser::do_parse_i(void)
              * the core moved to a different P-state.
              */
             if (m_was_any_tpf_sample_present) {
-#if 0
                 if (calc_aperf_mperf_deltas_i(merged_vec, prev_end, curr_end, aperf_mperf_map, tmp_p_samples)) {
                     db_fprintf(stderr, "ERROR cannot calculate aperf/mperf deltas!\n");
                     db_assert(false, "ERROR cannot calculate aperf/mperf deltas!\n");
                 }
-#endif
-                core_output_p_samples.insert(core_output_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
+                core_tmp_p_samples.insert(core_tmp_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
             }
+
 
             /*
              * OK, all 'Cx' calcs done. Now add to list of
@@ -2337,26 +2029,14 @@ int pwr::WuParser::do_parse_i(void)
              * FIRST C1 GROUP WITHIN THIS CX GROUP INSTEAD!!!
              * **************************************************
              */
-            core_output_c_samples.push_back(create_tps_collector_sample_i(cause, which_cx, requested_cx, core, prev_cx_end_tsc, c0, cx_delta, wakeup_sample));
+            core_output_samples.push_back(create_tps_collector_sample_i(cause, which_cx, requested_cx, core, prev_cx_end_tsc, c0, cx_delta, wakeup_sample));
             if (c1_output_samples.size()) {
                 /*
                  * And finally, add all the output samples corresponding
                  * to 'C1' samples within this group.
                  */
-                core_output_c_samples.insert(core_output_c_samples.end(), c1_output_samples.begin(), c1_output_samples.end());
+                core_output_samples.insert(core_output_samples.end(), c1_output_samples.begin(), c1_output_samples.end());
             }
-#if 0
-            if (m_do_inject_dup_c_sample) {
-                int other_core = 1 - core; // should ALWAYS be '1'!!!
-                assert(other_core == 1);
-                output_c_samples[other_core].push_back(create_tps_collector_sample_i(cause, which_cx, requested_cx, other_core, prev_cx_end_tsc, c0, cx_delta, wakeup_sample));
-                db_fprintf(stderr, "Injected dup sample (%d, %d)\n", core, other_core);
-                for (sample_vec_t::iterator c1_iter = c1_output_samples.begin(); c1_iter != c1_output_samples.end(); ++c1_iter) {
-                    c1_iter->cpuidx = other_core;
-                    output_c_samples[other_core].push_back(*c1_iter);
-                }
-            }
-#endif
 
             db_fprintf(stderr, "[%d, %d, %d]: c0 = %llu which_cx = %d cx_delta = %llu cause = %s\n", prev_end, curr_begin, curr_end, (unsigned long long)c0, which_cx, (unsigned long long)cx_delta, s_long_sample_names[cause]);
         }
@@ -2366,15 +2046,12 @@ int pwr::WuParser::do_parse_i(void)
          */
         if (m_was_any_tpf_sample_present && size > 0 && group_indices[size-1].second != merged_vec.size()) {
             sample_list_t tmp_p_samples;
-#if 0
             if (calc_aperf_mperf_deltas_i(merged_vec, group_indices[size-1].second, merged_vec.size()-1, aperf_mperf_map, tmp_p_samples)) {
                 db_fprintf(stderr, "ERROR cannot calculate aperf/mperf deltas!\n");
                 db_assert(false, "ERROR cannot calculate aperf/mperf deltas!\n");
             }
-#endif
-            core_output_p_samples.insert(core_output_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
+            core_tmp_p_samples.insert(core_tmp_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
         }
-
         /*
          * Update: our algorithm allows us to have one UNKNOWN wakeup sample per core if
          * the following conditions are met:
@@ -2384,166 +2061,49 @@ int pwr::WuParser::do_parse_i(void)
          * We check for both conditions here and remove this sample if it has an
          * unknown wakeup reason.
          */
-        if (WAS_SYSTEM_HYPER_THREADED() && core_output_c_samples.back().c_sample.break_type == PW_BREAK_TYPE_U) {
+        if (WAS_SYSTEM_HYPER_THREADED() && core_output_samples.back().c_sample.break_type == PW_BREAK_TYPE_U) {
             if (g_do_debugging) {
                 fprintf(stderr, "Warning: LAST SAMPLE had an UNKNOWN wakeup; removing!\n");
-                std::cerr << core_output_c_samples.back();
+                std::cerr << core_output_samples.back();
             }
-            core_output_c_samples.pop_back();
+            core_output_samples.pop_back();
         }
 
         /*
-         * OK, created we're done creating C-state samples. But we need to account for "ghost" time
-         * which is the C0 time between the collection START and the FIRST C-state sample and also
-         * the C0 time between the LAST C-state sample and collection STOP. To do so, we inject two
-         * spurious C-state samples with the requisite C0 residency and zero Cx residency (where 
-         * 'Cx' is either 'C1' if the user specified C1 residency checking, or the next higher
-         * C-state if not).
+         * OK, created we're done creating C-state samples. But we need to calculate the collection start and stop TSCs
+         * to ensure we only consider those P-state samples that are within the collection bounds.
          */
-        u64& collection_start_tsc = m_core_tsc_map[core].first, &collection_stop_tsc = m_core_tsc_map[core].second;
+        pw_u64_t& collection_start_tsc = m_core_tsc_map[core].first, &collection_stop_tsc = m_core_tsc_map[core].second;
 
-        if (core_output_c_samples.size() > 0) {
-            const u64& first_c_state_tsc = core_output_c_samples.front().tsc, &last_c_state_tsc = core_output_c_samples.back().tsc;
-            const c_sample_t *first_cs = &core_output_c_samples.front().c_sample, *last_cs = &core_output_c_samples.back().c_sample;
+        if (core_output_samples.size() > 0) {
+            const pw_u64_t& first_c_state_tsc = core_output_samples.front().tsc, &last_c_state_tsc = core_output_samples.back().tsc;
+            const c_sample_t *first_cs = &core_output_samples.front().c_sample, *last_cs = &core_output_samples.back().c_sample;
             /*
              * The TSC of the first 'mwait' ever seen by this CORE (and not just a given logical CPU). 
              * This is equal to the TSC of the first output C-state sample - the (C0 + Cx) residencies 
              * of that sample.
              */
-            u64 first_mwait_tsc = first_c_state_tsc - RES_COUNT(*first_cs, MPERF) - RES_COUNT(*first_cs, GET_CX_FROM_COMBINED(first_cs->tps_epoch));
+            pw_u64_t first_mwait_tsc = first_c_state_tsc - RES_COUNT(*first_cs, MPERF) - RES_COUNT(*first_cs, first_cs->tps_epoch);
 
-            assert (collection_start_tsc == 0 && collection_stop_tsc == 0);
-
-            collection_start_tsc = first_mwait_tsc;
-            collection_stop_tsc = last_c_state_tsc;
+            if (collection_start_tsc == 0) {
+                /*
+                 * Should only happen if we ARE doing C1 calcs.
+                 */
+                collection_start_tsc = first_mwait_tsc;
+            }
+            if (collection_stop_tsc == 0) {
+                collection_stop_tsc = last_c_state_tsc;
+            }
         }
         /*
          * It's possible for the user to specify a pure P,S,D state collection etc. In this case
          * the 'collection_start' and 'collection_stop' tscs won't be set. Check for that here.
          */
-        if (collection_start_tsc == 0 && core_output_p_samples.empty() == false) {
-            collection_start_tsc = core_output_p_samples.front().tsc;
+        if (collection_start_tsc == 0 && core_tmp_p_samples.empty() == false) {
+            collection_start_tsc = core_tmp_p_samples.front().tsc;
         }
-        if (collection_stop_tsc == 0 && core_output_p_samples.empty() == false) {
-            collection_stop_tsc = core_output_p_samples.back().tsc;
-        }
-        /*
-         * Keep track of the collection start and stop TSCs. These are defined as the minimum
-         * and maximum of the collection start/stop TSCs of each core, respectively.
-         */
-        if (min_collection_start_tsc == 0 || collection_start_tsc <= min_collection_start_tsc) {
-            min_collection_start_tsc = collection_start_tsc;
-        }
-        if (max_collection_stop_tsc == 0 || collection_stop_tsc >= max_collection_stop_tsc) {
-            max_collection_stop_tsc = collection_stop_tsc;
-        }
-    }
-    /*
-     * OK, all cores have been visited. Now update the collection start, stop TSCs, generate boundary (or "ghost") samples (but only if required),
-     * generate the P-state samples and compute the 'sysInfo.m_collectionTime' value.
-     */
-    // for_each_online_core(core) {
-    for (core=0; core<m_wakeupCoreCount; ++core) {
-        sample_list_t& core_output_c_samples = output_c_samples[core];
-        // sample_list_t& core_output_p_samples = output_p_samples[core];
-        /*
-         * We need to account for "ghost" time which is the C0 time between the collection START and 
-         * the FIRST C-state sample and also the C0 time between the LAST C-state sample and collection
-         * STOP. To do so, we inject two spurious C-state samples with the requisite C0 residency and 
-         * zero Cx residency (where 'Cx' is either 'C1' if the user specified C1 residency checking, 
-         * or the next higher C-state if not).
-         */
-        u64 &core_collection_start_tsc = m_core_tsc_map[core].first, &core_collection_stop_tsc = m_core_tsc_map[core].second;
-        db_fprintf(stderr, "Core %d: start TSC = %llu, overall start TSC = %llu\n", core, core_collection_start_tsc, min_collection_start_tsc);
-        if (min_collection_start_tsc > 0 && core_output_c_samples.size() > 0) {
-            if (core_collection_start_tsc > min_collection_start_tsc) {
-                /*
-                 * Add a "ghost" wakeup sample at the beginning to adjust for
-                 * C0+C1 time. This wakeup sample will have the following
-                 * characteristics:
-                 * 1. TSC == core_collection_start_tsc;
-                 * 2. C0 res == (core_collection_start_tsc - min_collection_start_tsc)
-                 * 3. Cx res == 0
-                 * 4. 'Which Cx' == {Lowest sleep state allowed by the user}
-                 * 5. 'requested Cx' == <Don't Care, because the first sample will never have it's requested Cx printed anyway>
-                 * 6. Wakeup Cause == 'BOGUS'
-                 * ---------------------------------------------------------------
-                 * UPDATE: do this ONLY if the user asked for C-state samples!!!
-                 * ---------------------------------------------------------------
-                 */
-                u64 c0_res = (core_collection_start_tsc - min_collection_start_tsc);
-                int which_cx = m_do_check_c1_res ? APERF : C2;
-                for (; which_cx < MAX_MSR_ADDRESSES; ++which_cx) {
-                    if (sysInfo.m_stateMapping[which_cx] != 99) {
-                        break;
-                    }
-                }
-                assert (which_cx >= APERF && which_cx < MAX_MSR_ADDRESSES);
-                PWCollector_sample_t tmp_wakeup_sample = {core};
-                PWCollector_sample_t ghost_sample = create_tps_collector_sample_i(FREE_SAMPLE, which_cx, which_cx /* requested cx */, core, core_collection_start_tsc, c0_res, 0 /* cx res */, tmp_wakeup_sample);
-                core_output_c_samples.insert(core_output_c_samples.begin(), ghost_sample);
-#if 0
-                   if (m_do_inject_dup_c_sample) {
-                   int other_core = 1 - core; // should ALWAYS be '1'!!!
-                   assert(other_core == 1);
-                   PWCollector_sample_t other_tmp_wakeup_sample = {other_core};
-                   PWCollector_sample_t other_ghost_sample = create_tps_collector_sample_i(FREE_SAMPLE, which_cx, which_cx , other_core, core_collection_start_tsc, c0_res, 0, other_tmp_wakeup_sample);
-                   output_c_samples[other_core].insert(output_c_samples[other_core].begin(), other_ghost_sample);
-                   }
-#endif
-                // core_collection_start_tsc = min_collection_start_tsc;
-            }
-        }
-        if (max_collection_stop_tsc > 0 && core_output_c_samples.size() > 0) {
-            if (core_collection_stop_tsc < max_collection_stop_tsc) {
-                db_fprintf(stderr, "Core %d: stop TSC = %llu, max stop TSC = %llu\n", core, core_collection_stop_tsc, max_collection_stop_tsc);
-                /*
-                 * Add a "ghost" wakeup sample at the end to adjust for
-                 * C0+C1 time. This wakeup sample will have the following
-                 * characteristics:
-                 * 1. TSC == max_collection_stop_tsc;
-                 * 2. C0 res == (max_collection_stop_tsc - core_collection_stop_tsc)
-                 * 3. Cx res == 0
-                 * 4. 'Which Cx' == {Lowest sleep state allowed by the user}
-                 * 5. 'requested Cx' == <Don't Care, because the first sample will never have it's requested Cx printed anyway>
-                 * 6. Wakeup Cause == 'BOGUS'
-                 * ---------------------------------------------------------------
-                 * UPDATE: do this ONLY if the user asked for C-state samples!!!
-                 * ---------------------------------------------------------------
-                 */
-                u64 c0_res = (max_collection_stop_tsc - core_collection_stop_tsc);
-                /*
-                 * It's possible there's already a "ghost" sample for this core (introduced above, when we check
-                 * the no-C1 case). In this case, don't introduce a new one. Instead, merely modify the previous
-                 * sample.
-                 */
-                int which_cx = m_do_check_c1_res ? APERF : C2;
-                for (; which_cx < MAX_MSR_ADDRESSES; ++which_cx) {
-                    if (sysInfo.m_stateMapping[which_cx] != 99) {
-                        break;
-                    }
-                }
-                assert (which_cx >= APERF && which_cx < MAX_MSR_ADDRESSES);
-                PWCollector_sample_t tmp_wakeup_sample = {core};
-                PWCollector_sample_t ghost_sample = create_tps_collector_sample_i(FREE_SAMPLE, which_cx, which_cx /* requested cx */, core, max_collection_stop_tsc, c0_res, 0 /* cx res */, tmp_wakeup_sample);
-                core_output_c_samples.insert(core_output_c_samples.end(), ghost_sample);
-#if 0
-                if (m_do_inject_dup_c_sample) {
-                    int other_core = 1 - core; // should ALWAYS be '1'!!!
-                    assert(other_core == 1);
-                    PWCollector_sample_t other_tmp_wakeup_sample = {other_core};
-                    PWCollector_sample_t other_ghost_sample = create_tps_collector_sample_i(FREE_SAMPLE, which_cx, which_cx /* requested cx */, other_core, max_collection_stop_tsc, c0_res, 0 /* cx res */, other_tmp_wakeup_sample);
-                    output_c_samples[other_core].insert(output_c_samples[other_core].begin(), other_ghost_sample);
-                }
-#endif
-                // core_collection_stop_tsc = max_collection_stop_tsc;
-            }
-        }
-        if (min_collection_start_tsc > 0) {
-            core_collection_start_tsc = min_collection_start_tsc;
-        }
-        if (max_collection_stop_tsc > 0) {
-            core_collection_stop_tsc = max_collection_stop_tsc;
+        if (collection_stop_tsc == 0 && core_tmp_p_samples.empty() == false) {
+            collection_stop_tsc = core_tmp_p_samples.back().tsc;
         }
         /*
          * OK, now calculate the actual frequencies. We have a list of APERF/MPERF ratios -- use
@@ -2552,121 +2112,23 @@ int pwr::WuParser::do_parse_i(void)
          * and that the TSC of the last (i.e. 'END boundary' sample isn't greater than our
          * 'collection_stop_tsc' value. 
          */
-#if 0
-        if (calc_actual_frequencies_i(core_output_p_samples, core_collection_start_tsc, core_collection_stop_tsc)) {
+        if (calc_actual_frequencies_i(core_tmp_p_samples, collection_start_tsc, collection_stop_tsc)) {
             db_assert(false, "ERROR cannot calculate actual frequencies!\n");
         }
-#endif
         /*
          * OK, all adjustments done. Now add this core's output samples to the
          * list of global samples.
          * First, the C-state samples.
          */
-        m_output_samples.insert(m_output_samples.end(), core_output_c_samples.begin(), core_output_c_samples.end());
-#if 0
+        m_output_samples.insert(m_output_samples.end(), core_output_samples.begin(), core_output_samples.end());
         /*
          * And then, the P-state samples, if any.
          */
-        m_output_p_samples.insert(m_output_p_samples.end(), core_output_p_samples.begin(), core_output_p_samples.end());
-#endif
-        if (m_do_inject_dup_c_sample) {
-            int other_core = 1 - core; // should ALWAYS be 1!
-            assert(other_core == 1);
-            for (sample_list_t::iterator iter = core_output_c_samples.begin(); iter != core_output_c_samples.end(); ++iter) {
-                PWCollector_sample_t other_sample = *iter;
-                other_sample.cpuidx = other_core;
-                m_output_samples.push_back(other_sample);
-            }
-        }
-        /*
-         * OK, sample generation done. Now calculate the total elapsed time.
-         */
-        if (core_collection_start_tsc > 0 && core_collection_stop_tsc > 0) {
-            assert(core_collection_start_tsc <= core_collection_stop_tsc);
-            u64 core_collection_time = (core_collection_stop_tsc - core_collection_start_tsc);
-            db_fprintf(stderr, "Core %d: start TSC = %llu, stop TSC = %llu collection time = %llu\n", core, core_collection_start_tsc, core_collection_stop_tsc, core_collection_time);
-            // m_total_collection_time = std::max(m_total_collection_time, core_collection_time);
-            /*
-             * Note: to maintain compatibility with the 'summary' script output, we add up the elapsed times
-             * for all cores and then divide by the number of cores.
-             * An alternate approach would be to take the maximum elapsed time of all cores.
-             */
-            m_total_collection_time += core_collection_time;
-            if (m_do_inject_dup_c_sample) {
-                m_total_collection_time += core_collection_time;
-            }
-        }
-        if (m_do_inject_dup_c_sample) {
-            int other_core = 1 - core; // should ALWAYS be '1'!!!
-            assert(other_core == 1);
-            m_core_tsc_map[other_core].first = core_collection_start_tsc; m_core_tsc_map[other_core].second = core_collection_stop_tsc;
-        }
+        m_output_p_samples.insert(m_output_p_samples.end(), core_tmp_p_samples.begin(), core_tmp_p_samples.end());
     }
-    for_each_online_core(core) {
-        sample_list_t& core_output_p_samples = output_p_samples[core];
-        u64 &core_collection_start_tsc = m_core_tsc_map[core].first, &core_collection_stop_tsc = m_core_tsc_map[core].second;
-        /*
-         * OK, now calculate the actual frequencies. We have a list of APERF/MPERF ratios -- use
-         * those to calculate the frequency the core was actually executing at. We also ensure
-         * the TSC of the first (i.e. 'START boundary' sample isn't less than our 'collection_start_tsc' value, 
-         * and that the TSC of the last (i.e. 'END boundary' sample isn't greater than our
-         * 'collection_stop_tsc' value. 
-         */
-        if (calc_actual_frequencies_i(core_output_p_samples, core_collection_start_tsc, core_collection_stop_tsc)) {
-            db_assert(false, "ERROR cannot calculate actual frequencies!\n");
-        }
-        /*
-         * OK, all adjustments done. Now add this core's P-state samples to the
-         * list of global samples.
-         */
-        m_output_p_samples.insert(m_output_p_samples.end(), core_output_p_samples.begin(), core_output_p_samples.end());
-    }
-    db_fprintf(stderr, "total collection time = %llu\n", m_total_collection_time);
-    double avg_collection_time = (double)m_total_collection_time / (double)sysInfo.m_tscFreq /* MHz */; // in usecs
-    avg_collection_time /= 1e6; // in secs
-    avg_collection_time /= NUM_ONLINE_CORES(); // avg/core
-    if (avg_collection_time > 0.0) { // sanity!
-        char tmp[10];
-        sprintf(tmp, "%.2f", avg_collection_time);
-        db_fprintf(stderr, "%s, %f\n", tmp, avg_collection_time);
-        sysInfo.m_collectionTime = tmp;
-    }
-    /*
-     * Sanity test: iterate through the C-state samples, ensuring that
-     * Cx + C0 == Delta-TSC for each pair of such samples.
-     * Update: this should be performed on a per-core basis!
-     */
-    if (false) {
-        sample_list_t::const_iterator citer = m_output_samples.begin();
-        u64 prev_tsc = citer->tsc;
-        for (++citer; citer != m_output_samples.end(); ++citer) {
-            if (g_do_debugging) {
-                std::cerr << *citer;
-            }
-            u64 curr_tsc = citer->tsc;
-            const c_sample_t *curr_cs = &citer->c_sample;
-            int which_cx = GET_CX_FROM_COMBINED(curr_cs->tps_epoch);
-            u64 delta_tsc = curr_tsc - prev_tsc;
-            u64 delta_c0 = RES_COUNT(*curr_cs, MPERF), delta_cx = RES_COUNT(*curr_cs, which_cx), sigma = delta_c0 + delta_cx;
-            s64 diff = delta_tsc - sigma;
-            db_fprintf(stderr, "Delta TSC = %llu, Delta C0 = %llu, Delta Cx = %llu, SIGMA = %llu, DIFF = %lld\n", delta_tsc, delta_c0, delta_cx, sigma, diff);
-            if (diff != 0) {
-                fprintf(stderr, "ERROR: diff is %lld: delta tsc = %llu, sigma = %llu, prev tsc = %llu\n", diff, delta_tsc, sigma, prev_tsc);
-                assert(false);
-            }
-            prev_tsc = curr_tsc;
-        }
-    }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
-/*
- * INTERNAL API:
- * Collate and sort all parsed/read data in preparation for sending back
- * to the client.
- *
- * @returns: 0 on success, -1 on error.
- */
 int pwr::WuParser::do_sort_and_collate_i(void)
 {
     /*
@@ -2675,27 +2137,20 @@ int pwr::WuParser::do_sort_and_collate_i(void)
      * 'output_samples' and 'output_p_samples' lists with
      * it to create the final (globally sorted) list.
      */
-#if 0
     m_all_samples_list.sort();
     m_all_samples_list.merge(m_output_samples);
     m_all_samples_list.merge(m_output_p_samples);
-#else // if 1
-    m_all_samples_list.insert(m_all_samples_list.end(), m_output_samples.begin(), m_output_samples.end());
-    m_all_samples_list.insert(m_all_samples_list.end(), m_output_p_samples.begin(), m_output_p_samples.end());
-    m_all_samples_list.sort();
-#endif
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 
 /*
- * INTERNAL API:
- * Function to pretty print results. All output sent
- * to 'stdout'. Used in debugging only.
+ * Function to pretty print
+ * results. All output sent
+ * to 'stdout'.
  */
-void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const pair_vec_t& indices)
-{
+void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const pair_vec_t& indices) {
     fprintf(stderr, "---TPS-GROUPS-DUMP-BEGIN---\n");
     int group = 0;
     for (pair_vec_t::const_iterator citer = indices.begin(); citer != indices.end(); ++citer, ++group) {
@@ -2716,13 +2171,8 @@ void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const pair
     }
     fprintf(stderr, "---TPS-GROUPS-DUMP-END---\n");
 };
-/*
- * INTERNAL API:
- * Function to pretty print results. All output sent
- * to 'stdout'. Used in debugging only.
- */
-void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const c_group_vec_t& indices)
-{
+
+void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const c_group_vec_t& indices) {
     fprintf(stderr, "---TPS-GROUPS-DUMP-BEGIN---\n");
     int group = 0;
     for (c_group_vec_t::const_iterator citer = indices.begin(); citer != indices.end(); ++citer, ++group) {
@@ -2745,22 +2195,16 @@ void pwr::WuParser::dump_tps_groups_i(const sample_vec_t& sorted_vec, const c_gr
 };
 
 /*
- * INTERNAL API:
  * Function to check whether elements of a given
  * (logical) CPU are sorted (ascending order wrt TSC
  * values).
- *
- * @cpu: the logical processor in question.
- *
- * @returns: "true" ==> samples are sorted, "false" ==> not sorted.
  */
-bool pwr::WuParser::check_sorted_i(int cpu)
-{
+bool pwr::WuParser::check_sorted_i(int cpu) {
     sample_list_t samples = m_per_cpu_sample_lists[cpu];
     int num_unsorted = 0;
     bool retVal = true;
     PWCollector_sample_t prev_sample;
-    u64 prev_tsc = 0;
+    pw_u64_t prev_tsc = 0;
     int idx = 0;
 
     for (sample_list_t::const_iterator citer = samples.begin(); citer != samples.end(); ++citer, ++idx) {
@@ -2779,48 +2223,18 @@ bool pwr::WuParser::check_sorted_i(int cpu)
 };
 
 /*
- * INTERNAL API:
  * Function to sort elements of a given (logical)
  * CPU.
- *
- * @cpu: the logical processor in question.
  */
-void pwr::WuParser::sort_data_i(int cpu)
-{
-    sample_list_t& c_samples = m_per_cpu_sample_lists[cpu];
-    c_samples.sort();
-};
-
-std::vector<int> pwr::WuParser::get_all_threads_of_i(int coreid)
-{
-    const std::vector<int>& siblings = m_threadSiblingMap[coreid];
-    std::vector<int> retVal;
-    retVal.insert(retVal.begin(), siblings.begin(), siblings.end());
-
-    return retVal;
-};
-
-inline int pwr::WuParser::get_core_given_lcpu_i(int cpu)
-{
-    return m_htMap[cpu];
+void pwr::WuParser::sort_data_i(int cpu) {
+    sample_list_t& samples = m_per_cpu_sample_lists[cpu];
+    samples.sort();
 };
 
 /*
- * INTERNAL API:
  * Function to calculate the 'Cx' and 'C0' residency for a given 'TPS group'.
- *
- * @prev_end: the end sample of the PREVIOUS TPS group.
- * @curr_end: the end sample of the CURRENT TPS group.
- * @which: the specific C-state (i.e. C2, C3 etc.) entered between the end of the previous TPS group
- * and the start of the current one.
- * @cx_delta: the Cx residency.
- * @c0: the C0 residency.
- * @prev_cx_begin_tsc: TSC of the last time the core entered a C-state.
- * @prev_cx_end_tsc: TSC when the core woke up from the C-state entered at @prev_cx_begin_tsc
- *
- * @returns: 0 on success, -1 on error.
  */
-int pwr::WuParser::calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev_end, const PWCollector_sample_t& curr_end, int& which, u64& cx_delta, u64& c0, const u64& prev_cx_begin_tsc, const u64& prev_cx_end_tsc) {
+int pwr::WuParser::calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev_end, const PWCollector_sample_t& curr_end, int& which, pw_u64_t& cx_delta, pw_u64_t& c0, const pw_u64_t& prev_cx_begin_tsc, const pw_u64_t& prev_cx_end_tsc) {
     assert(prev_end.sample_type == curr_end.sample_type == C_STATE); // sanity check
     const c_sample_t &cs1 = prev_end.c_sample, &cs2 = curr_end.c_sample;
 
@@ -2849,7 +2263,7 @@ int pwr::WuParser::calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev
             std::cerr << prev_end;
             std::cerr << curr_end;
         }
-        return -ERROR;
+        return -PW_ERROR;
     }
     cx_delta *= C_STATE_RES_COUNT_MULTIPLIER();
     /*
@@ -2863,7 +2277,7 @@ int pwr::WuParser::calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev
      * current group in order to align with previous 'wudump'
      * semantics.
      */
-    u64 tsc_delta = (prev_cx_end_tsc - prev_cx_begin_tsc);
+    pw_u64_t tsc_delta = (prev_cx_end_tsc - prev_cx_begin_tsc);
     if (cx_delta < tsc_delta) {
         c0 = tsc_delta - cx_delta;
     } else {
@@ -2879,26 +2293,16 @@ int pwr::WuParser::calc_inter_group_cx_c0_res_i(const PWCollector_sample_t& prev
         cx_delta = tsc_delta;
         c0 = 0;
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
- * INTERNAL API:
  * Determine what caused the core to exit idle.
  * If "allow_sched_wakeups" is FALSE then do NOT consider
  * "SCHED_WAKEUP" samples as possible causes of wakeups (set to FALSE
  * in a SINGLE-CORE environment).
- *
- * @samples: the sorted list of driver samples.
- * @from: the end of the previous TPS group.
- * @to: the end of the current TPS group.
- * @allow_sched_wakeups: "true" ==> consider "SCHED_WAKEUP" to be a possible
- * wakeup cause; "false" ==> do NOT allow "SCHED_WAKEUP" causes.
- * @wakeup_sample: the calculated wakeup cause.
- *
- * @returns: 0 on success, -1 on error
  */
-int pwr::WuParser::calc_wakeup_cause_i(const sample_vec_t& samples, int from, int to, bool allow_sched_wakeups, PWCollector_sample_t *wakeup_sample) {
+int pwr::WuParser::calc_wakeup_cause_i(const sample_vec_t& samples, int from, int to, bool allow_self_sched_wakeups, PWCollector_sample_t *wakeup_sample) {
     /*
      * Basic algo:
      * check for first non-TPS/TPE sample in range (from,to).
@@ -2908,91 +2312,62 @@ int pwr::WuParser::calc_wakeup_cause_i(const sample_vec_t& samples, int from, in
         if (sample.sample_type != C_STATE) {
             if (sample.sample_type == SCHED_SAMPLE) {
                 int src_cpu = sample.e_sample.data[0], target_cpu = sample.e_sample.data[1];
-                if (!allow_sched_wakeups && (get_core_given_lcpu_i(src_cpu) == get_core_given_lcpu_i(target_cpu))) {
+                if (!allow_self_sched_wakeups && (src_cpu == target_cpu)) {
                     db_fprintf(stderr, "WARNING: SELF-SCHED found [%d, %d]\n", from, to);
                     continue;
                 }
             }
             *wakeup_sample = sample;
-            return SUCCESS;
+            return PW_SUCCESS;
         }
     }
-    return -ERROR;
+    return -PW_ERROR;
 };
 
 /*
- * INTERNAL API:
- * Calculate cx mwait hint parameter i.e. the C-state the OS requested from the hardware.
- * Used in determining whether the hardware promoted/demoted the OS request.
- *
- * @samples: the sorted list of driver PWCollector samples.
- * @from: the start of the PREVIOUS TPS group.
- * @to: the end of the PREVIOUS TPS group.
- * @requested_cx: the (calculated) C-state requested by the OS.
- *
- * @returns: 0 on success, -1 on error.
+ * Calculate cx mwait hint parameter.
  */
 int pwr::WuParser::calc_cx_mwait_hint_i(const sample_vec_t& samples, int from, int to, int& requested_cx) {
     int hints[] = {-1, -1};
-    int prev_cpu = -1;
-    int i=0, hint_index = -1, num_hints = 0;
+    int i=0, num_hints=0;
 
-    for (i=to; i>= from && hint_index < 1; --i) {
+    for (i=to; i>= from; --i) {
         const PWCollector_sample_t& sample = samples[i];
         int cpu = sample.cpuidx;
-        if (sample.sample_type != C_STATE) {
-            continue;
-        }
-        if (prev_cpu == -1) {
-            prev_cpu = cpu;
-            hints[++hint_index] = sample.c_sample.prev_state;
-        } else if (cpu != prev_cpu) {
-            hints[++hint_index] = sample.c_sample.prev_state;
+        if (hints[cpu] == -1 && sample.sample_type == C_STATE) {
+            hints[cpu] = sample.c_sample.prev_state;
+            if (++num_hints == 2) {
+                break;
+            }
         }
     }
 
     if (i < from) {
-        return -ERROR;
+        return -PW_ERROR;
     }
-    /*
-     * The actual requested C-state will be the minimum of 
-     * the two the OS requested.
-     */
     requested_cx = std::min(hints[0], hints[1]);
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
- * INTERNAL API:
- * Compute APERF and MPERF deltas over a given TPS group. Used to determine P-state transitions.
- * We use the ratio of APERF-delta/MPERF-delta to determine actual core operating frequencies
- * (more precisely, we use the CPU_CLK_UNHALTED.CORE to CPU_CLK_UNHALTED.REF ratio to determine
- * the operating frequency -- see Intel White Paper dated November 2008: "Intel Turbo Boost Technology
- * in Intel Core Microarchitectures (Nehalem) Based Processors" for more information)
- *
- * @samples: the sorted list of PWCollector samples returned by the power driver.
- * @prev_end: end of the PREVIOUS TPS group.
- * @curr_end: end of the CURRENT TPS group.
- * @aperf_mperf_map: free-running, per-logical-processor list of aperf & mperf ratios.
- * @tmp_p_samples: (generated) temporary list of P-state transition samples.
- *
- * @returns: 0 on success, -1 on error.
+ * Calculate APERF and MPERF deltas over a given TPS group.
+ * Used to determine actual core operating frequencies.
  */
 int pwr::WuParser::calc_aperf_mperf_deltas_i(const sample_vec_t& samples, int prev_end, int curr_end, aperf_mperf_map_t& aperf_mperf_map, sample_list_t& tmp_p_samples)
 {
-    u64 curr_aperf = 0, curr_mperf = 0;
-    u64 delta_aperf = 0, delta_mperf = 0;
+    pw_u64_t curr_aperf = 0, curr_mperf = 0;
+    pw_u64_t delta_aperf = 0, delta_mperf = 0;
     int core = -1;
     bool is_ht = WAS_SYSTEM_HYPER_THREADED();
-    u32 prev_bound_freq = 0;
+    pw_u32_t prev_bound_freq = 0;
 
     for (int i=prev_end+1; i<= curr_end; ++i) {
         const PWCollector_sample_t& sample = samples[i];
         int cpu = sample.cpuidx;
         int sample_type = sample.sample_type;
-        u16 is_boundary = 0;
+        pw_u16_t is_boundary = 0;
         bool do_produce = true;
-        u32 freq = 0;
+        pw_u32_t freq = 0;
 
         /*
          * We read the CPU_CLK_UNHALTED.{CORE, REF} counters
@@ -3004,14 +2379,14 @@ int pwr::WuParser::calc_aperf_mperf_deltas_i(const sample_vec_t& samples, int pr
         }
 
         if (core == -1) {
-            core = get_core_given_lcpu_i(cpu);
+            core = GET_CORE_GIVEN_LCPU(cpu);
         }
         /*
          * Deltas require a baseline. We keep a (free-running) list
          * of aperf, mperf values for this purpose.
          */
-        u64& prev_aperf = aperf_mperf_map[cpu].first;
-        u64& prev_mperf = aperf_mperf_map[cpu].second;
+        pw_u64_t& prev_aperf = aperf_mperf_map[cpu].first;
+        pw_u64_t& prev_mperf = aperf_mperf_map[cpu].second;
 
         if (sample_type == C_STATE) {
             curr_aperf = RES_COUNT(sample.c_sample, APERF);
@@ -3069,59 +2444,44 @@ int pwr::WuParser::calc_aperf_mperf_deltas_i(const sample_vec_t& samples, int pr
         prev_aperf = curr_aperf; prev_mperf = curr_mperf;
     }
     
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
+
 struct PStatePredLess {
-    const u64& m_collection_start_tsc;
-    PStatePredLess(const u64& t) : m_collection_start_tsc(t) {};
+    const pw_u64_t& m_collection_start_tsc;
+    PStatePredLess(const pw_u64_t& t) : m_collection_start_tsc(t) {};
     bool operator()(const PWCollector_sample_t& sample) {
         return sample.tsc < m_collection_start_tsc;
     }
 };
 
 struct PStatePredMore {
-    const u64& m_collection_stop_tsc;
-    PStatePredMore(const u64& t) : m_collection_stop_tsc(t) {};
+    const pw_u64_t& m_collection_stop_tsc;
+    PStatePredMore(const pw_u64_t& t) : m_collection_stop_tsc(t) {};
     bool operator()(const PWCollector_sample_t& sample) {
         return sample.tsc > m_collection_stop_tsc;
     }
 };
 
 /*
- * INTERNAL API:
- * Calculate operating frequencies given a list of APERF/MPERF ratios.
- *
- * @tmp_p_samples: the previously constructed list of temporary p-state transition samples.
- * This list is constructed in the 'calc_aperf_mperf_deltas_i()' function.
- * @collection_start_tsc: the Start of the collection.
- * @collection_stop_tsc: the Stop of the collection.
- *
- * @returns: 0 on success, -1 on error
+ * Given a list of APERF and MPERF deltas, calculate actual frequencies and
+ * generate P-state samples.
  */
-int pwr::WuParser::calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const u64& collection_start_tsc, const u64& collection_stop_tsc)
+int pwr::WuParser::calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const pw_u64_t& collection_start_tsc, const pw_u64_t& collection_stop_tsc)
 {
     if (tmp_p_samples.empty()) {
         db_fprintf(stderr, "Warning: empty list of tmp p samples!\n");
-        return SUCCESS;
+        return PW_SUCCESS;
     }
     sample_list_t::iterator curr = tmp_p_samples.begin(), next = curr;
-    u32 collection_start_freq = 0, collection_stop_freq = 0;
-    u32 beg_freq = tmp_p_samples.front().p_sample.frequency, end_freq = tmp_p_samples.back().p_sample.frequency;
-
-    int core_id = GET_CORE_GIVEN_LCPU(curr->cpuidx);
-
+    pw_u32_t collection_start_freq = 0, collection_stop_freq = 0;
+    pw_u32_t beg_freq = tmp_p_samples.front().p_sample.frequency, end_freq = tmp_p_samples.back().p_sample.frequency;
     /*
-     * Adjust the 'cpuidx' field to reflect the actual core and not the logical cpu.
+     * We're GUARANTEED that every partial 'P-state' sample in 'tmp_p_samples' belongs
+     * TO THE SAME CORE!
      */
-    curr->cpuidx = core_id;
-    /*
-     * Make sure the frequency returned by the driver is in our
-     * list of available frequencies. This is ONLY for turbo frequencies!
-     */
-    if (curr->p_sample.frequency > m_availableFrequenciesKHz[0]) {
-        curr->p_sample.frequency = m_availableFrequenciesKHz[0];
-    }
+    int core_id = curr->cpuidx;
     
     for (++next; next != tmp_p_samples.end(); curr = next, ++next) {
         if (collection_start_freq == 0 && curr->tsc >= collection_start_tsc) {
@@ -3129,17 +2489,6 @@ int pwr::WuParser::calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const
         }
         if (collection_stop_freq == 0 && curr->tsc >= collection_stop_tsc) {
             collection_stop_freq = curr->p_sample.frequency;
-        }
-        /*
-         * Adjust the 'cpuidx' field to reflect the actual core and not the logical cpu.
-         */
-        next->cpuidx = core_id;
-        /*
-         * Make sure the frequency returned by the driver is in our
-         * list of available frequencies. This is ONLY for turbo frequencies!
-         */
-        if (next->p_sample.frequency > m_availableFrequenciesKHz[0]) {
-            next->p_sample.frequency = m_availableFrequenciesKHz[0];
         }
         if (next->p_sample.frequency != curr->p_sample.frequency) {
             /* Retain 'curr' */
@@ -3175,56 +2524,39 @@ int pwr::WuParser::calc_actual_frequencies_i(sample_list_t& tmp_p_samples, const
      * OK, done pruning. Final step: add the two boundary samples for collection
      * START and STOP, respectively. Note that we might already have a sample with
      * TSC == collection_{start,stop}_tsc, in which case we merely mark it as a
-     * boundary sample. On the other hand, if a boundary sample exists, but it's
-     * TSC doesn't satisfy our {min,max} criteria, then we simply modify this boundary
-     * so that the TSC's match.
+     * boundary sample.
      */
-    if (tmp_p_samples.empty()) {
+    if (tmp_p_samples.empty() || tmp_p_samples.front().tsc > collection_start_tsc) {
         tmp_p_samples.push_front(create_tpf_collector_sample_i(true, core_id, collection_start_freq, collection_start_tsc, 0 /* delta_aperf */, 0 /* delta_mperf */));
-    } else if (tmp_p_samples.front().tsc > collection_start_tsc) {
-        if (tmp_p_samples.front().p_sample.is_boundary_sample == 1) {
-            tmp_p_samples.front().tsc = collection_start_tsc;
-        } else {
-            tmp_p_samples.push_front(create_tpf_collector_sample_i(true, core_id, collection_start_freq, collection_start_tsc, 0 /* delta_aperf */, 0 /* delta_mperf */));
-        }
     } else {
         assert(tmp_p_samples.front().tsc == collection_start_tsc); // not strictly necessary!
         tmp_p_samples.front().p_sample.is_boundary_sample = 1;
     }
     assert(tmp_p_samples.empty() == false);
     if (tmp_p_samples.back().tsc < collection_stop_tsc) {
-        if (tmp_p_samples.back().p_sample.is_boundary_sample < 2) {
-            tmp_p_samples.push_back(create_tpf_collector_sample_i(true, core_id, collection_stop_freq, collection_stop_tsc, 0 /* delta_aperf */, 0 /* delta_mperf */));
-        } else {
-            tmp_p_samples.back().tsc = collection_stop_tsc;
-        }
+        tmp_p_samples.push_back(create_tpf_collector_sample_i(true, core_id, collection_stop_freq, collection_stop_tsc, 0 /* delta_aperf */, 0 /* delta_mperf */));
     } else {
         assert(tmp_p_samples.back().tsc == collection_stop_tsc); // not strictly necessary!
         tmp_p_samples.back().p_sample.is_boundary_sample = 2;
     }
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
- * INTERNAL API:
- * Calculate the actual operating frequency, given an aperf/mperf ratio.
- * @aperf_mperf_ratio: the (previously calculated) APERF/MPERF ratio.
- * @actual_freq: the (calculated) actual operating frequency corresponding to @aperf_mperf_ratio
- *
- * @returns: 0 on success, -1 on error
+ * Given an aperf/mperf ratio, calculate the actual operating frequency.
  */
-int pwr::WuParser::calc_actual_frequency_i(const double& aperf_mperf_ratio, u32& actual_freq)
+int pwr::WuParser::calc_actual_frequency_i(const double& aperf_mperf_ratio, pw_u32_t& actual_freq)
 {
     int i=0;
-    u32 tsc_freq = sysInfo.m_tscFreq * 1000; // We need TSC freq in KHz, not MHz
+    pw_u32_t tsc_freq = sysInfo.m_tscFreq * 1000; // We need TSC freq in KHz, not MHz
     int num_freqs = m_availableFrequenciesKHz.size();
 
     if (tsc_freq == 0) {
         db_fprintf(stderr, "ERROR: no tsc frequency found!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
 
-    u32 calc_freq = (u32)(aperf_mperf_ratio * tsc_freq);
+    pw_u32_t calc_freq = (pw_u32_t)(aperf_mperf_ratio * tsc_freq);
 
     /*
      * "calc_freq" is an AVERAGE value. We need to return a frequency
@@ -3233,7 +2565,7 @@ int pwr::WuParser::calc_actual_frequency_i(const double& aperf_mperf_ratio, u32&
      */
     if (num_freqs == 0) {
         db_fprintf(stderr, "NO list of available frequencies?!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
     if (calc_freq >= m_availableFrequenciesKHz[0]) {
         /*
@@ -3241,18 +2573,20 @@ int pwr::WuParser::calc_actual_frequency_i(const double& aperf_mperf_ratio, u32&
          */
         db_fprintf(stderr, "WARNING: TURBO detected!\n");
         actual_freq = m_availableFrequenciesKHz[0];
-        return SUCCESS;
+        return PW_SUCCESS;
     }
     /*
      * Try and find the frequency STEP that's
      * closest to 'calc_freq'
      */
     for (i=1; i<num_freqs; ++i) {
-        u32 upper = m_availableFrequenciesKHz[i-1], lower = m_availableFrequenciesKHz[i];
-        if(IS_BRACKETED_BY(upper, lower, calc_freq)){
-            actual_freq = GET_CORRECT_FREQ_BOUND(upper, lower, calc_freq);
-            db_fprintf(stderr, "AVG = %lu, UPPER = %u, LOWER = %u, CLOSEST = %u\n", calc_freq, upper, lower, actual_freq);
-            return SUCCESS;
+        pw_u32_t upper = m_availableFrequenciesKHz[i-1], lower = m_availableFrequenciesKHz[i];
+        bool bValue = ( (upper) >= (calc_freq) && (calc_freq) >= (lower) ) ? true : false;
+        if(bValue){
+            pw_u32_t __delta_upper = (upper) - (calc_freq);
+            pw_u32_t __delta_lower = (calc_freq) - (lower);
+            actual_freq = (__delta_upper < __delta_lower) ? (upper) : (lower);
+            return PW_SUCCESS;
         }
     }
 
@@ -3264,15 +2598,9 @@ int pwr::WuParser::calc_actual_frequency_i(const double& aperf_mperf_ratio, u32&
      * case, return this LOWEST frequency.
      */
     actual_freq = m_availableFrequenciesKHz[--i];
-    return SUCCESS;
+    return PW_SUCCESS;
 };
-/*
- * EXTERNAL API:
- * Set the input directory and file names.
- *
- * @dir: the directory name.
- * @file: the actual file name.
- */
+
 void pwr::WuParser::set_wuwatch_output_file_name(const std::string& dir, const std::string& file)
 {
     assert(dir.size() && file.size());
@@ -3282,32 +2610,82 @@ void pwr::WuParser::set_wuwatch_output_file_name(const std::string& dir, const s
 };
 
 /*
- * EXTERNAL API:
+void pwr::WuParser::set_wuwatch_output_file_name(const std::string& file)
+{
+    boost::filesystem::path filepath(file);
+    if (boost::filesystem::is_directory(filepath))
+    {
+        m_wuwatch_output_dir = file;
+        filepath /= DEFAULT_WUWATCH_OUTPUT_FILE_NAME;
+        m_combined_input_file_name = filepath.string();
+    }
+    else if (boost::filesystem::is_regular(filepath))
+    {
+        m_combined_input_file_name = file;
+    }
+
+    db_fprintf(stderr, "WUDUMP has input file = %s\n", m_combined_input_file_name.c_str());
+};
+*/
+
+
+/*
  * Main function:
  * (1) Read samples.
  * (2) Parse them, exctracting relevent information.
  * (3) Print out results.
- *
- * @returns: 0 on success, -1 on error.
  */
 int pwr::WuParser::do_work(void)
 {
+
     if (do_read_i()) {
         fprintf(stderr, "ERROR reading input data!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
 
     if (do_parse_i()) {
         fprintf(stderr, "ERROR parsing data!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
 
     if (do_sort_and_collate_i()) {
         fprintf(stderr, "ERROR soring and collating samples!\n");
-        return -ERROR;
+        return -PW_ERROR;
     }
 
-    return SUCCESS;
+    return PW_SUCCESS;
+};
+
+/*
+ * Added here to avoid having to drag in "pw_utils".
+ */
+static void extract_dir_and_file_from_path(const std::string& path, std::string& dir, std::string& file)
+{
+    int size = path.size();
+    assert(size > 0);
+    /*
+     * The file name is defined as everything AFTER the LAST '/'
+     * (or the ENTIRE STRING, if no "/" is specified).
+     */
+    char last_char = path.c_str()[size-1];
+    int last_slash = path.find_last_of("/");
+    if (last_slash == std::string::npos) {
+        /*
+         * No "/" found -- either the 'path' supplied
+         * was the file name itself or it was "."
+         * In either case, the directory is "./".
+         */
+        dir = "./";
+        file = path;
+    } else if (last_slash == (size-1)) {
+        // Could happen, for example, if the user specified a "-o /"
+        dir = path;
+        file = "";
+    } else {
+        // A DIR component WAS specified -- extract it here.
+        dir = path.substr(0, last_slash+1);
+        file = path.substr(last_slash+1);
+    }
 };
 
 /*
@@ -3319,14 +2697,7 @@ pwr::WuData::WuData() : m_init_complete(false) {};
  * PRIVATE API
  * Default destructor -- privatized for Singleton-compatibility.
  */
-pwr::WuData::~WuData() {
-    /*
-     * Delete any dynamically allocted (userspace) backtrace memory.
-     */
-    for (trace_vec_t::iterator iter = m_trace_vec.begin(); iter != m_trace_vec.end(); ++iter) {
-        delete *iter;
-    }
-};
+pwr::WuData::~WuData() {};
 
 /*
  * PUBLIC API
@@ -3362,15 +2733,22 @@ void pwr::WuData::destroy()
  *          0 ==>   OK
  *          -1 ==>  Failure.
  */
-int pwr::WuData::do_read_and_process(const std::string& dir_name, const std::string& file_name, bool should_calc_c1, bool should_dump_orig_samples)
+int pwr::WuData::do_read_and_process(const std::string& dir_name, const std::string& file_name)
 {
-    WuParser *wuparserObj = new WuParser(sysInfo, should_calc_c1, should_dump_orig_samples);
+    const char *do_dump_samples = getenv("PW_DO_DUMP_SAMPLES");
+    WuParser *wuparserObj = new WuParser(sysInfo);
     wuparserObj->set_wuwatch_output_file_name(dir_name, file_name);
     /*
      * 'WuParser' accesses macros that require 'm_init_complete' to
      * be set.
      */
     m_init_complete = true;
+    /*
+     * Check for 'g_do_dump_samples' ENV variable.
+     */
+    if (do_dump_samples != NULL && (!strcmp(do_dump_samples, "y") || !strcmp(do_dump_samples, "Y"))) {
+        g_do_dump_samples = true;
+    }
 
     if (wuparserObj->do_work()) {
         /*
@@ -3379,7 +2757,7 @@ int pwr::WuData::do_read_and_process(const std::string& dir_name, const std::str
          */
         m_init_complete = false;
         delete wuparserObj;
-        return -ERROR;
+        return -PW_ERROR;
     }
     /*
      * OK, copy samples and trace maps etc. over.
@@ -3387,12 +2765,14 @@ int pwr::WuData::do_read_and_process(const std::string& dir_name, const std::str
     {
         m_samples = sample_vec_t(wuparserObj->m_all_samples_list.size());
         std::copy(wuparserObj->m_all_samples_list.begin(), wuparserObj->m_all_samples_list.end(), m_samples.begin());
-        m_trace_pair_map = wuparserObj->m_trace_pair_map;
-        m_trace_vec = wuparserObj->m_trace_vec;
+    }
+
+    if (g_do_dump_samples) {
+        std::copy(m_samples.begin(), m_samples.end(), std::ostream_iterator<PWCollector_sample_t>(std::cerr, ""));
     }
 
     delete wuparserObj;
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 /*
@@ -3405,20 +2785,18 @@ int pwr::WuData::do_read_and_process(const std::string& dir_name, const std::str
  *          0 ==>   OK
  *          -1 ==>  Failure.
  */
-int pwr::WuData::do_read_and_process(const std::string& wuwatch_file_path, bool should_calc_c1)
+int pwr::WuData::do_read_and_process(const std::string& wuwatch_file_path)
 {
     std::string dir_name = "", file_name = "";
     extract_dir_and_file_from_path(wuwatch_file_path, dir_name, file_name);
     if (file_name == "" || file_name == ".") {
-        file_name = std::string(DEFAULT_WUWATCH_OUTPUT_FILE_NAME) + ".ww1";
+        file_name = DEFAULT_WUWATCH_OUTPUT_FILE_NAME;
     }
-    return do_read_and_process(dir_name, file_name, should_calc_c1);
+    return do_read_and_process(dir_name, file_name);
 };
 /*
  * PUBLIC API
  * Retrieve system configuration information.
- *
- * @returns: the system configuration information.
  */
 const pwr::SystemInfo& pwr::WuData::getSystemInfo() const
 {
@@ -3429,8 +2807,6 @@ const pwr::SystemInfo& pwr::WuData::getSystemInfo() const
 /*
  * PUBLIC API
  * Retrieve list of PWCollector samples returned by the driver.
- *
- * @returns: the list of (parsed) PWCollector samples
  */
 const sample_vec_t& pwr::WuData::getSamples() const
 {
@@ -3439,20 +2815,6 @@ const sample_vec_t& pwr::WuData::getSamples() const
 };
 
 /*
- * PUBLIC API
- * Retrieve TID <--> Call trace mappings returned by the driver
- * and also mappings generated by the hook library.
- *
- * @returns: the call trace mapping.
- */
-const trace_pair_map_t& pwr::WuData::get_tid_backtrace_map() const
-{
-    assert(m_init_complete);
-    return m_trace_pair_map;
-};
-
-/*
- * EXTERNAL API:
  * Helper function to pretty-print an individual
  * power sample.
  */
@@ -3460,7 +2822,6 @@ void operator<<(std::ostream& os, const PWCollector_sample_t& sample)
 {
     const c_sample_t *cs;
     const r_sample_t *rs;
-    const i_sample_t *is;
     int cpu;
     unsigned long long tsc, mperf, c1, c2, c3, c4, c5, c6, c9;
 
@@ -3495,13 +2856,7 @@ void operator<<(std::ostream& os, const PWCollector_sample_t& sample)
         os << "\t" << sample.c_sample.prev_state << "\t" << sample.c_sample.tps_epoch;
     }
     else if (sample.sample_type == P_STATE) {
-        // os << "\t" << sample.p_sample.unhalted_ref_value << "\t" << sample.p_sample.unhalted_core_value << "\t" << sample.p_sample.frequency << "\t" << GET_BOOL_STRING(sample.p_sample.is_boundary_sample);
-        os << "\t" << sample.p_sample.prev_req_frequency << "\t" << sample.p_sample.frequency << "\t" << GET_BOOL_STRING(sample.p_sample.is_boundary_sample);
-        // os << "\t" << sample.p_sample.frequency << "\t" << GET_BOOL_STRING(sample.p_sample.is_boundary_sample);
-    }
-    else if (sample.sample_type == IRQ_MAP) {
-        is = &sample.i_sample;
-        os << "\t" << is->irq_num << "\t" << is->irq_name;
+        os << "\t" << sample.p_sample.frequency << "\t" << GET_BOOL_STRING(sample.p_sample.is_boundary_sample);
     }
     else if (sample.sample_type == PROC_MAP) {
         rs = &sample.r_sample;
@@ -3516,14 +2871,10 @@ void operator<<(std::ostream& os, const PWCollector_sample_t& sample)
     else if (sample.sample_type == SCHED_SAMPLE) {
         os << "\t" << sample.e_sample.data[0] << "\t" << sample.e_sample.data[1] << "\t" << sample.e_sample.data[2];
     }
-    else if (sample.sample_type == IPI_SAMPLE) {
-        os << "\t" << sample.e_sample.data[0];
-    }
     os << std::endl;
 };
 
 /*
- * EXTERNAL API:
  * Helper function to pretty-print a pair.
  */
 void operator<<(std::ostream& os, const int_pair_t& pair)
@@ -3531,13 +2882,7 @@ void operator<<(std::ostream& os, const int_pair_t& pair)
     os << pair.first << "\t" << pair.second << std::endl;
 };
 /*
- * EXTERNAL API:
- * Helper function to compare two c-state samples.
- *
- * @s1, @s2: the two samples to compare.
- *
- * @returns: "true" ==> the two samples are 'EQUAL', "false" otherwise.
- * Equality is defined by comparing the MSR-sets of the two samples.
+ * Helper function to compare two power samples.
  */
 bool operator==(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2)
 {
@@ -3555,26 +2900,15 @@ bool operator==(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2)
     return true;
 };
 /*
- * EXTERNAL API:
- * Helper function to compare two c-state samples.
+ * Helper function to compare two power samples.
  */
 bool operator!=(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2)
 {
     return !(s1 == s2);
 };
 
-/*
- * EXTERNAL API:
- * Helper function used to sort (in ascending TSC order) the various PWCollector
- * samples returned by the driver.
- *
- * @s1, @s2: the two samples to compare.
- *
- * @returns: "true" ==> s1.tsc < s2.tsc, "false" otherwise.
- */
 bool operator<(const PWCollector_sample_t& s1, const PWCollector_sample_t& s2)
 {
     return s1.tsc < s2.tsc;
+    // return s1.tsc > s2.tsc;
 };
-
-
