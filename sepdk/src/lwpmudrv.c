@@ -46,7 +46,9 @@
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>
 #include <linux/device.h>
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,4,0)
 #include <asm/system.h>
+#endif
 #include <asm/uaccess.h>
 #include <linux/sched.h>
 #include <linux/syscalls.h>

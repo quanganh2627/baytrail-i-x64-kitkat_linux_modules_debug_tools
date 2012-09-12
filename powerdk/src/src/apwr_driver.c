@@ -93,6 +93,13 @@
 #define PW_VERSION_INTERFACE 0
 #define PW_VERSION_OTHER 3
 
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)
+#define DO_WAKELOCK_SAMPLE 0
+#else
+#define DO_WAKELOCK_SAMPLE 1
+#endif
+
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -125,7 +132,6 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/cpufreq.h>
-#include <linux/version.h> // for "LINUX_VERSION_CODE"
 #include <asm/unistd.h> // for "__NR_execve"
 #include <asm/delay.h> // for "udelay"
 
