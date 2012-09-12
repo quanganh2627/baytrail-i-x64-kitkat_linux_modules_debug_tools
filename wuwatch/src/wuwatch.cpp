@@ -179,7 +179,7 @@ int pwr::barrier::wait()
 int pwr::StringUtils::getline(FILE *fp, std::string& line)
 {
     char tmp_buf[1024];
-    int tmp_size = -1;
+    size_t tmp_size = 0;
     tmp_buf[0] = '\0';
 
     line.clear();
@@ -197,6 +197,14 @@ int pwr::StringUtils::getline(FILE *fp, std::string& line)
         }
         line.append(tmp_buf);
         tmp_size = strlen(tmp_buf);
+        /*
+         * Sanities.
+         */
+        if (tmp_size < 1) {
+            tmp_size = 1;
+        } else if (tmp_size >= sizeof(tmp_buf)) {
+            tmp_size = sizeof(tmp_buf) - 1;
+        }
     } while (tmp_buf[tmp_size-1] != '\n');
 
     /*
@@ -821,6 +829,7 @@ int Wuwatch::do_ioctl_available_frequencies(int fd, u32 *available_frequencies)
     /*
      * Copy frequencies into output array.
      */
+    assert(freqs.num_freqs <= 16);
     memcpy(available_frequencies, freqs.frequencies, sizeof(u32) * freqs.num_freqs);
     available_frequencies[freqs.num_freqs] = 0; // last entry MUST be ZERO!!!
     return SUCCESS;
@@ -915,6 +924,7 @@ void *Wuwatch::reader_thread_i(args_t *args)
 
         if (i > 0) {
             size_t tmp = 0;
+            assert(num <= array_size); // Not strictly required!
             if ( (tmp = fwrite(samples, sizeof(PWCollector_sample_t), num, fp)) < num) {
                 perror("fwrite error");
                 delete []samples;

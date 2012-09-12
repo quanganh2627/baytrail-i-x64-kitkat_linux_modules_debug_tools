@@ -98,7 +98,7 @@ void LineReader::get_all_lines(FILE *fp, std::vector<std::string>& lines)
     }
     std::string line;
     char tmp_buf[1024];
-    int tmp_size = -1;
+    size_t tmp_size = 0;
 
     while (!feof(fp)) {
         line.clear();
@@ -109,6 +109,14 @@ void LineReader::get_all_lines(FILE *fp, std::vector<std::string>& lines)
             }
             line.append(tmp_buf);
             tmp_size = strlen(tmp_buf);
+            /*
+             * Sanities.
+             */
+            if (tmp_size < 1) {
+                tmp_size = 1;
+            } else if (tmp_size >= sizeof(tmp_buf)) {
+                tmp_size = sizeof(tmp_buf) - 1;
+            }
         } while (tmp_buf[tmp_size-1] != '\n');
         /*
          * We do NOT want the terminating '\n' or any trailing whitespace.
@@ -125,7 +133,7 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
     }
     std::string line;
     char tmp_buf[1024];
-    int tmp_size = -1;
+    size_t tmp_size = 0;
 
     while (!feof(fp)) {
         line.clear();
@@ -136,6 +144,14 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
             }
             line.append(tmp_buf);
             tmp_size = strlen(tmp_buf);
+            /*
+             * Sanities.
+             */
+            if (tmp_size < 1) {
+                tmp_size = 1;
+            } else if (tmp_size >= sizeof(tmp_buf)) {
+                tmp_size = sizeof(tmp_buf) - 1;
+            }
         } while (tmp_buf[tmp_size-1] != '\n');
         /*
          * We do NOT want the terminating '\n' or any trailing whitespace.

@@ -2195,6 +2195,7 @@ int pwr::WuParser::do_parse_i(void)
          * second group.
          */
         if (m_was_any_tpf_sample_present) {
+#if 0
             int tpf_begin = -1, tpf_end = -1;
             sample_list_t tmp_p_samples;
 
@@ -2209,13 +2210,8 @@ int pwr::WuParser::do_parse_i(void)
             }
             assert(tpf_end >= 0);
 
-#if 0
-            if (calc_aperf_mperf_deltas_i(merged_vec, -1, tpf_end, aperf_mperf_map, tmp_p_samples)) { // "-1" because algo starts with 'prev_end+1'
-                db_fprintf(stderr, "ERROR cannot calculate aperf/mperf deltas!\n");
-                db_assert(false, "ERROR cannot calculate aperf/mperf deltas!\n");
-            }
-#endif
             core_output_p_samples.insert(core_output_p_samples.end(), tmp_p_samples.begin(), tmp_p_samples.end());
+#endif
         }
 
         for (int i=1; i<size; ++i) {

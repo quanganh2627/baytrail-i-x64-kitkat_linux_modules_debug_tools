@@ -91,7 +91,7 @@
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 0
-#define PW_VERSION_OTHER 2
+#define PW_VERSION_OTHER 3
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>

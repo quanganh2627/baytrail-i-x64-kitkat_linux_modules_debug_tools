@@ -40,7 +40,7 @@
 // We're currently at 3.0.2
 #define WUWATCH_VERSION_VERSION 3
 #define WUWATCH_VERSION_INTERFACE 0
-#define WUWATCH_VERSION_OTHER 2
+#define WUWATCH_VERSION_OTHER 3
 
 /* **************************************
  * Compile-time constants.
