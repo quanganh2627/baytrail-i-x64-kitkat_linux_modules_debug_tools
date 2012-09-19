@@ -98,12 +98,12 @@ DRIVER_MAJOR=3
 DRIVER_MINOR=0
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
-
+DRIVER_FILENAME=$(DRIVER_NAME).ko
 # location to install driver
 INSTALL = .
 
-INCDIR=$(M)/../include
-INC2=$(M)/inc
+INCDIR=$(M)/../../include
+INC2=$(M)/../inc
 
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
@@ -116,27 +116,29 @@ KERNEL_VERSION=$(shell uname -r | awk 'BEGIN{FS="[^0-9]"} {print $$3}')
 APWR_RED_HAT="0"
 EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
 
+ifneq ($(KERNELRELEASE),)
 ifeq ($(strip $(CONFIG_STACKTRACE)),y)
 obj-m := $(DRIVER_NAME).o
-#apwr2_0-objs :=	src/apwr_driver.o
-$(DRIVER_NAME)-objs := src/apwr_driver.o
+#apwr2_0-objs :=	apwr_driver.o
+$(DRIVER_NAME)-objs := apwr_driver.o
 #src/pw_output_buffer.o
 endif
-
-.PHONY: kernel_check
-
-kernel_check:
-ifeq "$(KERNEL_SRC_DIR)" ""
-	@echo "Error: makefile MUST NOT be invoked directly! Use the \"build_driver\" script instead."
-	@exit 255
-endif
-
-default: kernel_check
+else
+default:
 	@echo "************************************************************"
 	@echo "KERNEL_SRC_DIR=$(KERNEL_SRC_DIR)"
 	@echo "APWR_RED_HAT=$(APWR_RED_HAT)"
 	@echo "************************************************************"
 	make -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
+endif
 
-clean: kernel_check
-	make -C $(KERNEL_SRC_DIR) M=$(PWD) clean
+install:
+	@cp $(DRIVER_NAME).ko $(INSTALL)/$(DRIVER_FILENAME)
+	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
+
+clean:
+	@rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
+	@rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
+	@rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
+	@rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers ../*.mod.c
+	@rm -rf .tmp_versions
