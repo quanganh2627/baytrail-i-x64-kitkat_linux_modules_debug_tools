@@ -819,7 +819,11 @@ int Wuwatch::do_ioctl_available_frequencies(int fd, u32 *available_frequencies)
     /*
      * Sanity test!
      */
-    assert(freqs.num_freqs <= PW_MAX_NUM_AVAILABLE_FREQUENCIES);
+    // assert(freqs.num_freqs <= PW_MAX_NUM_AVAILABLE_FREQUENCIES);
+    if (freqs.num_freqs >= PW_MAX_NUM_AVAILABLE_FREQUENCIES) {
+        db_fprintf(stderr, "ERROR: num freqs = %d\n", (int)freqs.num_freqs);
+        return -ERROR;
+    }
 
     db_fprintf(stderr, "Available frequencies...\n");
     for (int i=0; i<freqs.num_freqs; ++i) {
@@ -924,7 +928,12 @@ void *Wuwatch::reader_thread_i(args_t *args)
 
         if (i > 0) {
             size_t tmp = 0;
-            assert(num <= array_size); // Not strictly required!
+            // assert(num <= array_size); // Not strictly required!
+            if (num >= array_size) {
+                db_fprintf(stderr, "ERROR: num = %d\n", (int)num);
+                delete []samples;
+                wu_exit(-ERROR);
+            }
             if ( (tmp = fwrite(samples, sizeof(PWCollector_sample_t), num, fp)) < num) {
                 perror("fwrite error");
                 delete []samples;
