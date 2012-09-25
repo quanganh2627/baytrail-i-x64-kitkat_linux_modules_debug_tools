@@ -122,7 +122,11 @@ DISPATCH                dispatch              = NULL;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #endif
 U64                     total_ram             = 0;
+#ifndef CUSTOM_BOARD_MFLD_GI
 U32                     output_buffer_size    = OUTPUT_LARGE_BUFFER;
+#else
+U32                     output_buffer_size    = OUTPUT_SMALL_BUFFER;
+#endif
 static  S32             em_groups_count       = 0;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #endif
@@ -3719,6 +3723,7 @@ lwpmu_Load (
     if (total_ram <= OUTPUT_MEMORY_THRESHOLD) {
         output_buffer_size = OUTPUT_SMALL_BUFFER;
     }
+    SEP_PRINT("Sep driver output buffer size: 0x%x.\n", output_buffer_size);
 
     mutex_init(&ioctl_lock);
     in_finish_code = 0;

@@ -92,6 +92,10 @@ ifeq ($(EMON),YES)
 endif
 EXTRA_CFLAGS += -DDRV_ANDROID
 
+ifeq ($(CUSTOM_BOARD),mfld_gi)
+EXTRA_CFLAGS += -DCUSTOM_BOARD_MFLD_GI
+endif
+
 ifeq ($(BUILD_CHIPSET),YES)
     EXTRA_CFLAGS += -DBUILD_CHIPSET
 	chipset-objs :=	pci.o     \
