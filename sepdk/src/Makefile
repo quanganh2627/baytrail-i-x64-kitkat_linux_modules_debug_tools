@@ -143,13 +143,13 @@ install:
 	@(cd pax && make install INSTALL=$(INSTALL)/pax)
 
 clean:
-	rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
-	rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
-	rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
-	rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers
-	rm -rf .tmp_versions
+	@rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
+	@rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
+	@rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
+	@rm -f Module.symvers Modules.symvers modules.order Module.markers
+	@rm -rf .tmp_versions
 	@(cd pax && make clean)
 
 distclean: clean
-	rm -f $(DRIVER_NAME)*.ko
+	@rm -f $(DRIVER_NAME)*.ko
 	@(cd pax && make distclean)

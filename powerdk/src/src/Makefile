@@ -140,5 +140,8 @@ clean:
 	@rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
 	@rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
 	@rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
-	@rm -f Module.symvers Modules.symvers *.mod.c modules.order Module.markers ../*.mod.c
+	@rm -f Module.symvers Modules.symvers modules.order Module.markers
 	@rm -rf .tmp_versions
+
+distclean: clean
+	@rm -f $(DRIVER_NAME).ko
