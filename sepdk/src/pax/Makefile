@@ -39,7 +39,7 @@ INSTALL = .
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
 #EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1) -DDRV_ANDROID
-EXTRA_CFLAGS += -I$(M)/../../include -I$(M)/../inc
+EXTRA_CFLAGS += -I$(M)/../../include -I$(M)/../inc -DDRV_ANDROID
 
 # if ARCH variable is set, unset it to avoid conflicts with kbuild
 unexport ARCH
