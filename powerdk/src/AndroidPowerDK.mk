@@ -6,4 +6,4 @@ apwr: build_kernel
 	TARGET_DEVICE="$(TARGET_DEVICE)" \
 	TARGET_BOARD_PLATFORM="$(TARGET_BOARD_PLATFORM)" \
 	vendor/intel/support/kernel-build.sh \
-	-M device/intel/debug_tools/powerdk/src/src
+	-M device/intel/debug_tools/powerdk/src

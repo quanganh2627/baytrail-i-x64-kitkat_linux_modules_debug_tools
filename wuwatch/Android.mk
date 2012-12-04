@@ -9,11 +9,12 @@ LOCAL_SRC_FILES:= \
 	src/main.cpp \
 	src/pw_bt.cpp \
 	src/pw_utils.cpp \
+	src/pw_parser.cpp \
 	src/wulib.cpp   \
 	src/ht_wudump.cpp   \
 	src/wuwatch.cpp
 
-LOCAL_CFLAGS += -D_ANDROID_=1
+LOCAL_CFLAGS += -D_ANDROID_=1 -D_NDK_BUILD_=1 -DIS_INTEL_INTERNAL=1 
 
 LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/inc \

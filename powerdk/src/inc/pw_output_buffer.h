@@ -59,65 +59,74 @@
   ***********************************************************************************************
 */
 
+#ifndef _PW_OUTPUT_BUFFER_H_
+#define _PW_OUTPUT_BUFFER_H_ 1
 /*
- * Description: file containing overhead measurement
- * routines used by the power driver.
+ * Special mask for the case where all buffers have been flushed.
  */
-
-#ifndef _PW_OVERHEAD_MEASUREMENTS_H_
-#define _PW_OVERHEAD_MEASUREMENTS_H_
+// #define PW_ALL_WRITES_DONE_MASK 0xffffffff
+#define PW_ALL_WRITES_DONE_MASK ((u32)-1)
 /*
- * Helper macro to declare variables required
- * for conducting overhead measurements.
+ * Special mask for the case where no data is available to be read.
  */
+#define PW_NO_DATA_AVAIL_MASK ((u32)-2)
 
 /*
- * For each function that you want to profile, 
- * do the following (e.g. function 'foo'):
- * **************************************************
- * DECLARE_OVERHEAD_VARS(foo);
- * **************************************************
- * This will declare the two variables required
- * to keep track of overheads incurred in 
- * calling/servicing 'foo'. Note that the name
- * that you declare here *MUST* match the function name!
+ * Forward declarations.
  */
+typedef struct PWC_tps_msg PWC_tps_msg_t;
+struct PWCollector_msg;
+struct c_msg;
 
-#define DECLARE_OVERHEAD_VARS(name)					\
-    static DEFINE_PER_CPU(u64, name##_elapsed_time) = 0;				\
-    static DEFINE_PER_CPU(local_t, name##_num_iters) = LOCAL_INIT(0);		\
-									\
-    static inline u64 get_my_cumulative_elapsed_time_##name(void){		\
-	return *(&__get_cpu_var(name##_elapsed_time));			\
-    }									\
-    static inline int get_my_cumulative_num_iters_##name(void){		\
-	return local_read(&__get_cpu_var(name##_num_iters));		\
-    }									\
-									\
-    static inline u64 name##_get_cumulative_elapsed_time_for(int cpu){	\
-	return *(&per_cpu(name##_elapsed_time, cpu));			\
-    }									\
-									\
-    static inline int name##_get_cumulative_num_iters_for(int cpu){	\
-    	return local_read(&per_cpu(name##_num_iters, cpu));		\
-    }									\
-									\
-    static inline void name##_get_cumulative_overhead_params(u64 *time,	\
-							     int *iters){ \
-	int cpu = 0;							\
-	*time = 0; *iters = 0;						\
-	for_each_online_cpu(cpu){					\
-	    *iters += name##_get_cumulative_num_iters_for(cpu);		\
-	    *time += name##_get_cumulative_elapsed_time_for(cpu);	\
-	}								\
-	return;								\
-    }									\
-	\
-static inline void name##_print_cumulative_overhead_params(const char *str){\
-	int num = 0; \
-	u64 time = 0; \
-	name##_get_cumulative_overhead_params(&time, &num); \
-	printk(KERN_INFO "%s: %d iters took %llu cycles!\n", str, num, time); \
-}
+/*
+ * Common data structures.
+ */
+#pragma pack(push)
+#pragma pack(2)
+/*
+ * Everything EXCEPT the 'c_msg_t' field MUST match
+ * the fields in 'PWCollector_msg_t' EXACTLY!!!
+ */
+struct PWC_tps_msg {
+    u64 tsc;
+    u16 data_len;
+    u8 cpuidx; // should really be a u16!!!
+    u8 data_type;
+    struct c_msg data;
+};
+#pragma pack(pop)
 
-#endif // _PW_OVERHEAD_MEASUREMENTS_H_
+/*
+ * Variable declarations.
+ */
+extern u64 pw_num_samples_produced, pw_num_samples_dropped;
+extern unsigned long pw_buffer_alloc_size;
+extern wait_queue_head_t pw_reader_queue;
+extern int pw_max_num_cpus;
+
+/*
+ * Public API.
+ */
+int pw_init_per_cpu_buffers(void);
+void pw_destroy_per_cpu_buffers(void);
+void pw_reset_per_cpu_buffers(void);
+int pw_map_per_cpu_buffers(struct vm_area_struct *vma, unsigned long *total_size);
+
+void pw_count_samples_produced_dropped(void);
+
+int pw_produce_tps_msg(struct PWC_tps_msg *);
+int pw_produce_generic_msg(struct PWCollector_msg *, bool);
+
+bool pw_any_seg_full(u32 *val, const bool *is_flush_mode);
+unsigned long pw_consume_data(u32 mask, char __user *buffer, size_t bytes_to_read, size_t *bytes_read);
+
+unsigned long pw_get_buffer_size(void);
+
+void pw_wait_once(void);
+void pw_wakeup(void);
+
+/*
+ * Debugging ONLY!!!
+ */
+void pw_dump_pages(const char *msg);
+#endif // _PW_OUTPUT_BUFFER_H_

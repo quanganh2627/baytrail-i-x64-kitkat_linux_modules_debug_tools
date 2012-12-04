@@ -59,65 +59,73 @@
   ***********************************************************************************************
 */
 
+#ifndef _PW_TYPES_H_
+#define _PW_TYPES_H_
+
+#if defined (__linux__)
+
+#ifndef __KERNEL__
 /*
- * Description: file containing overhead measurement
- * routines used by the power driver.
+ * Called from Ring-3.
  */
-
-#ifndef _PW_OVERHEAD_MEASUREMENTS_H_
-#define _PW_OVERHEAD_MEASUREMENTS_H_
+#include <stdint.h> // Grab 'uint64_t' etc.
 /*
- * Helper macro to declare variables required
- * for conducting overhead measurements.
+ * UNSIGNED types...
  */
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+/*
+ * SIGNED types...
+ */
+typedef int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+
+#endif // __KERNEL__
+
+#elif defined (_WIN32)
+/*
+ * UNSIGNED types...
+ */
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef unsigned long long u64;
+/*
+ * SIGNED types...
+ */
+typedef signed char s8;
+typedef signed short s16;
+typedef signed int s32;
+typedef signed long long s64;
+typedef s32 pid_t;
+typedef s32 ssize_t;
+
+#endif // _WIN32
+
+/* ************************************
+ * Common to both operating systems.
+ * ************************************
+ */
+/*
+ * UNSIGNED types...
+ */
+typedef u8 pw_u8_t;
+typedef u16 pw_u16_t;
+typedef u32 pw_u32_t;
+typedef u64 pw_u64_t;
 
 /*
- * For each function that you want to profile, 
- * do the following (e.g. function 'foo'):
- * **************************************************
- * DECLARE_OVERHEAD_VARS(foo);
- * **************************************************
- * This will declare the two variables required
- * to keep track of overheads incurred in 
- * calling/servicing 'foo'. Note that the name
- * that you declare here *MUST* match the function name!
+ * SIGNED types...
  */
+typedef s8 pw_s8_t;
+typedef s16 pw_s16_t;
+typedef s32 pw_s32_t;
+typedef s64 pw_s64_t;
 
-#define DECLARE_OVERHEAD_VARS(name)					\
-    static DEFINE_PER_CPU(u64, name##_elapsed_time) = 0;				\
-    static DEFINE_PER_CPU(local_t, name##_num_iters) = LOCAL_INIT(0);		\
-									\
-    static inline u64 get_my_cumulative_elapsed_time_##name(void){		\
-	return *(&__get_cpu_var(name##_elapsed_time));			\
-    }									\
-    static inline int get_my_cumulative_num_iters_##name(void){		\
-	return local_read(&__get_cpu_var(name##_num_iters));		\
-    }									\
-									\
-    static inline u64 name##_get_cumulative_elapsed_time_for(int cpu){	\
-	return *(&per_cpu(name##_elapsed_time, cpu));			\
-    }									\
-									\
-    static inline int name##_get_cumulative_num_iters_for(int cpu){	\
-    	return local_read(&per_cpu(name##_num_iters, cpu));		\
-    }									\
-									\
-    static inline void name##_get_cumulative_overhead_params(u64 *time,	\
-							     int *iters){ \
-	int cpu = 0;							\
-	*time = 0; *iters = 0;						\
-	for_each_online_cpu(cpu){					\
-	    *iters += name##_get_cumulative_num_iters_for(cpu);		\
-	    *time += name##_get_cumulative_elapsed_time_for(cpu);	\
-	}								\
-	return;								\
-    }									\
-	\
-static inline void name##_print_cumulative_overhead_params(const char *str){\
-	int num = 0; \
-	u64 time = 0; \
-	name##_get_cumulative_overhead_params(&time, &num); \
-	printk(KERN_INFO "%s: %d iters took %llu cycles!\n", str, num, time); \
-}
+typedef pid_t pw_pid_t;
 
-#endif // _PW_OVERHEAD_MEASUREMENTS_H_
+#endif // _PW_TYPES_H_

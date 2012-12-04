@@ -42,6 +42,8 @@ public:
 
     static void get_all_lines(FILE *, std::vector<std::string>&);
     static void get_all_lines(FILE *, std::deque<std::string>&);
+
+    static int getline(FILE *, std::string&);
     static void trim(std::string&);
 };
 

@@ -24,10 +24,20 @@
  * Data structures
  * **************************************
  */
+/*
 typedef enum {
     NHM=0,
     SNB,
-    MFD
+    MFD,
+    LEX,
+    CLV
 } arch_type_t;
+
+#define PW_IS_ATM(type) ( (type) == MFD || (type) == LEX || (type) == CLV )
+*/
+
+#define PW_IS_SALTWELL(model) ( (model) == 0x27 || (model) == 0x35 )
+#define PW_IS_MFD(model) ( (model) == 0x27 )
+#define PW_IS_CLV(model) ( (model) == 0x35 )
 
 #endif // _PW_ARCH_H_

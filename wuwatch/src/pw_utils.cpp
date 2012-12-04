@@ -98,7 +98,7 @@ void LineReader::get_all_lines(FILE *fp, std::vector<std::string>& lines)
     }
     std::string line;
     char tmp_buf[1024];
-    size_t tmp_size = 0;
+    int tmp_size = -1;
 
     while (!feof(fp)) {
         line.clear();
@@ -109,13 +109,8 @@ void LineReader::get_all_lines(FILE *fp, std::vector<std::string>& lines)
             }
             line.append(tmp_buf);
             tmp_size = strlen(tmp_buf);
-            /*
-             * Sanities.
-             */
             if (tmp_size < 1) {
-                tmp_size = 1;
-            } else if (tmp_size >= sizeof(tmp_buf)) {
-                tmp_size = sizeof(tmp_buf) - 1;
+                break;
             }
         } while (tmp_buf[tmp_size-1] != '\n');
         /*
@@ -133,7 +128,7 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
     }
     std::string line;
     char tmp_buf[1024];
-    size_t tmp_size = 0;
+    int tmp_size = -1;
 
     while (!feof(fp)) {
         line.clear();
@@ -144,13 +139,8 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
             }
             line.append(tmp_buf);
             tmp_size = strlen(tmp_buf);
-            /*
-             * Sanities.
-             */
             if (tmp_size < 1) {
-                tmp_size = 1;
-            } else if (tmp_size >= sizeof(tmp_buf)) {
-                tmp_size = sizeof(tmp_buf) - 1;
+                break;
             }
         } while (tmp_buf[tmp_size-1] != '\n');
         /*
@@ -159,6 +149,39 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
         trim(line);
         lines.push_back(line);
     }
+};
+
+int LineReader::getline(FILE *fp, std::string& line)
+{
+    char tmp_buf[1024];
+    int tmp_size = -1;
+    tmp_buf[0] = '\0';
+
+    line.clear();
+
+    do {
+        if (fgets(tmp_buf, sizeof(tmp_buf), fp) == NULL) {
+            if (!feof(fp)) {
+                return -1;
+            }
+            break;
+        }
+        line.append(tmp_buf);
+        tmp_size = strlen(tmp_buf);
+        if (tmp_size < 1) {
+            break;
+        }
+    } while (tmp_buf[tmp_size-1] != '\n');
+
+    /*
+     * Make sure we NULL terminate the line!
+     */
+    if (line.size() > 0) {
+        line[line.size()-1] = '\0';
+    }
+    trim(line);
+
+    return (int)line.size();
 };
 
 void LineReader::trim(std::string& line)
@@ -336,8 +359,7 @@ void extract_dir_and_file_from_path(const std::string& path, std::string& dir, s
      * The file name is defined as everything AFTER the LAST '/'
      * (or the ENTIRE STRING, if no "/" is specified).
      */
-    char last_char = path.c_str()[size-1];
-    int last_slash = path.find_last_of("/");
+    size_t last_slash = path.find_last_of("/");
     if (last_slash == std::string::npos) {
         /*
          * No "/" found -- either the 'path' supplied

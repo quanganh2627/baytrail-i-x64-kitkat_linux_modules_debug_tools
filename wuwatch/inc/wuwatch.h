@@ -27,6 +27,12 @@
 #ifndef WUWATCH_H
 #define WUWATCH_H
 
+
+/* **************************************
+ * Forward declarations.
+ * **************************************
+ */
+struct PWArch_rec; 
 /* **************************************
  * Some useful typedefs.
  * **************************************
@@ -66,13 +72,13 @@ class Wuwatch
          */
         std::string m_output_file_name;
         /*
-         * CPU topology information for target machine.
+         * (Absolute or relative) Path to the config file.
          */
-        std::string m_cpu_topology_str;
+        std::string m_config_file_path;
         /*
          * Number of logical procs on target machine.
          */
-        int m_max_num_cpus;
+        int max_num_cpus;
         /*
          * Device driver fd.
          */
@@ -84,9 +90,7 @@ class Wuwatch
         /*
          * SHM area for communication with PRELOAD library.
          */
-#if !_ANDROID_
         shm_data_t *fork_shm_data;
-#endif
         /*
          * FILE name for named pipe.
          */
@@ -104,7 +108,7 @@ class Wuwatch
          * Barrier for communication with the reader
          * thread.
          */
-        // pthread_barrier_t reader_barrier;
+        //pthread_barrier_t reader_barrier;
         /*
          * Pid of the application that's been forked.
          */
@@ -115,6 +119,11 @@ class Wuwatch
          */
         std::string m_driver_version_string;
         /*
+         * Device driver version number components -- retrieved from
+         * the power driver.
+         */
+        int m_driver_major, m_driver_minor, m_driver_other;
+        /*
          * IAFW patch version number -- retrieved from
          * the power driver.
          */
@@ -123,11 +132,6 @@ class Wuwatch
          * (Calculated) TSC frequency, in MHz.
          */
         u32 tsc_freq_MHz;
-        /*
-         * The target architecture type -- one of 'NHM', 
-         * 'SNB' or 'MFD'
-         */
-        arch_type_t target_arch_type;
         /*
          * A list of pids to wait on -- useful only if we're
          * trying to "hook" the "daemon()" syscall.
@@ -146,6 +150,18 @@ class Wuwatch
          */
         u64 initialTimeval;
         /*
+         * Collection START Time.
+         */
+        u64 m_initialTime;
+        /*
+         * Collection START Time in string.
+         */
+        char m_initialTimeStr[20];
+        /*
+         * Collection STOP Time.
+         */
+        u64 m_finalTime;
+        /*
          * Turbo threshold frequency, in MHz.
          */
         u32 turboThreshold;
@@ -157,11 +173,15 @@ class Wuwatch
         /*
          * CPU F.M.S information.
          */
-        u32 cpu_family, cpu_model, cpu_stepping;
+        u32 m_cpuFamily, m_cpuModel, m_cpuStepping;
         /*
          * 'hostname()' information.
          */
         struct utsname un;
+        /*
+         * Total # samples collected, dropped.
+         */
+        u64 m_droppedSamples, m_totalSamples;
 
         /* **************************************
          * Switches to determine data collection 
@@ -199,13 +219,21 @@ class Wuwatch
          */
         // int d_sc_state_collection;
         /*
-         * Collect wakelock samples
+         * Collect kernel wakelock samples
          */
         int w_state_collection;
+        /*
+         * Collect user wakelock samples
+         */
+        int u_state_collection;
         /*
          * D-State sample interval in msec
          */
         int d_state_sample_interval_msecs;
+        /*
+         * Bitwise 'OR' of all collection switches.
+         */
+        pw_u32_t m_collectionSwitches;
 
         /*
          * Load the driver if not already loaded.
@@ -227,29 +255,6 @@ class Wuwatch
          * Obtained from the driver via an IOCTL.
          */
         u32 m_available_frequencies[PW_MAX_NUM_AVAILABLE_FREQUENCIES];
-
-        /*
-         * String representation of the various 'arch_type_t' values.
-         */
-        static const char *g_arch_type_names[];
-        /*
-         * A list of MSR addresses.
-         * ***************************************************************************************
-         * CAUTION: ELEMENTS BELOW SHOULD BE SORTED IN SAME ORDER AS "arch_type_t" ENUM VALUES!!!
-         * ***************************************************************************************
-         */
-        static const int s_coreResidencyMSRAddresses[][MAX_MSR_ADDRESSES];
-        /*
-         * A list of target residencies, in micro-seconds.
-         * ***************************************************************************************
-         * CAUTION: ELEMENTS BELOW SHOULD BE SORTED IN SAME ORDER AS "arch_type_t" ENUM VALUES!!!
-         * ***************************************************************************************
-         */
-        static const int s_target_residencies_us[][MAX_MSR_ADDRESSES];
-        /*
-         * A list of bus clock frequencies, in KHz.
-         */
-        static const int s_busClockFreqKHz[];
         /*
          * Measured collection time, in msecs.
          */
@@ -259,6 +264,22 @@ class Wuwatch
          * system collection mode.
          */
         int system_collection_mode_secs;
+        /*
+         * Flags to indicate whether auto-demote and any_thread were set/enabled.
+         */
+        pw_u32_t m_wasAutoDemoteEnabled, m_wasAnyThreadSet;
+        /*
+         * The target architecture descriptor.
+         */
+        PWArch_rec *m_targetArchRec;
+        /*
+         * The address where we mmapped the power driver output buffers.
+         */
+        void *m_mmap_addr;
+        /*
+         * Mmap and buffer sizes.
+         */
+        unsigned long m_mmap_size, m_buff_size;
 
         friend int parse_args(char ***,int);
 
@@ -301,6 +322,7 @@ class Wuwatch
          * then, when the collection is over, to close the connection.
          */
         int do_insmod_i(void);
+        int do_rmmod_i(void);
         int open_dd_i(void);
         int close_dd_i(void);
 
@@ -309,6 +331,27 @@ class Wuwatch
          * CPU 'topology' information.
          */
         std::string get_cpu_topology_i(void);
+        /*
+         * Retrieve target arch details (F.M.S)
+         */
+        void retrieve_target_arch_details_i();
+
+        /*
+         * Function to produce user wakelock samples from Android system log.
+         */
+        void produce_user_wakelock_samples(FILE *);
+
+        /*
+         * "popen" isn't present on Android -- we provide
+         * similar functionality here.
+         */
+        FILE *popen_ro(const char *command, pw_pid_t& pid);
+        int pclose_ro(FILE *fp, pw_pid_t pid);
+
+        /*
+         * Function to extract the Android version number.
+         */
+        int get_android_version_i(std::string& version_str);
 
     public:
         /*
@@ -327,20 +370,20 @@ class Wuwatch
         void do_exit(void);
         void *do_ioctl_i(int , int , void *, int , bool );
         void do_ioctl_start_stop(int , bool );
-        int do_ioctl_driver_version_i(int , std::string& );
+        int do_ioctl_driver_version_i(int);
         int do_ioctl_micro_patch(int , int& );
         int do_ioctl_irq_mappings(int , /*FILE *out_fp,*/ std::vector<PWCollector_irq_mapping_t>& );
         bool irq_sorter(const PWCollector_irq_mapping_t& , const PWCollector_irq_mapping_t&);
         int do_ioctl_proc_mappings(int , std::map<pid_t, std::string>& );
-        int get_arch_type(arch_type_t&);
         unsigned long long rdtsc(void);
         unsigned int get_tsc_freq_MHz_i();
-        void do_ioctl_config(int , int *, int, u32 );
+        // void do_ioctl_config(int , int *, int, u32 );
+        void do_ioctl_config(int , u32 );
         int do_ioctl_available_frequencies(int, u32 *);
         int do_ioctl_get_turbo_threshold(int , u32 *);
-        int do_ioctl_check_platform_i(int, u64&);
+        int do_ioctl_check_platform_i(int, u32&, u32&);
 
-        void sigint_handler(int);
+        void sig_handler(int);
         void start_stop_timer(double *, bool);
         void usage(void);
 
@@ -350,6 +393,10 @@ class Wuwatch
         int extract_pid_tid_name_i(const std::string& , const str_vec_t& , str_map_t& , const char *, std::vector<PWCollector_sample_t>& );
         int get_all_tasks_for_proc_i(std::string , str_vec_t& );
         int get_initial_proc_map_i(FILE *);
+        int get_initial_dev_map_i(FILE *);
+        int extract_wakelock_name_i(std::vector<PWCollector_sample_t>& );
+        int get_active_wakelocks_i(FILE *);
+        int get_uid_pkg_map_i(FILE *);
         void setup_collection();
         void extract_acpi_c_state_mappings(acpi_mapping_t& );
         void cleanup_collection(bool should_write_results);
@@ -358,14 +405,15 @@ class Wuwatch
         void destroy_fork_listener(void);
         void init_shm();
         void destroy_shm();
-        void shm_send(int , uds_msg_type_t );
-        inline int inc_dec_num_shm_clients(int );
-        void send_quit_to_all_i(const offset_map_t& );
         void uds_send(int , uds_msg_type_t , int , int );
+        void shm_send(int , uds_msg_type_t );
+        void send_quit_to_all_i(const offset_map_t& );
+        inline int inc_dec_num_shm_clients(int );
         int  work(char **);
         void unlink_fork_listener(void);
 
         void set_output_file_name(const std::string&, const std::string&);
+        void set_config_file_path(const std::string&);
         void set_driver_path(const std::string&);
 
         int get_driver_version(std::string&);

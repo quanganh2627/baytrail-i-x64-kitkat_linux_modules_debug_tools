@@ -3,61 +3,61 @@
 
 # ***********************************************************************************************
 
- # This file is provided under a dual BSD/GPLv2 license.  When using or
+ # This file is provided under a dual BSD/GPLv2 license.  When using or 
  # redistributing this file, you may do so under either license.
 
   # GPL LICENSE SUMMARY
 
   # Copyright(c) 2011 Intel Corporation. All rights reserved.
 
-  # This program is free software; you can redistribute it and/or modify
+  # This program is free software; you can redistribute it and/or modify 
   # it under the terms of version 2 of the GNU General Public License as
   # published by the Free Software Foundation.
 
-  # This program is distributed in the hope that it will be useful, but
-  # WITHOUT ANY WARRANTY; without even the implied warranty of
-  # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  # This program is distributed in the hope that it will be useful, but 
+  # WITHOUT ANY WARRANTY; without even the implied warranty of 
+  # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU 
   # General Public License for more details.
 
-  # You should have received a copy of the GNU General Public License
-  # along with this program; if not, write to the Free Software
+  # You should have received a copy of the GNU General Public License 
+  # along with this program; if not, write to the Free Software 
   # Foundation, Inc., 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-  # The full GNU General Public License is included in this distribution
+  # The full GNU General Public License is included in this distribution 
   # in the file called LICENSE.GPL.
 
   # Contact Information:
   # Gautam Upadhyaya <gautam.upadhyaya@intel.com>
   # 1906 Fox Drive, Champaign, IL - 61820, USA
 
-  # BSD LICENSE
+  # BSD LICENSE 
 
   # Copyright(c) 2011 Intel Corporation. All rights reserved.
   # All rights reserved.
 
-  # Redistribution and use in source and binary forms, with or without
-  # modification, are permitted provided that the following conditions
+  # Redistribution and use in source and binary forms, with or without 
+  # modification, are permitted provided that the following conditions 
   # are met:
 
-  #   * Redistributions of source code must retain the above copyright
+  #   * Redistributions of source code must retain the above copyright 
   #     notice, this list of conditions and the following disclaimer.
-  #   * Redistributions in binary form must reproduce the above copyright
-  #     notice, this list of conditions and the following disclaimer in
-  #     the documentation and/or other materials provided with the
+  #   * Redistributions in binary form must reproduce the above copyright 
+  #     notice, this list of conditions and the following disclaimer in 
+  #     the documentation and/or other materials provided with the 
   #     distribution.
-  #   * Neither the name of Intel Corporation nor the names of its
-  #     contributors may be used to endorse or promote products derived
+  #   * Neither the name of Intel Corporation nor the names of its 
+  #     contributors may be used to endorse or promote products derived 
   #     from this software without specific prior written permission.
 
-  # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-  # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-  # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-  # A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-  # OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-  # SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-  # LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-  # DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-  # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+  # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+  # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
+  # A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+  # OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+  # SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+  # LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+  # DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+  # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
   # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   # ***********************************************************************************************
 
@@ -92,18 +92,18 @@
 # -------------------- user configurable options ------------------------
 
 # base name of APWR driver
-#DRIVER_NAME = apwr3_0
+#DRIVER_NAME = apwr3_1
 DRIVER_BASE=apwr
 DRIVER_MAJOR=3
-DRIVER_MINOR=0
+DRIVER_MINOR=1
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
-DRIVER_FILENAME=$(DRIVER_NAME).ko
+
 # location to install driver
 INSTALL = .
 
-INCDIR=$(M)/../../include
-INC2=$(M)/../inc
+INCDIR=$(M)/../include
+INC2=$(M)/inc
 
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
@@ -113,35 +113,31 @@ EXTRA_CFLAGS += -I$(INC2)
 # The driver needs to know what version we have
 KERNEL_VERSION=$(shell uname -r | awk 'BEGIN{FS="[^0-9]"} {print $$3}')
 
-APWR_RED_HAT="0"
-EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
+APWR_RED_HAT := "0"
+WAKELOCK_SAMPLE := "1"
 
-ifneq ($(KERNELRELEASE),)
-ifeq ($(strip $(CONFIG_STACKTRACE)),y)
+EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
+EXTRA_CFLAGS += -DDO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)
+
 obj-m := $(DRIVER_NAME).o
-#apwr2_0-objs :=	apwr_driver.o
-$(DRIVER_NAME)-objs := apwr_driver.o
-#src/pw_output_buffer.o
+$(DRIVER_NAME)-objs :=	src/apwr_driver.o \
+			src/pw_output_buffer.o
+
+.PHONY: kernel_check
+
+kernel_check:
+ifeq "$(KERNEL_SRC_DIR)" ""
+	@echo "Error: makefile MUST NOT be invoked directly! Use the \"build_driver\" script instead."
+	@exit 255
 endif
-else
-default:
+
+default: kernel_check
 	@echo "************************************************************"
 	@echo "KERNEL_SRC_DIR=$(KERNEL_SRC_DIR)"
 	@echo "APWR_RED_HAT=$(APWR_RED_HAT)"
+	@echo "DO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)"
 	@echo "************************************************************"
 	make -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
-endif
 
-install:
-	@cp $(DRIVER_NAME).ko $(INSTALL)/$(DRIVER_FILENAME)
-	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
-
-clean:
-	@rm -f *.o .*.o.cmd .*.o.d .*.ko.cmd .*.ko.unsigned.cmd *.gcno
-	@rm -f $(DRIVER_NAME).ko $(DRIVER_NAME).ko.unsigned
-	@rm -f $(DRIVER_MODE)*$(DRIVER_TYPE).ko
-	@rm -f Module.symvers Modules.symvers modules.order Module.markers
-	@rm -rf .tmp_versions
-
-distclean: clean
-	@rm -f $(DRIVER_NAME).ko
+clean: kernel_check
+	make -C $(KERNEL_SRC_DIR) M=$(PWD) clean

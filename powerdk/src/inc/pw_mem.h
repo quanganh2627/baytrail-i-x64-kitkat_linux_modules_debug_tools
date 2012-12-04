@@ -1,60 +1,60 @@
 /* ***********************************************************************************************
 
-  This file is provided under a dual BSD/GPLv2 license.  When using or
+  This file is provided under a dual BSD/GPLv2 license.  When using or 
   redistributing this file, you may do so under either license.
 
   GPL LICENSE SUMMARY
 
   Copyright(c) 2011 Intel Corporation. All rights reserved.
 
-  This program is free software; you can redistribute it and/or modify
+  This program is free software; you can redistribute it and/or modify 
   it under the terms of version 2 of the GNU General Public License as
   published by the Free Software Foundation.
 
-  This program is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  This program is distributed in the hope that it will be useful, but 
+  WITHOUT ANY WARRANTY; without even the implied warranty of 
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU 
   General Public License for more details.
 
-  You should have received a copy of the GNU General Public License
-  along with this program; if not, write to the Free Software
+  You should have received a copy of the GNU General Public License 
+  along with this program; if not, write to the Free Software 
   Foundation, Inc., 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-  The full GNU General Public License is included in this distribution
+  The full GNU General Public License is included in this distribution 
   in the file called LICENSE.GPL.
 
   Contact Information:
   Gautam Upadhyaya <gautam.upadhyaya@intel.com>
   1906 Fox Drive, Champaign, IL - 61820, USA
 
-  BSD LICENSE
+  BSD LICENSE 
 
   Copyright(c) 2011 Intel Corporation. All rights reserved.
   All rights reserved.
 
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
+  Redistribution and use in source and binary forms, with or without 
+  modification, are permitted provided that the following conditions 
   are met:
 
-    * Redistributions of source code must retain the above copyright
+    * Redistributions of source code must retain the above copyright 
       notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in
-      the documentation and/or other materials provided with the
+    * Redistributions in binary form must reproduce the above copyright 
+      notice, this list of conditions and the following disclaimer in 
+      the documentation and/or other materials provided with the 
       distribution.
-    * Neither the name of Intel Corporation nor the names of its
-      contributors may be used to endorse or promote products derived
+    * Neither the name of Intel Corporation nor the names of its 
+      contributors may be used to endorse or promote products derived 
       from this software without specific prior written permission.
 
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
+  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   ***********************************************************************************************
 */
@@ -74,9 +74,9 @@
 
 /*
  * How do we behave if we ever
- * get an allocation error?
- * (a) Setting to '1' REFUSES ANY FURTHER
- * allocation requests.
+ * get an allocation error? 
+ * (a) Setting to '1' REFUSES ANY FURTHER 
+ * allocation requests. 
  * (b) Setting to '0' treats each
  * allocation request as separate, and
  * handles them on an on-demand basis
@@ -160,12 +160,12 @@ static DEFINE_SPINLOCK(pw_kmalloc_lock);
  *
  * (2) DEALLOCATION:
  * When given an object to deallocate, we first check
- * the MAGIC number by decrementing the pointer by
+ * the MAGIC number by decrementing the pointer by 
  * 4 bytes and reading the (integer) stored there.
  * After ensuring the pointer was, in fact, allocated
  * by us, we then read the size of the allocated
  * block (again, by decrementing the pointer by 4
- * bytes and reading the integer size). We
+ * bytes and reading the integer size). We 
  * use this size argument to decrement # of bytes
  * allocated.
  */

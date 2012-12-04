@@ -42,14 +42,15 @@
 #include <deque>
 #include <iterator>
 
+#include "pw_defines.h"
 #include "pw_ioctl.h" // IOCTL stuff.
 #include "pw_arch.h" // Architecture info.
 #include "uds.hpp" // for UDS server stuff.
 #include "pw_bt.h"
 #include "pw_utils.hpp"
-#include "defines.h"
 #include "ht_wudump.h"
 #include "wuwatch.h"
+#include "defines.h"
 
 /* **************************************
  * Compile-time constants and other
@@ -61,6 +62,7 @@
 #define RUN_WUWATCH 0x1 // 01
 #define RUN_WUDUMP 0x2 // 10
 #define RUN_BOTH 0x3 // 11
+
 
 /* **************************************
  * Function declarations.
@@ -88,6 +90,10 @@ void extract_dir_and_file_from_path_i(const std::string& path, std::string& dir,
  */
 std::string g_output_file("");
 /*
+ * Where's the config file located?
+ */
+std::string g_config_file("");
+/*
  * Which phase to run -- collection or parsing?
  */
 int g_program_to_run = RUN_BOTH;
@@ -98,11 +104,11 @@ bool g_do_debugging = false;
 /*
  * The global wuwatch (collector) instance.
  */
-Wuwatch *g_wuwatchObj;
+Wuwatch *g_wuwatchObj = NULL;
 /*
  * The global wudump (parser) instance.
  */
-HTWudump *g_wudumpObj;
+HTWudump *g_wudumpObj = NULL;
 
 
 
@@ -173,8 +179,10 @@ void usage(void)
     fprintf(stderr,  "\t-d, --wudump: \tOnly run wudump to dump existing collected data.\n");
     fprintf(stderr,  "\t-o, --output-file [file name]: Specify an output file name. [file name] may optionally include an absolute or relative path. If no path is specified, [file name] will be created in the current directory\n");
     // fprintf(stderr,  "\t-o, --output-dir [output directory]: Specify a directory in which to store results(wuwatch) or access input files(wudump). PWD is used by default.\n");
-    fprintf(stderr,  "\t-f, --force-dd-load [Full path to power driver]: Load the device driver if it isn't already loaded. Requires a path argument (./driver is used by default).\n");
+    // Per Bob's request, we hide this switch to users.
+    //fprintf(stderr,  "\t-f, --force-dd-load [Full path to power driver]: Load the device driver if it isn't already loaded. Requires a path argument (./driver is used by default).\n");
     // fprintf(stderr, "\t-ddb, --do-debug: Turn on debug printfs (useful for debugging)\n");
+    fprintf(stderr, "\t-c, --config-file [config file name]: Specify the config file. [config file name] may optionally include an absolute or relative path.\n");
 
     fprintf(stderr,"\nCollection (i.e. wuwatch) configuration options:\n\n");
 
@@ -186,16 +194,32 @@ void usage(void)
     fprintf(stderr,  "\t-ss,--s-states:   \t\tCollect s-state residency values.\n");
     fprintf(stderr,  "\t-ds,--d-states:   \t\tCollect south-complex d-state residency values.\n");
     fprintf(stderr,  "\t-dn,--nc-samples:\t\tCollect north-complex d-state samples.\n");
-    fprintf(stderr,  "\t-wl,--wakelock:    \t\tCollect wakelock information.\n\n");
+    fprintf(stderr,  "\t-wl,--wakelocks: \t\tCollect user & kernel wakelock information on Android.\n\n");
 
     fprintf(stderr, "Data dumper (i.e. wudump) options:\n\n");
     // fprintf(stderr, "\t-dc1, --do-c1:	\tInclude C1 percentages in the results.\n");
     fprintf(stderr, "\t-nc1, --no-c1:	\tDo NOT calculate C1 percentages. Selecting this option assigns all C1 values to C0.\n");
     fprintf(stderr, "\t-nts, --no-tsc:   \tDo NOT Dump TSC results along with residency values. Applicable only to C State samples. \n");
-    fprintf(stderr, "\t-bkt, --backtrace:\tDump call stack information. Applicable only to C State samples.\n\n");
+    fprintf(stderr, "\t-bkt, --backtrace:\tDump call stack information. Applicable only to C State samples.\n");
+    // fprintf(stderr, "\t-clk, --clock-ticks:\tResidency information should be in clock ticks, instead of micro seconds. Applicable only to C State samples.\n");
+    fprintf(stderr, "\t-us,  --usecs:\t\tResidency information should be in micro seconds instead of clock ticks. Applicable only to C State samples.\n");
     // fprintf(stderr, "\t-del, --delete-files:\tDelete intermediate wuwatch o/p files. These files can be used to import collected data into amplxe.\n\t\t\t\tThis switch can be used ONLY if BOTH watch and dump operations are performed.\n\n");
 
 };
+
+/*
+ * Used to track debug builds.
+ */
+#ifdef BUILD_REF
+    static const pw_u64_t g_buildRef = BUILD_REF;
+#else
+    static const pw_u64_t g_buildRef = 0x0;
+#endif
+#ifdef BUILD_TIMESTAMP
+    static const pw_u64_t g_buildTimestamp = BUILD_TIMESTAMP;
+#else
+    static const pw_u64_t g_buildTimestamp = 0x0;
+#endif
 
 /*
  * Parse CLI args.
@@ -211,7 +235,7 @@ int parse_args(char ***argv,int argc)
     if (argc < 2) {
         fprintf(stderr, "\nERROR: invalid/no arguments specified!\n");
         usage();
-        wu_exit(-ERROR);
+        wu_exit(-PW_ERROR);
     }
 
     find_app_to_run(args,argc);
@@ -219,7 +243,7 @@ int parse_args(char ***argv,int argc)
     while (*++args) {
         if (!strcmp(*args, "-h") || !strcmp(*args, "--help")) {
             usage();
-            wu_exit(SUCCESS);
+            wu_exit(PW_SUCCESS);
         }
         else if (!strcmp(*args, "-v") || !strcmp(*args, "--version")) {
             std::string driver_ver_str;
@@ -234,23 +258,24 @@ int parse_args(char ***argv,int argc)
             } else {
                 fprintf(stdout, "Driver Version = %s\n", driver_ver_str.c_str());
             }
-            wu_exit(SUCCESS);
+            db_fprintf(stdout, "Build ref = %llu, Build timestamp = %llu\n", g_buildRef, g_buildTimestamp);
+            wu_exit(PW_SUCCESS);
         }
         else if (!strcmp(*args, "-t") || !strcmp(*args, "--time")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // system collection mode
             if (*++args == NULL) {
                 fprintf(stderr, "ERROR: time option requires a value!\n");
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             g_wuwatchObj->system_collection_mode_secs = atoi(*args);
             if (g_wuwatchObj->system_collection_mode_secs <= 0) {
                 fprintf(stderr,"\nERROR: Collection run time must be atleast atleast 1 second.\n\n"); 
-                return -ERROR;
+                return -PW_ERROR;
             }
             db_fprintf(stderr, "System mode! %d\n", g_wuwatchObj->system_collection_mode_secs);
         }
@@ -259,7 +284,7 @@ int parse_args(char ***argv,int argc)
             if (*++args == NULL) {
                 fprintf(stderr, "ERROR: output-file option requires a value!\n");
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             g_output_file = *args;
         }
@@ -272,11 +297,19 @@ int parse_args(char ***argv,int argc)
                 dd_path = *args;
             } else {
                 fprintf(stderr, "DEFAULT dir specified!\n");
-                dd_path = "./driver/apwr3_0.ko";
+                dd_path = "./driver/apwr3_1.ko";
                 args = old_args;
             }
             g_wuwatchObj->m_do_force_dd_load = 1;
             g_wuwatchObj->set_driver_path(dd_path);
+        }
+        else if (!strcmp(*args, "-c") || !strcmp(*args, "--config-file")) {
+            if (*++args == NULL) {
+                fprintf(stderr, "ERROR: output-file option requires a value!\n");
+                usage();
+                return -PW_ERROR;
+            }
+            g_config_file = *args;
         }
         else if (!strcmp(*args, "-ddb") || !strcmp(*args, "--do-debug")) {
             g_do_debugging = true;
@@ -284,22 +317,22 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-i") || !strcmp(*args, "--interval")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             int isValidNum = 1;
             if (*++args == NULL) {
                 fprintf(stderr, "ERROR: dint option requires a value!\n");
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             std::string str = *args;
-            for (int i=0; i<str.length(); ++i) {
+            for (u32 i=0; i<str.length(); ++i) {
                 if (!isdigit(str[i]))
                     isValidNum = 0;
             }
             if (!isValidNum) {
                 fprintf(stderr, "D-State sample interval (-i) must be non-negative\n");
-                return -ERROR;
+                return -PW_ERROR;
             }
             // D-state sample interval
             g_wuwatchObj->d_state_sample_interval_msecs = atoi(str.c_str());
@@ -319,7 +352,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-cs") || !strcmp(*args, "--c-states")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect C-State Samples
             g_wuwatchObj->c_state_collection = 1;
@@ -328,7 +361,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-ps") || !strcmp(*args, "--p-states")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect P-State Samples
             g_wuwatchObj->p_state_collection = 1;
@@ -337,7 +370,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-kb") || !strcmp(*args, "--kernel-backtrace")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect kernel call traces
             g_wuwatchObj->m_do_collect_kernel_backtrace = 1;
@@ -346,7 +379,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-ss") || !strcmp(*args, "--s-states")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect S-State residency counters
             g_wuwatchObj->s_residency_collection = 1;
@@ -355,7 +388,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-ds") || !strcmp(*args, "--d-states")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect D-State residency counters
             g_wuwatchObj->d_residency_collection = 1;
@@ -364,7 +397,7 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-dn") || !strcmp(*args, "--nc-samples")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect D-State samples from north complex
             g_wuwatchObj->d_nc_state_collection = 1;
@@ -380,17 +413,17 @@ int parse_args(char ***argv,int argc)
             else if (!strcmp(*args, "-ds") || !strcmp(*args, "--sc-states")) {
             if (is_collection_configured_for(RUN_WUWATCH)) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect D-State samples from south complex
             g_wuwatchObj->d_sc_state_collection = 1;
             db_fprintf(stderr, "Collecting south complex D-State samples\n");
             */
         }
-        else if (!strcmp(*args, "-wl") || !strcmp(*args, "--wakelocks")) {
+        else if (!strcmp(*args, "-kl") || !strcmp(*args, "--kernelwakelocks")) {
             if (is_collection_configured_for(RUN_WUWATCH) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             // Collect wakelock samples
             g_wuwatchObj->w_state_collection = 1;
@@ -408,10 +441,27 @@ int parse_args(char ***argv,int argc)
             db_fprintf(stderr, "Collecting S-State samples\n");
             */
         }
+        else if (!strcmp(*args, "-ul") || !strcmp(*args, "--userwakelocks")) {
+            if (is_collection_configured_for(RUN_WUWATCH) == false) {
+                usage();
+                return -PW_ERROR;
+            }
+            // Collect wakelock samples
+            g_wuwatchObj->u_state_collection = 1;
+        }
+        else if (!strcmp(*args, "-wl") || !strcmp(*args, "--wakelocks")) {
+            if (is_collection_configured_for(RUN_WUWATCH) == false) {
+                usage();
+                return -PW_ERROR;
+            }
+            // Collect wakelock samples
+            g_wuwatchObj->u_state_collection = 1;
+            g_wuwatchObj->w_state_collection = 1;
+        }
         else if (!strcmp(*args, "-nr") || !strcmp(*args, "--no-raw")) {
             if (is_collection_configured_for(RUN_WUDUMP) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             db_fprintf(stderr, "NO RAW!\n");
             g_wudumpObj->m_do_raw_output = false;
@@ -419,21 +469,28 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "--dump-orig-samples")) {
             if (is_collection_configured_for(RUN_WUDUMP) == false) {
                 fprintf(stderr, "ERROR: cannot dump samples if you don't run the parsing phase!\n");
-                return -ERROR;
+                return -PW_ERROR;
             }
             g_wudumpObj->m_do_dump_orig_samples = true;
+        }
+        else if (!strcmp(*args, "--dump-sample-stats")) {
+            if (is_collection_configured_for(RUN_WUDUMP) == false) {
+                fprintf(stderr, "ERROR: cannot dump sample stats if you don't run the parsing phase!\n");
+                return -PW_ERROR;
+            }
+            g_wudumpObj->m_do_dump_sample_stats = true;
         }
         else if (!strcmp(*args, "-nc1") || !strcmp(*args, "--no-c1")) {
             if (is_collection_configured_for(RUN_WUDUMP) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             g_wudumpObj->m_do_check_c1_res = false;
         }
         else if (!strcmp(*args, "-nts") || !strcmp(*args, "--no-tsc")) {
             if (is_collection_configured_for(RUN_WUDUMP) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             db_fprintf(stderr, "NO TSC!\n");
             g_wudumpObj->m_do_dump_tscs = false;
@@ -441,10 +498,18 @@ int parse_args(char ***argv,int argc)
         else if (!strcmp(*args, "-bkt") || !strcmp(*args, "--backtrace")) {
             if (is_collection_configured_for(RUN_WUDUMP) == false) {
                 usage();
-                return -ERROR;
+                return -PW_ERROR;
             }
             db_fprintf(stderr, "BT!\n");
             g_wudumpObj->m_do_dump_backtraces = true;
+        }
+        else if (!strcmp(*args, "-us") || !strcmp(*args, "--usecs")) {
+            if (is_collection_configured_for(RUN_WUDUMP) == false) {
+                usage();
+                return -PW_ERROR;
+            }
+            db_fprintf(stderr, "MICRO SECONDS!\n");
+            g_wudumpObj->m_do_c_res_in_clock_ticks = false;
         }
         else if (!strcmp(*args, "-d") || !strcmp(*args, "--wudump")) {
             /* Handled in 'find_app_to_run(...)' above */
@@ -484,7 +549,7 @@ int parse_args(char ***argv,int argc)
              */
             if (g_wuwatchObj->m_do_collect_kernel_backtrace == 1) {
                 fprintf(stderr, "ERROR: kernel call trace collection REQUIRES c-state collection!\n");
-                wu_exit(-ERROR);
+                wu_exit(-PW_ERROR);
             }
         }
         
@@ -513,12 +578,16 @@ int parse_args(char ***argv,int argc)
         }
 #endif
         if (g_wuwatchObj->w_state_collection) {
-            fprintf(stdout, "\tWakelock data\n");
+            fprintf(stdout, "\tKernel-level Wakelock data\n");
+        }
+
+        if (g_wuwatchObj->u_state_collection) {
+            fprintf(stdout, "\tUser-level Wakelock data\n");
         }
     }
 
 
-    return SUCCESS;
+    return PW_SUCCESS;
 };
 
 
@@ -536,12 +605,12 @@ void get_wuwatch_dir(std::string& dir)
     } else {
         size_t len = 0;
         ssize_t read=0;
-        /*
+/*
         char *line = NULL;
 
         read = getline(&line, &len, fp);
         line[read-1] = '\0';
-        */
+*/
         char line[1024];
         /*
          * We ASSUME 1024 characters is enough!
@@ -549,7 +618,7 @@ void get_wuwatch_dir(std::string& dir)
         if (fgets(line, sizeof(line), fp) == NULL) {
             perror("fgets error");
             fclose(fp);
-            exit(-ERROR);
+            exit(-PW_ERROR);
         }
         fclose(fp);
         /*
@@ -559,13 +628,13 @@ void get_wuwatch_dir(std::string& dir)
          * output dir argument passed to us by the user.
          */
         dir = std::string(line);
-        // free(line);
+        //free(line);
         /*
          * Sanity check -- we need the directory path to end in a
          * "/". Check to make sure it does. If it doesn't, add it.
          */
         read = dir.find_last_of('/');
-        if (read == std::string::npos || read != dir.size() - 1) {
+        if (read == (ssize_t)std::string::npos || read != ((ssize_t)dir.size() - 1)) {
             db_fprintf(stderr, "WARNING: no trailing '/' detected in directory path: %s\n", dir.c_str());
             dir += "/";
         }
@@ -579,7 +648,7 @@ void get_wuwatch_dir(std::string& dir)
 int run_wuwatch(char **args)
 {
 
-    int ret_code = SUCCESS;
+    int ret_code = PW_SUCCESS;
     /*
      * Perform wuwatch-specific setup.
      */
@@ -590,7 +659,7 @@ int run_wuwatch(char **args)
     /*
      * Perform wuwatch-specific cleanup.
      */
-    g_wuwatchObj->cleanup_collection(ret_code == SUCCESS);
+    g_wuwatchObj->cleanup_collection(ret_code == PW_SUCCESS);
 
     return ret_code;
 };
@@ -625,23 +694,33 @@ void cleanup()
  */
 void setup()
 {
-    std::string dir_name, file_name;
+    std::string output_dir_name, output_file_name;
+    std::string config_file_path;
     if (g_output_file.size() == 0) {
-        get_wuwatch_dir(dir_name);
-        file_name = DEFAULT_WUWATCH_OUTPUT_FILE_NAME;
+        get_wuwatch_dir(output_dir_name);
+        output_file_name = DEFAULT_WUWATCH_OUTPUT_FILE_NAME;
     } else {
         /*
          * We've been given a path -- extract dir and file names
          * from it.
          */
-        extract_dir_and_file_from_path_i(g_output_file, dir_name, file_name);
-        db_fprintf(stderr, "OUTPUT FILE: %s, DIR: %s, FILE_NAME: %s\n", g_output_file.c_str(), dir_name.c_str(), file_name.c_str());
+        extract_dir_and_file_from_path_i(g_output_file, output_dir_name, output_file_name);
+        db_fprintf(stderr, "OUTPUT FILE: %s, DIR: %s, output_file_name: %s\n", g_output_file.c_str(), output_dir_name.c_str(), output_file_name.c_str());
+    }
+    if (g_config_file.size() == 0) {
+        config_file_path = std::string("./") + std::string(DEFAULT_WUWATCH_CONFIG_FILE_NAME);
+    } else {
+        /*
+         * We've been given a path -- no need to parse it!
+         */
+        config_file_path = g_config_file;
     }
     if (g_wuwatchObj) {
-        g_wuwatchObj->set_output_file_name(dir_name, file_name);
+        g_wuwatchObj->set_output_file_name(output_dir_name, output_file_name);
+        g_wuwatchObj->set_config_file_path(config_file_path);
     }
     if (g_wudumpObj) {
-        g_wudumpObj->set_output_file_name(dir_name, file_name);
+        g_wudumpObj->set_output_file_name(output_dir_name, output_file_name);
     }
 };
 
@@ -669,14 +748,14 @@ int main(int argc, char *argv[])
      */
     if (parse_args(&argv, argc)) {
         db_fprintf(stderr, "ERROR parsing args!\n");
-        wu_exit(-ERROR);
+        wu_exit(-PW_ERROR);
     }
     /*
      * We're done parsing args -- initialize everything.
      */
     setup();
     {
-        int wuwatch_ret_code = SUCCESS;
+        int wuwatch_ret_code = PW_SUCCESS;
         /*
          * OK, we're done with setup etc.
          * Now run the two phases.
@@ -692,7 +771,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (is_collection_configured_for(RUN_WUDUMP) == true && wuwatch_ret_code == SUCCESS) {
+        if (is_collection_configured_for(RUN_WUDUMP) == true && wuwatch_ret_code == PW_SUCCESS) {
             /*
              * User asked us to parse data.
              */

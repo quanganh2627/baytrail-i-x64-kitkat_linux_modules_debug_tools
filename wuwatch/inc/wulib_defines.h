@@ -17,60 +17,8 @@
 *****************************************************************************
 */
 
-#ifndef _WUDUMP_DEFINES_H_
-#define _WUDUMP_DEFINES_H_
-#if 0
-/*
- * Config params and compile-time
- * directives.
- */
-/*
- * Should we output results?
- * '1' ==> YES
- * '0' ==> NO
- */
-#define DUMP_OUTPUT 1
-/*
- * Do we present 'turbostat'-like
- * output?
- * '1' ==> YES
- * '0' ==> NO
- */
-#define ACCUMULATE_RES_COUNTS 0
-
-#if ACCUMULATE_RES_COUNTS
-#define TSC_SLOT MAX_MSR_ADDRESSES
-#endif // ACCUMULATE_RES_COUNTS
-
-/*
- * Fields that we don't care
- * about are represented by
- * a "-"
- */
-#define DONT_CARE "-"
-/*
- * Any process for which we
- * don't have a PID <-> PROC name
- * mapping will be marked
- * as 'unknown'
- */
-#define UNKNOWN_PROCESS_NAME "Unknown-Process-Name"
-/*
- * Should we spawn threads to
- * do the per-cpu stuff?
- * '1' ==> YES, do multi-threaded per-cpu computation.
- * '0' ==> NO, use a single thread for everything.
- */
-#define DO_MULTITHREADED 1
-/*
- * Should we dump some debugging
- * stats?
- * '1' ==> YES
- * '0' ==> NO
- */
-#define DO_DEBUGGING_STATS 0
-
-#endif // if 0
+#ifndef _WULIB_DEFINES_H_
+#define _WULIB_DEFINES_H_
 /*
  * How many samples to read at one go?
  */
@@ -117,4 +65,4 @@
 #define NUMBER_OF_BREAKTYPES_DEPRECATED 5
 #define NUMBER_OF_BREAKTYPES 6
 
-#endif // _WUDUMP_DEFINES_H_
+#endif // _WULIB_DEFINES_H_

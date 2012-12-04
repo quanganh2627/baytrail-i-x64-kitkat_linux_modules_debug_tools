@@ -39,6 +39,17 @@
 #include "pw_bt.h"
 #include "pw_utils.hpp"
 
+/*
+ * Convert 'u64' to 'unsigned long long'
+ * Required to get around pesky "invalid format" gcc compiler
+ * warnings.
+ */
+#define TO_ULL(x) (unsigned long long)(x)
+/*
+ * Convert an arg to 'unsigned long'
+ */
+#define TO_UL(x) (unsigned long)(x)
+
 typedef std::string str_t;
 typedef std::deque<str_t> str_deq_t;
 typedef std::vector<str_t> str_vec_t;
@@ -71,7 +82,6 @@ void Tracer::destroy(){
     s_tracer = NULL;
 };
 
-#if DO_DUMP_BINARY_TRACE 
 /*
  * INTERNAL helper: write data to disk.
  * @d: ptr to data to write to disk
@@ -117,7 +127,7 @@ void __read(void *d, int size, FILE *fp)
  */
 static inline void write_string(char *str, FILE *fp)
 {
-    int num = strlen(str);
+    size_t num = strlen(str);
     if(fwrite(str, sizeof(char), num, fp) != num){
 	perror("fwrite error");
 	exit(-1);
@@ -132,19 +142,8 @@ static inline void write_string(char *str, FILE *fp)
  */
 static inline char *read_string(int len, FILE *fp)
 {
-    /*
-     * Sanity: make sure the string being read is not TOO large!
-     * It's OK to make this check here: 'read_string' is only called
-     * to deserialize backtrace information, and it's reasonable
-     * to assume a single entry in a call trace won't be larger than
-     * 1024 bytes!
-     */
-    if (len > 1024) {
-        fprintf(stderr, "Warning: trace was %d bytes long; truncating to 1024 bytes!\n", len);
-        len = 1024;
-    }
     char *retVal = (char *)malloc(len+1);
-    int num = len;
+    size_t num = (size_t)len;
 
     if (!retVal) {
         perror("malloc error");
@@ -186,7 +185,7 @@ struct map_serializer{
         std::vector<trace_t *>::iterator first = vec.begin();
         std::vector<trace_t *>::iterator last = vec.end();
         for (; first != last; ++first)
-           (*first)->serialize(fp); 
+           (*first)->serialize(fp);
 	//for_each(vec.begin(), vec.end(), trace_serializer(fp));
     };
 };
@@ -210,9 +209,8 @@ struct key_counter{
  * @fp: the output file.
  */
 void Tracer::serialize_traces(trace_map_t *trace_map, FILE *fp){
-    int size = trace_map->size();
     int count=0;
-    fprintf(stderr, "TRACE MAP size = %d\n", trace_map->size());
+    fprintf(stderr, "TRACE MAP size = %lu\n", TO_UL(trace_map->size()));
     for_each(trace_map->begin(), trace_map->end(), key_counter(&count));
     fprintf(stderr, "Count = %d\n", count);
     // write_data(size, fp);
@@ -279,7 +277,6 @@ void Tracer::deserialize_traces(FILE *fp, trace_list_t& trace_list, trace_pair_m
 	trace_list.push_back(trace);
     }
 };
-#endif // DO_DUMP_BINARY_TRACE 
 
 /*
  * INTERNAL helper: remove the first string from 'lines'
@@ -397,7 +394,6 @@ trace::~trace(){
     }
 };
 
-#if DO_DUMP_BINARY_TRACE 
 /*
  * Function to serialize a single trace.
  * @fp: the output file.
@@ -438,7 +434,6 @@ void trace::serialize(FILE *fp){
 	exit(-1);
     }
 };
-#endif // DO_DUMP_BINARY_TRACE 
 /*
  * Helper funtion. Checks to ensure 'tok' is present
  * in 'line'.
@@ -474,7 +469,7 @@ void trace::read(std::deque<std::string>& lines, trace_pair_map_t& pair_map)
      */
     toks = tok.get_all_tokens();
     if(toks.size() != 4){
-	fprintf(stderr, "Line = %s, Size = %u\n", line.c_str(), toks.size());
+	fprintf(stderr, "Line = %s, Size = %lu\n", line.c_str(), TO_UL(toks.size()));
     }
     assert(toks.size() == 4);
     pid = atoi(toks[1].c_str()); tid = atoi(toks[3].c_str());
@@ -532,22 +527,16 @@ void trace::read(std::deque<std::string>& lines, trace_pair_map_t& pair_map)
 
 };
 
-#if DO_DUMP_BINARY_TRACE 
 /*
  * Function to deserialize a single trace.
  * @fp: the input file.
  * @pair_map: a list of TID <-> trace mappings.
  */
 void trace::deserialize(FILE *fp, trace_pair_map_t& pair_map){
-    int i = 0, len = 0, cpu;
+    int len = 0, cpu;
     uint64_t begin, end;
 
     read_data(len, fp);
-
-    /*
-     * Sanity: assume the total size of the trace can't be more than 64KB!
-     */
-    assert(len <= 65536);
 
     char *data = new char[len+1];
 
@@ -613,7 +602,7 @@ void trace::deserialize(FILE *fp, trace_pair_map_t& pair_map){
  * @fp: the input file.
  */
 void trace::deserialize(FILE *fp){
-    int i = 0, len = 0, cpu;
+    int len = 0, cpu;
     uint64_t begin, end;
 
     // PID, TID
@@ -623,11 +612,6 @@ void trace::deserialize(FILE *fp){
     // # trace entries
     read_data(num_trace, fp);
     int numTrace = num_trace;
-    /*
-     * Sanity: assume the number of entries in the call stack
-     * can't be more than 1024.
-     */
-    assert(numTrace <= 1024);
     bt_symbols = (char **)calloc(numTrace, sizeof(char *));
     for(int j=0; j<numTrace; ++j){
 	read_data(len, fp);
@@ -640,7 +624,6 @@ void trace::deserialize(FILE *fp){
 	head_tsc = new tsc_pair_t(cpu, begin, end, head_tsc);
     }
 };
-#endif // DO_DUMP_BINARY_TRACE 
 
 
 /*
@@ -657,7 +640,7 @@ void trace::dump_trace(FILE *fp){
 	fprintf(fp, "%s\n", trace_symbols[j]);
     fprintf(fp, "\\symbol\n");
     for_each_tsc_pair(pair, head_tsc){
-	fprintf(fp, "ts %d %16llu %16llu\n", pair->cpu, pair->begin, pair->end);
+	fprintf(fp, "ts %d %16llu %16llu\n", pair->cpu, TO_ULL(pair->begin), TO_ULL(pair->end));
     }
     fprintf(fp, "\n");
 };
@@ -682,4 +665,4 @@ void trace_dumper::operator()(trace_t *trace){
     trace->dump_trace(fp);
 };
 
-trace_pair::trace_pair(uint64_t& b, uint64_t& e, trace_t *t):m_begin(b), m_end(e), m_bt(t){};
+trace_pair::trace_pair(const uint64_t& b, const uint64_t& e, trace_t *t):m_begin(b), m_end(e), m_bt(t){};

@@ -1,60 +1,60 @@
 /* ***********************************************************************************************
 
-  This file is provided under a dual BSD/GPLv2 license.  When using or
+  This file is provided under a dual BSD/GPLv2 license.  When using or 
   redistributing this file, you may do so under either license.
 
   GPL LICENSE SUMMARY
 
   Copyright(c) 2011 Intel Corporation. All rights reserved.
 
-  This program is free software; you can redistribute it and/or modify
+  This program is free software; you can redistribute it and/or modify 
   it under the terms of version 2 of the GNU General Public License as
   published by the Free Software Foundation.
 
-  This program is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  This program is distributed in the hope that it will be useful, but 
+  WITHOUT ANY WARRANTY; without even the implied warranty of 
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU 
   General Public License for more details.
 
-  You should have received a copy of the GNU General Public License
-  along with this program; if not, write to the Free Software
+  You should have received a copy of the GNU General Public License 
+  along with this program; if not, write to the Free Software 
   Foundation, Inc., 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-  The full GNU General Public License is included in this distribution
+  The full GNU General Public License is included in this distribution 
   in the file called LICENSE.GPL.
 
   Contact Information:
   Gautam Upadhyaya <gautam.upadhyaya@intel.com>
   1906 Fox Drive, Champaign, IL - 61820, USA
 
-  BSD LICENSE
+  BSD LICENSE 
 
   Copyright(c) 2011 Intel Corporation. All rights reserved.
   All rights reserved.
 
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
+  Redistribution and use in source and binary forms, with or without 
+  modification, are permitted provided that the following conditions 
   are met:
 
-    * Redistributions of source code must retain the above copyright
+    * Redistributions of source code must retain the above copyright 
       notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in
-      the documentation and/or other materials provided with the
+    * Redistributions in binary form must reproduce the above copyright 
+      notice, this list of conditions and the following disclaimer in 
+      the documentation and/or other materials provided with the 
       distribution.
-    * Neither the name of Intel Corporation nor the names of its
-      contributors may be used to endorse or promote products derived
+    * Neither the name of Intel Corporation nor the names of its 
+      contributors may be used to endorse or promote products derived 
       from this software without specific prior written permission.
 
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
+  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   ***********************************************************************************************
 */
@@ -97,55 +97,17 @@ enum{
  * a new IRQ mapping was
  * created.
  */
-typedef enum{
+typedef enum {
 	OK_IRQ_MAPPING_EXISTS,
 	OK_NEW_IRQ_MAPPING_CREATED,
 	ERROR_IRQ_MAPPING
-}irq_mapping_types_t;
+} irq_mapping_types_t;
 
-/*
- * MUST be a power of 2!
- */
-#define NUM_SEGS_PER_LIST 2
-
-#define SAMPLE_MASK (NUM_SAMPLES_PER_SEG - 1)
-#define LIST_MASK (NUM_SEGS_PER_LIST - 1)
-
-/*
- * Output buffer (also called a "segment" or "seg").
- * Driver writes samples into these. "read(...)" function
- * pulls samples out of these.
- */
-typedef struct{
-    PWCollector_sample_t samples[NUM_SAMPLES_PER_SEG];
-    int index;
-    atomic_t is_full;
-}seg_t;
-
-/*
- * Per-cpu structure (or "list") of output buffers.
- * Each list has "NUM_SEGS_PER_LIST" (== 2) buffers.
- */
-typedef struct{
-    seg_t segs[NUM_SEGS_PER_LIST];
-    int prod_index;
-    int read_index;
-    int flush_index;
-} list_t;
-
-
-#define SAMPLE(s,i) ( (s)->samples[(i)] )
-#define C_SAMPLE(s,i) ( (s)->samples[(i)].c_sample )
-#define P_SAMPLE(s,i) ( (s)->samples[(i)].p_sample )
-#define K_SAMPLE(s,i) ( (s)->samples[(i)].k_sample )
-#define M_SAMPLE(s,i) ( (s)->samples[(i)].m_sample )
-#define I_SAMPLE(s,i) ( (s)->samples[(i)].i_sample )
-#define R_SAMPLE(s,i) ( (s)->samples[(i)].r_sample )
-#define S_RESIDENCY_SAMPLE(s,i) ( (s)->samples[(i)].s_residency_sample )
-#define S_STATE_SAMPLE(s,i) ( (s)->samples[(i)].s_state_sample )
-#define D_STATE_SAMPLE(s,i) ( (s)->samples[(i)].d_state_sample )
-#define D_RESIDENCY_SAMPLE(s,i) ( (s)->samples[(i)].d_residency_sample )
-#define W_SAMPLE(s,i) ( (s)->samples[(i)].w_sample )
+typedef enum {
+    PW_MAPPING_EXISTS,
+    PW_NEW_MAPPING_CREATED,
+    PW_MAPPING_ERROR
+} pw_mapping_type_t;
 
 /*
  * Structure to hold current CMD state
@@ -173,7 +135,7 @@ typedef struct {
      */
     bool have_kernel_frame_pointers;
     /*
-     * On some archs, C-state residency MSRS do NOT count at TSC frequency.
+     * On some archs, C-state residency MSRS do NOT count at TSC frequency. 
      * For these, we need to apply a "clock multiplier". Record that
      * here.
      */
@@ -207,8 +169,8 @@ typedef struct {
      */
     unsigned long collectionStartJIFF, collectionStopJIFF;
     /*
-     * This is the knob to control the frequency of D-state data sampling
-     * to adjust their collection overhead. By default, they are sampled
+     * This is the knob to control the frequency of D-state data sampling 
+     * to adjust their collection overhead. By default, they are sampled 
      * in power_start traceevent after 100 msec is passed from the previous sample.
      */
     u32 d_state_sample_interval;
@@ -218,8 +180,8 @@ typedef struct {
 
 static internal_state_t INTERNAL_STATE;
 
-#define IS_COLLECTING() (INTERNAL_STATE.cmd == START || INTERNAL_STATE.cmd == RESUME)
-#define IS_SLEEPING() (INTERNAL_STATE.cmd == PAUSE)
+#define IS_COLLECTING() (INTERNAL_STATE.cmd == PW_START || INTERNAL_STATE.cmd == PW_RESUME)
+#define IS_SLEEPING() (INTERNAL_STATE.cmd == PW_PAUSE)
 #define IS_SLEEP_MODE() (INTERNAL_STATE.collection_switches & POWER_SLEEP_MASK)
 #define IS_FREQ_MODE() (INTERNAL_STATE.collection_switches & POWER_FREQ_MASK)
 #define IS_KTIMER_MODE() (INTERNAL_STATE.collection_switches & POWER_KTIMER_MASK)
@@ -247,6 +209,18 @@ typedef struct per_cpu_struct {
 	void *sched_timer_addr; // 4/8 bytes (arch dependent)
 }per_cpu_t;
 
+/*
+ * Per-cpu structure holding wakeup event causes, tscs
+ * etc. Set by the first non-{TPS, TPE} event to occur
+ * after a processor wakes up.
+ */
+struct wakeup_event {
+    u64 event_tsc; // TSC at which the event occurred
+    u64 event_val; // Event value -- domain-specific
+    s32 init_cpu; // CPU on which a timer was initialized; valid ONLY for wakeups caused by timers!
+    u32 event_type; // one of c_break_type_t enum values
+    pid_t event_tid, event_pid;
+};
 
 /*
  * Convenience macros for accessing per-cpu residencies
@@ -256,7 +230,7 @@ typedef struct per_cpu_struct {
 
 /*
  * Per-cpu structure holding stats information.
- * Eventually, we may want to incorporate these fields within
+ * Eventually, we may want to incorporate these fields within 
  * the "per_cpu_t" structure.
  */
 typedef struct{
@@ -266,7 +240,30 @@ typedef struct{
 }stats_t;
 
 /*
- * Struct to hold old IA32_FIXED_CTR_CTRL MSR
+ * Per-cpu structure holding C-state MSR values.
+ */
+typedef struct msr_set msr_set_t;
+struct msr_set {
+    u64 prev_msr_vals[MAX_MSR_ADDRESSES];
+    /*
+     * Which 'Cx' MSRs counted during the previous C-state quantum(s)?
+     * (We could have more than one in an HT environment -- it is NOT
+     * guaranteed that a core wakeup will cause both threads to wakeup.)
+     */
+    u64 curr_msr_count[MAX_MSR_ADDRESSES];
+    /*
+     * What was the last C-state the OS requested?
+     */
+    u32 prev_req_cstate;
+    /*
+     * Have we sent the boundary C-state sample?
+     * Required for an initial MSR set snapshot.
+     */
+    u8 init_msr_set_sent;
+};
+
+/*
+ * Struct to hold old IA32_FIXED_CTR_CTRL MSR 
  * values (to enable restoring
  * after pw driver terminates). These are
  * used to enable/restore/disable CPU_CLK_UNHALTED.REF
@@ -274,18 +271,18 @@ typedef struct{
  *
  * UPDATE: also store old IA32_PERF_GLOBAL_CTRL values..
  */
-typedef struct{
+typedef struct {
     u32 fixed_data[2], perf_data[2];
-}CTRL_values_t;
+} CTRL_values_t;
 
 /*
  * Helper struct to extract (user-supplied)
  * IOCTL input and output lengths.
  */
-typedef struct{
+typedef struct {
 	int in_len, out_len;
 	char data[1];
-}ioctl_args_stub_t;
+} ioctl_args_stub_t;
 
 #if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
 /*
