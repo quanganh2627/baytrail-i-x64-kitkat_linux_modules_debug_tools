@@ -122,7 +122,7 @@ DISPATCH                dispatch              = NULL;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #endif
 U64                     total_ram             = 0;
-#ifndef CUSTOM_BOARD_MFLD_GI
+#ifndef SMALL_RAM
 U32                     output_buffer_size    = OUTPUT_LARGE_BUFFER;
 #else
 U32                     output_buffer_size    = OUTPUT_SMALL_BUFFER;

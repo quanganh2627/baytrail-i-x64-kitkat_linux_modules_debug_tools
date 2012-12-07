@@ -92,8 +92,8 @@ ifeq ($(EMON),YES)
 endif
 EXTRA_CFLAGS += -DDRV_ANDROID
 
-ifeq ($(CUSTOM_BOARD),mfld_gi)
-EXTRA_CFLAGS += -DCUSTOM_BOARD_MFLD_GI
+ifeq ($(BOARD_HAVE_SMALL_RAM),true)
+EXTRA_CFLAGS += -DSMALL_RAM
 endif
 
 ifeq ($(BUILD_CHIPSET),YES)
@@ -133,15 +133,15 @@ else
 	PATH := $(KERNEL_SRC_DIR)/../../../prebuilt/linux-x86/toolchain/i686-android-linux-4.4.3/bin:$(PATH)
 	export PATH
 
-all: default
+all: modules
 
-default:
+modules:
 	$(MAKE) -C $(KERNEL_SRC_DIR) M=$(PWD) LDDINCDIR=$(PWD)/../include LDDINCDIR1=$(PWD)/inc modules PWD=$(PWD)
 	@(cd pax && make all)
 
 endif
 
-install:
+install-modules: modules
 	@cp $(DRIVER_NAME).ko $(INSTALL)/$(DRIVER_FILENAME)
 	@echo "Installed $(DRIVER_NAME) driver to $(INSTALL)/$(DRIVER_FILENAME) ."
 	@(cd pax && make install INSTALL=$(INSTALL)/pax)
