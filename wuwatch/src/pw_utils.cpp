@@ -108,7 +108,7 @@ void LineReader::get_all_lines(FILE *fp, std::vector<std::string>& lines)
                 break;
             }
             line.append(tmp_buf);
-            tmp_size = strlen(tmp_buf);
+            tmp_size = (int)strlen(tmp_buf);
             if (tmp_size < 1) {
                 break;
             }
@@ -138,7 +138,7 @@ void LineReader::get_all_lines(FILE *fp, std::deque<std::string>& lines)
                 break;
             }
             line.append(tmp_buf);
-            tmp_size = strlen(tmp_buf);
+            tmp_size = (int)strlen(tmp_buf);
             if (tmp_size < 1) {
                 break;
             }
@@ -167,7 +167,7 @@ int LineReader::getline(FILE *fp, std::string& line)
             break;
         }
         line.append(tmp_buf);
-        tmp_size = strlen(tmp_buf);
+        tmp_size = (int)strlen(tmp_buf);
         if (tmp_size < 1) {
             break;
         }
@@ -321,7 +321,7 @@ const std::vector<std::string> Tokenizer::get_all_tokens(const char *delims)
      * to "rewind" effects of current function
      * call.
      */
-    int curr = m_curr, next = m_next;
+    size_t curr = m_curr, next = m_next;
 
     m_curr = m_next = 0;
 

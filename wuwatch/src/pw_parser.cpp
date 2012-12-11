@@ -68,7 +68,7 @@
 #define NEWLINE '\n'
 #define HASH '#'
 
-#define IS_WHITESPACE(c) ( (c) == EOL || (c) == SPACE || (c) == TAB || (c) == NEWLINE || (c) == HASH )
+#define IS_WHITESPACE(c) ( ((c) >= 0x0 && (c) <= 0x20) || (c) == HASH )
 #define IS_VALID_CHAR(c) !(IS_WHITESPACE(c))
 
 #define PW_DEFAULT_STEPPING_VALUE 0x0
@@ -919,7 +919,7 @@ PWArch_rec_t *PWParser::program_i(int fam, int mod, int step)
      * <Stepping> value.
      */
     while (!m_lexer->is_EOF()) {
-	rec_i();
+	assert(rec_i() == true);
 	/*
 	 * Did we get the correct REC?
 	 * This is defined by equality with the

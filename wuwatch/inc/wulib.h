@@ -30,6 +30,12 @@
  * Some useful typedefs.
  * *****************************************
  */
+#if defined(_WIN32)
+#define SPRINTF(b1, s1, ...) sprintf_s(b1, s1, __VA_ARGS__)
+#else
+#define SPRINTF(b1, s1, ...) sprintf(b1, s1, __VA_ARGS__)
+#endif
+
 typedef std::vector<PWCollector_sample_t> sample_vec_t;
 typedef std::pair <pid_t, std::string> r_sample_pair_t;
 typedef std::map <pid_t, r_sample_pair_t> r_sample_map_t;
@@ -48,10 +54,10 @@ namespace pwr {
             std::string m_appProfiled;
             std::string m_collectionTime;
             std::string m_wudumpVersion;
-            pw_u32_t m_cpuCount;
-            pw_u32_t m_coreCount;
-            pw_u32_t m_moduleCount;
-            pw_u32_t m_packageCount;
+            pw_s32_t m_cpuCount;
+            pw_s32_t m_coreCount;
+            pw_s32_t m_moduleCount;
+            pw_s32_t m_packageCount;
             pw_u32_t m_tscFreq;
             pw_u32_t m_busClockFreq;
             pw_u32_t m_microPatchVer;
@@ -248,7 +254,7 @@ std::ostream& operator<<(std::ostream& os, const PWCollector_sample_t& sample);
  * Macro used to determine which CORE the given LCPU
  * maps to.
  */
-#define GET_CORE_GIVEN_LCPU(lcpu) ( pwr::WuData::instance()->getSystemInfo().m_htMap.find(lcpu)->second )
+#define GET_CORE_GIVEN_LCPU(lcpu) ( pwr::WuData::instance()->getSystemInfo().m_htMap.find((const int)lcpu)->second )
 /*
  * Macro used to convert between 'mwait' hints and the
  * actual C-states.

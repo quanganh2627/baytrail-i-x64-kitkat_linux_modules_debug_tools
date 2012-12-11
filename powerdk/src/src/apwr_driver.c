@@ -2076,9 +2076,10 @@ static wlock_node_t *get_next_free_wlock_node_i(unsigned long hash, size_t wlock
 	    pw_pr_error("ERROR: could NOT kstrdup wlock device name: %s\n", wlock_name);
 	    pw_kfree(node);
 	    node = NULL;
-	}
-        node->wakelock_name_len = wlock_name_len;
-    } else {
+	} else {
+            node->wakelock_name_len = wlock_name_len;
+        }
+	} else {
 	pw_pr_error("ERROR: could NOT allocate new wlock node!\n");
     }
 

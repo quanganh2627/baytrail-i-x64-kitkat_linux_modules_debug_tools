@@ -729,8 +729,8 @@ void PerCorePDumper::operator()(const PWCollector_sample_t& sample)
     if (sample.p_sample.is_boundary_sample) {
         req_str = DONT_CARE;
     } else {
-        char tmp[10];
-        sprintf(tmp, "%u", act_freq);
+        char tmp[11];
+        snprintf(tmp, sizeof(tmp), "%u", act_freq);
         req_str = tmp;
     }
 
@@ -1466,7 +1466,7 @@ int HTWudump::do_write_i(void)
             }
             if (m_pkgmap_sample_map.find(iter->uid) == m_pkgmap_sample_map.end()) {
                 char val[10]; 
-                sprintf(val, "%u", iter->uid);
+                snprintf(val, sizeof(val), "%u", iter->uid);
                 m_pkgmap_sample_map[iter->uid] = val;
             } 
             if (iter->type) {

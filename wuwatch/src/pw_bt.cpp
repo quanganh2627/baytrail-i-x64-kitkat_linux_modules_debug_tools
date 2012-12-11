@@ -142,6 +142,17 @@ static inline void write_string(char *str, FILE *fp)
  */
 static inline char *read_string(int len, FILE *fp)
 {
+    /*
+     * Sanity: make sure the string being read is not TOO large!
+     * It's OK to make this check here: 'read_string' is only called
+     * to deserialize backtrace information, and it's reasonable
+     * to assume a single entry in a call trace won't be larger than
+     * 1024 bytes!
+     */
+    if (len > 1024) {
+        fprintf(stderr, "Warning: trace was %d bytes long; truncating to 1024 bytes!\n", len);
+        len = 1024;
+    }
     char *retVal = (char *)malloc(len+1);
     size_t num = (size_t)len;
 
@@ -226,6 +237,11 @@ void Tracer::serialize_traces(trace_map_t *trace_map, FILE *fp){
 void Tracer::deserialize_traces(FILE *fp, trace_vec_t *output){
     int num_traces = -1;
     read_data(num_traces, fp);
+    /*
+     * Sanity: assume we can't have more than 1024 traces to deserialize.
+     */
+    assert(num_traces <= 1024);
+
     fprintf(stderr, "Num_Traces = %d\n", num_traces);
     for(int i=0; i<num_traces; ++i){
 	// while(!feof(fp)){
@@ -252,6 +268,11 @@ void Tracer::deserialize_traces(FILE *fp, trace_vec_t& trace_vec, trace_pair_map
 {
     int num_traces = -1;
     read_data(num_traces, fp);
+    /*
+     * Sanity: assume we can't have more than 1024 traces to deserialize.
+     */
+    assert(num_traces <= 1024);
+
     fprintf(stderr, "Num_Traces = %d\n", num_traces);
     for(int i=0; i<num_traces; ++i){
 	trace_t *trace = new trace_t;
@@ -270,6 +291,11 @@ void Tracer::deserialize_traces(FILE *fp, trace_list_t& trace_list, trace_pair_m
 {
     int num_traces = -1;
     read_data(num_traces, fp);
+    /*
+     * Sanity: assume we can't have more than 1024 traces to deserialize.
+     */
+    assert(num_traces <= 1024);
+
     fprintf(stderr, "Num_Traces = %d\n", num_traces);
     for(int i=0; i<num_traces; ++i){
 	trace_t *trace = new trace_t;
@@ -538,6 +564,11 @@ void trace::deserialize(FILE *fp, trace_pair_map_t& pair_map){
 
     read_data(len, fp);
 
+    /*
+     * Sanity: assume the total size of the trace can't be more than 64KB!
+     */
+    assert(len <= 65536);
+
     char *data = new char[len+1];
 
     if(fread(data, len, 1, fp) != 1){
@@ -612,12 +643,27 @@ void trace::deserialize(FILE *fp){
     // # trace entries
     read_data(num_trace, fp);
     int numTrace = num_trace;
+    /*
+     * Sanity: assume the number of entries in the call stack
+     * can't be more than 1024.
+     */
+    assert(numTrace <= 1024);
     bt_symbols = (char **)calloc(numTrace, sizeof(char *));
     for(int j=0; j<numTrace; ++j){
 	read_data(len, fp);
+        /*
+         * Sanity: assume each line in the backtrace cannot be more than 1024 characters long.
+         * We introduce an extra check here even though 'len' is checked within 'read_string'
+         * because Klockwork complains otherwise.
+         */
+        assert(len <= 1024);
 	bt_symbols[j] = read_string(len, fp);
     }
     read_data(num_tsc_pairs, fp);
+    /*
+     * Sanity: assume there can be at most 1024 tsc pairs.
+     */
+    assert(num_tsc_pairs <= 1024);
     for(int j=0; j<num_tsc_pairs; ++j){
 	read_data(cpu, fp);
 	read_data(begin, fp); read_data(end, fp);

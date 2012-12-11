@@ -1108,7 +1108,12 @@ int Wuwatch::do_ioctl_available_frequencies(int fd, u32 *available_frequencies)
     /*
      * Copy frequencies into output array.
      */
-    memcpy(available_frequencies, freqs.frequencies, sizeof(u32) * freqs.num_freqs);
+    if (freqs.num_freqs <= PW_MAX_NUM_AVAILABLE_FREQUENCIES) {
+        memcpy(available_frequencies, freqs.frequencies, sizeof(u32) * freqs.num_freqs);
+    } else {
+        available_frequencies[0] = 0; // last entry MUST be ZERO!!!
+        return -PW_ERROR;
+    }
     available_frequencies[freqs.num_freqs] = 0; // last entry MUST be ZERO!!!
     return PW_SUCCESS;
 };
@@ -1584,6 +1589,14 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
             break;
         default:
             assert(false);
+         
+    }
+    if (wl_name == NULL) {
+        if (cp_msg) {
+            free(cp_msg);
+            cp_msg = NULL;
+        }
+        return NULL;
     }
     len = strlen(wl_name);
     *msg_len = PW_CONSTANT_POOL_MSG_HEADER_SIZE + len + 1;
@@ -2189,7 +2202,7 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
 
     for (str_vec_t::const_iterator iter = aplogs.begin(); iter != aplogs.end(); ++iter) {
         char aplogfile[128];
-        sprintf(aplogfile, "%s%s", logdirname.c_str(), iter->c_str());
+        snprintf(aplogfile, sizeof(aplogfile), "%s%s", logdirname.c_str(), iter->c_str());
         FILE *fp = fopen(aplogfile, "r");
         if (!fp) {
             fprintf(stderr, "fopen error for %s: %s\n", aplogfile, strerror(errno));
@@ -2217,7 +2230,7 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
                         int uid;
                         char timestr[20];
 
-                        sprintf(timestr, "%02d-%02d %02d:%02d:%02d", month, day, hour, minute, second);
+                        snprintf(timestr, sizeof(timestr), "%02d-%02d %02d:%02d:%02d", month, day, hour, minute, second);
                         sscanf(str_line.substr(0, str_line.find(',')).c_str(), "TIMESTAMP=%llu", &ts);
                         str_line = str_line.substr(str_line.find(',')+2);
                         tag = str_line.substr(4, str_line.find(',')-4).c_str();
