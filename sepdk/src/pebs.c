@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -26,12 +26,9 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  cvsid[] = "$Id$"
- */
-
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
+#include <linux/percpu.h>
 
 #include "lwpmudrv_types.h"
 #include "rise_errors.h"
@@ -43,8 +40,10 @@
 #include "utility.h"
 #include "pebs.h"
 
-static PEBS_DISPATCH  pebs_dispatch      = NULL;
-static PVOID          pebs_global_memory = NULL;
+static PEBS_DISPATCH  pebs_dispatch           = NULL;
+static PVOID          pebs_global_memory      = NULL;
+static size_t         pebs_global_memory_size = 0;
+
 /* ------------------------------------------------------------------------- */
 /*!
  * @fn          VOID pebs_Corei7_Initialize_Threshold (dts, pebs_record_size)
@@ -505,6 +504,7 @@ PEBS_Modify_IP (
     return;
 }
 
+
 /* ------------------------------------------------------------------------- */
 /*!
  * @fn          VOID PEBS_Fill_Buffer (S8 *buffer, EVENT_CONFIG ec)
@@ -527,7 +527,8 @@ PEBS_Fill_Buffer (
 )
 {
     DTS_BUFFER_EXT   dtes       = CPU_STATE_dts_buffer(&pcb[CONTROL_THIS_CPU()]);
-    DEAR_INFO_NODE    dear_info  = {0};
+    DEAR_INFO_NODE   dear_info  = {0};
+    PEBS_REC_EXT1    pebs_base_ext1;
 
     if (dtes) {
         S8   *pebs_base  = (S8 *)(UIOP)DTS_BUFFER_EXT_pebs_base(dtes);
@@ -539,6 +540,14 @@ PEBS_Fill_Buffer (
                 memcpy(buffer + EVENT_DESC_pebs_offset(evt_desc),
                        pebs_base,
                        EVENT_DESC_pebs_size(evt_desc));
+            }
+            if (EVENT_DESC_eventing_ip_offset(evt_desc)) {
+                pebs_base_ext1 = (PEBS_REC_EXT1)pebs_base;
+                *(U64*)(buffer + EVENT_DESC_eventing_ip_offset(evt_desc)) = PEBS_REC_EXT1_eventing_ip(pebs_base_ext1);
+            }
+            if (EVENT_DESC_hle_offset(evt_desc)) {
+                pebs_base_ext1 = (PEBS_REC_EXT1)pebs_base;
+                *(U64*)(buffer + EVENT_DESC_hle_offset(evt_desc)) = PEBS_REC_EXT1_hle_info(pebs_base_ext1);
             }
             if (EVENT_DESC_latency_offset_in_sample(evt_desc)) {
                 memcpy(&dear_info,
@@ -602,7 +611,8 @@ PEBS_Initialize (
                 break;
         }
         if (pebs_dispatch) {
-            pebs_global_memory = (PVOID)CONTROL_Allocate_KMemory(GLOBAL_STATE_num_cpus(driver_state) * PER_CORE_BUFFER_SIZE(pebs_record_size));
+            pebs_global_memory_size = GLOBAL_STATE_num_cpus(driver_state) * PER_CORE_BUFFER_SIZE(pebs_record_size);
+            pebs_global_memory = (PVOID)CONTROL_Allocate_KMemory(pebs_global_memory_size);
             CONTROL_Invoke_Parallel(pebs_Allocate_Buffers, (VOID *)&pebs_record_size);
         }
     }
@@ -629,8 +639,9 @@ PEBS_Destroy (
 )
 {
     if (DRV_CONFIG_pebs_mode(pcfg)) {
-        CONTROL_Invoke_Parallel(pebs_Deallocate_Buffers, (VOID *)(size_t)CONTROL_THIS_CPU());
+        CONTROL_Invoke_Parallel(pebs_Deallocate_Buffers, (VOID *)(size_t)0);
         pebs_global_memory = CONTROL_Free_Memory(pebs_global_memory);
+        pebs_global_memory_size = 0;
     }
 
     return;

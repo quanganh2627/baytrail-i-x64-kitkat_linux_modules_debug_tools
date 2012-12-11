@@ -5,14 +5,9 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2007-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2007-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
-
-/*
- *  File  : lwpmudrv_defines.h
- *  cvsid[] = "$Id: lwpmudrv_defines.h 203263 2011-12-09 07:15:49Z hmaiya $"
- */
 
 #ifndef  _LWPMUDRV_DEFINES_H_
 #define  _LWPMUDRV_DEFINES_H_
@@ -28,6 +23,7 @@ extern "C" {
 #undef DRV_OS_SOLARIS
 #undef DRV_OS_MAC
 #undef DRV_OS_ANDROID
+
 //
 // Make sure none of the architectures is defined here
 //
@@ -36,19 +32,13 @@ extern "C" {
 #undef DRV_IA64
 
 //
-// Make sure none of the build types is defined here
-//
-#undef DRV_BUILD_RELEASE
-#undef DRV_BUILD_DEBUG
-
-//
 // Make sure one (and only one) of the OS'es gets defined here
 //
 // Unfortunately entirex defines _WIN32 so we need to check for linux
 // first.  The definition of these flags is one and only one
 // _OS_xxx is allowed to be defined.
 //
-#if defined (__ANDROID__)
+#if defined(__ANDROID__)
 #define DRV_OS_ANDROID
 #elif defined(__linux__)
 #define DRV_OS_LINUX
@@ -58,6 +48,8 @@ extern "C" {
 #define DRV_OS_WINDOWS
 #elif defined(__APPLE__)
 #define DRV_OS_MAC
+#elif defined(__FreeBSD__)
+#define DRV_OS_FREEBSD
 #else
 #error "Compiling for an unknown OS"
 #endif
@@ -81,19 +73,8 @@ extern "C" {
 // debug (checked). Once again, don't assume these are the only two values,
 // always have an else clause in case we want to expand this.
 //
-#if defined(DRV_OS_WINDOWS)
-
-#if DBG || defined(_DEBUG)
-#define DRV_BUILD_DEBUG
-#else
-#define DRV_BUILD_RELEASE
-#endif
-
-#elif defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
-#define DRV_BUILD_RELEASE
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define WINAPI
-#else
-#error "Compiling for an unknown OS"
 #endif
 
 /*
@@ -102,6 +83,8 @@ extern "C" {
  */
 #undef DRV_FILE_DESC
 #undef DRV_INVALID_FILE_DESC_VALUE
+#define DRV_ASSERT  assert
+
 #if defined(DRV_OS_WINDOWS)
 
 #define DRV_FILE_DESC                HANDLE
@@ -125,7 +108,7 @@ extern "C" {
 #define IN
 #define INOUT
 
-#elif defined(DRV_OS_MAC)
+#elif defined(DRV_OS_MAC) || defined(DRV_OS_FREEBSD)
 
 #define DRV_IOCTL_FILE_DESC                 S64
 #define DRV_FILE_DESC                       S64
@@ -145,7 +128,7 @@ extern "C" {
 #define DRV_DLLIMPORT      __declspec(dllimport)
 #define DRV_DLLEXPORT      __declspec(dllexport)
 #endif
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define DRV_DLLIMPORT
 #define DRV_DLLEXPORT
 #endif
@@ -158,7 +141,7 @@ extern "C" {
 #define DRV_PATH_SEPARATOR    "\\"
 #define L_DRV_PATH_SEPARATOR L"\\"
 #endif
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define FSI64RAW              "ll"
 #define FSS64                 "%"FSI64RAW"d"
 #define FSU64                 "%"FSI64RAW"u"
@@ -167,48 +150,53 @@ extern "C" {
 #define L_DRV_PATH_SEPARATOR L"/"
 #endif
 
-#if defined(DRV_OS_WINDOWS) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_WINDOWS) || defined(DRV_OS_FREEBSD)
 #define DRV_RTLD_NOW    0
 #endif
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) 
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
 #define DRV_RTLD_NOW    RTLD_NOW 
 #endif
 
-#define DRV_STRLEN                  strlen
-#define DRV_WCSLEN                  wcslen
-#define DRV_STRCSPN                 strcspn
-#define DRV_STRCHR                  strchr
-#define DRV_STRRCHR                 strrchr
-#define DRV_WCSRCHR                 wcsrchr
+#define DRV_STRLEN                       strlen
+#define DRV_WCSLEN                       wcslen
+#define DRV_STRCSPN                      strcspn
+#define DRV_STRCHR                       strchr
+#define DRV_STRRCHR                      strrchr
+#define DRV_WCSRCHR                      wcsrchr
 #if defined(DRV_OS_WINDOWS)
-#define DRV_STRCPY                  strcpy_s
-#define DRV_STRNCPY                 strncpy_s
-#define DRV_STRICMP                _stricmp
-#define DRV_STRNCMP                 strncmp
-#define DRV_STRNICMP               _strnicmp
-#define DRV_STRDUP                 _strdup
-#define DRV_WCSDUP                 _wcsdup
-#define DRV_STRCMP                  strcmp
-#define DRV_WCSCMP                  wcscmp
-#define DRV_SNPRINTF               _snprintf_s
-#define DRV_SNWPRINTF              _snwprintf_s
-#define DRV_VSNPRINTF              _vsnprintf_s
-#define DRV_SSCANF                  sscanf_s
-#define DRV_STRCPY                  strcpy_s
-#define DRV_STRCAT                  strcat_s
-#define DRV_MEMCPY                  memcpy_s
-#define DRV_STRTOK                  strtok_s
-#define DRV_STRTOUL                 strtoul
-#define DRV_STRTOULL                strtoull
-#define DRV_STRTOQ                 _strtoui64
-#define DRV_FOPEN(fp,name,mode)     fopen_s(&(fp),(name),(mode))
-#define DRV_WFOPEN(fp,name,mode)   _wfopen_s(&(fp),(name),(mode))
-#define DRV_FCLOSE(fp)              if ((fp) != NULL) { fclose((fp)); }
-#define DRV_WCSCPY                  wcscpy_s
-#define DRV_WCSCAT                  wcscat_s
-#define DRV_PUTENV(name)           _putenv(name)
-#define DRV_USTRCMP(X, Y)           DRV_WCSCMP(X, Y)
-#define DRV_USTRDUP(X)              DRV_WCSDUP(X)
+#define DRV_STRCPY                       strcpy_s
+#define DRV_STRNCPY                      strncpy_s
+#define DRV_STRICMP                     _stricmp
+#define DRV_STRNCMP                      strncmp
+#define DRV_STRNICMP                    _strnicmp
+#define DRV_STRDUP                      _strdup
+#define DRV_WCSDUP                      _wcsdup
+#define DRV_STRCMP                       strcmp
+#define DRV_WCSCMP                       wcscmp
+#define DRV_SNPRINTF                    _snprintf_s
+#define DRV_SNWPRINTF                   _snwprintf_s
+#define DRV_VSNPRINTF                   _vsnprintf_s
+#define DRV_SSCANF                       sscanf_s
+#define DRV_STRCAT                       strcat_s
+#define DRV_MEMCPY                       memcpy_s
+#define DRV_STRTOK                       strtok_s
+#define DRV_STRTOUL                      strtoul
+#define DRV_STRTOULL                     strtoull
+#define DRV_STRTOQ                      _strtoui64
+#define DRV_FOPEN(fp,name,mode)          fopen_s(&(fp),(name),(mode))
+#define DRV_WFOPEN(fp,name,mode)        _wfopen_s(&(fp),(name),(mode))
+#define DRV_FCLOSE(fp)                   if ((fp) != NULL) { fclose((fp)); }
+#define DRV_WCSCPY                       wcscpy_s
+#define DRV_WCSCAT                       wcscat_s
+#define DRV_WCSTOK                       wcstok_s
+#define DRV_STRERROR                     strerror_s
+#define DRV_VSPRINTF                     vsprintf_s
+#define DRV_VSWPRINTF                    vswprintf_s
+#define DRV_GETENV_S                     getenv_s
+#define DRV_WGETENV_S                    wgetenv_s
+#define DRV_PUTENV(name)                _putenv(name)
+#define DRV_USTRCMP(X, Y)                DRV_WCSCMP(X, Y)
+#define DRV_USTRDUP(X)                   DRV_WCSDUP(X)
 #if defined(DRV_EM64T)
 #define DRV_GETENV(buf,buf_size,name)   {(buf)  = getenv((name)); \
                                          (buf_size) = ((buf) == NULL) ? 0 : DRV_STRLEN((buf));}
@@ -220,7 +208,7 @@ extern "C" {
 #endif
 #endif
 
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 /*
    Note: Many of the following macros have a "size" as the second argument.  Generally
          speaking, this is for compatibility with the _s versions available on Windows.
@@ -251,38 +239,47 @@ extern "C" {
 #define DRV_FCLOSE(fp)                           if ((fp) != NULL) { fclose((fp)); }
 #define DRV_WCSCPY(dst,dst_size,src)             wcscpy((dst),(src))
 #define DRV_WCSCAT(dst,dst_size,src)             wcscat((dst),(src))
+#define DRV_WCSTOK(tok,delim,context)            wcstok((tok),(delim))
+#define DRV_STRERROR                             strerror
+#define DRV_VSPRINTF(dst,dst_size,length,args...)    vsprintf((dst),(length),##args)
+#define DRV_VSWPRINTF(dst,dst_size,length,args...)   vswprintf((dst),(length),##args)
+#define DRV_GETENV_S(dst,dst_size)               getenv(dst)
+#define DRV_WGETENV_S(dst,dst_size)              wgetenv(dst)
 #define DRV_PUTENV(name)                         putenv(name)
 #define DRV_GETENV(buf,buf_size,name)            ((buf)=getenv((name)))
 #define DRV_USTRCMP(X, Y)                        DRV_STRCMP(X, Y)
 #define DRV_USTRDUP(X)                           DRV_STRDUP(X)
 #endif
 
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_FREEBSD)
+#define DRV_STRTOQ                               strtoq
+#endif
+
 #if defined(DRV_OS_ANDROID)
 #define DRV_STRTOQ                               strtol
-#endif
- 
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC)
-#define DRV_STRTOQ                               strtoq
 #endif
 
 #if defined(DRV_OS_LINUX) 
 #define DRV_WCSDUP                               wcsdup
 #endif
 
-#if defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define DRV_WCSDUP                               solaris_wcsdup
 #endif
 
 /*
  * OS return types
  */
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_ANDROID)
-#define OS_STATUS         int
-#define OS_SUCCESS        0
-#define OS_ILLEGAL_IOCTL  -ENOTTY
-#define OS_NO_MEM         -ENOMEM
-#define OS_FAULT          -EFAULT
-#define OS_INVALID        -EINVAL
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
+#define OS_STATUS           int
+#define OS_SUCCESS          0
+#define OS_ILLEGAL_IOCTL    -ENOTTY
+#define OS_NO_MEM           -ENOMEM
+#define OS_FAULT            -EFAULT
+#define OS_INVALID          -EINVAL
+#define OS_NO_SYSCALL       -ENOSYS
+#define OS_RESTART_SYSCALL  -ERESTARTSYS
+#define OS_IN_PROGRESS      -EALREADY
 #endif
 
 /****************************************************************************
@@ -308,26 +305,28 @@ extern "C" {
 #define SEP_FREE(loc)   if ((loc)) { free(loc); loc = NULL; }
 
 #define MAX_EVENTS 128       // Limiting maximum multiplexing events although up to 256 events can be supported.
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define UNREFERENCED_PARAMETER(p)       ((p) = (p))
 #endif
 
 /*
  * Global marker names
  */
+#define START_MARKER_NAME       "SEP_START_MARKER"
 #define PAUSE_MARKER_NAME       "SEP_PAUSE_MARKER"
 #define RESUME_MARKER_NAME      "SEP_RESUME_MARKER"
 
 #define DRV_SOC_STRING_LEN      100 + MAX_MARKER_LENGTH
 
 #if defined(DRV_OS_ANDROID)
-#define TEMP_PATH              "/data"
+#define TEMP_PATH               "/data"
 #else
-#define TEMP_PATH              "/tmp"
+#define TEMP_PATH               "/tmp"
 #endif
 
 #if defined(__cplusplus)
 }
 #endif
 
-#endif /* _LWPMUDRV_DEFINES_H_ */
+#endif
+

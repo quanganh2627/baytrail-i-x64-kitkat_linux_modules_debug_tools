@@ -1,4 +1,4 @@
-#     Copyright (C) 2002-2011 Intel Corporation.  All Rights Reserved.
+#     Copyright (C) 2002-2012 Intel Corporation.  All Rights Reserved.
 # 
 #     This file is part of SEP Development Kit
 # 
@@ -24,7 +24,6 @@
 #     invalidate any other reasons why the executable file might be covered by
 #     the GNU General Public License.
 
-#    cvs_id[] = "$Id$"
 
 #include <linux/version.h>
 #include <asm/segment.h>

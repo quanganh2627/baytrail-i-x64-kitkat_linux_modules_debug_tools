@@ -31,7 +31,7 @@
 # -------------------- user configurable options ------------------------
 
 # base name of SEP driver
-DRIVER_NAME = sep3_7
+DRIVER_NAME = sep3_9
 
 # location to install driver
 INSTALL = .
@@ -75,6 +75,7 @@ ifeq ($(PLATFORM),x32)
 	arch-objs :=              \
 			core2.o           \
 			sys32.o           \
+			silvermont.o      \
 			pci.o             \
 			apic.o            \
 			pebs.o
@@ -82,6 +83,7 @@ endif
 ifeq ($(PLATFORM),x32_64)
 	arch-objs :=    core2.o   \
 			sys64.o           \
+			silvermont.o      \
 			pci.o             \
 			apic.o            \
 			pebs.o
@@ -90,7 +92,7 @@ endif
 ifeq ($(EMON),YES)
     EXTRA_CFLAGS += -DEMON -DEMON_INTERNAL
 endif
-EXTRA_CFLAGS += -DDRV_ANDROID
+EXTRA_CFLAGS += -DDRV_ANDROID -DDRV_ATOM_ONLY
 
 ifeq ($(BOARD_HAVE_SMALL_RAM),true)
 EXTRA_CFLAGS += -DSMALL_RAM
@@ -157,3 +159,4 @@ clean:
 distclean: clean
 	@rm -f $(DRIVER_NAME)*.ko
 	@(cd pax && make distclean)
+

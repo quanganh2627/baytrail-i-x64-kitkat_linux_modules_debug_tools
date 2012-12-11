@@ -1,21 +1,13 @@
-/**********************************************************************************************
- * INTEL CONFIDENTIAL
- * Copyright 2004-2011 Intel Corporation.  All Rights Reserved.
- * 
- * The source code contained or described herein and all documents related to the source code
- * ("Material") are owned by Intel Corporation or its suppliers or licensors. Title to the
- * Material remains with Intel Corporation or its suppliers and licensors. The Material
- * contains trade secrets and proprietary and confidential information of Intel or its
- * suppliers and licensors. The Material is protected by worldwide copyright and trade secret
- * laws and treaty provisions. No part of the Material may be used, copied, reproduced,
- * modified, published, uploaded, posted, transmitted, distributed, or disclosed in any way
- * without Intel's prior express written permission.
- * 
- * No license under any patent, copyright, trade secret or other intellectual property right
- * is granted to or conferred upon you by disclosure or delivery of the Materials, either
- * expressly, by implication, inducement, estoppel or otherwise. Any license under such
- * intellectual property rights must be express and approved by Intel in writing.
- */
+/*COPYRIGHT**
+ * -------------------------------------------------------------------------
+ *               INTEL CORPORATION PROPRIETARY INFORMATION
+ *  This software is supplied under the terms of the accompanying license
+ *  agreement or nondisclosure agreement with Intel Corporation and may not
+ *  be copied or disclosed except in accordance with the terms of that
+ *  agreement.
+ *        Copyright (c) 2004-2012 Intel Corporation.  All Rights Reserved.
+ * -------------------------------------------------------------------------
+**COPYRIGHT*/
 
 #ifndef _RISE_ERRORS_H_
 #define _RISE_ERRORS_H_
@@ -162,39 +154,39 @@
 #define VT_SAMPLE_FILE_MAPPING_ERROR    34
 #define VT_BUFFER_NULL                  35
 #define VT_UNEXPECTED_NULL_PTR          36
-#define VT_BINARY_LOAD_FAILED           37 //use this if vt_dlopen failed
-#define VT_FUNCTION_NOT_FOUND_IN_BINARY 38 //use this if vt_dlsym failed
+#define VT_BINARY_LOAD_FAILED           37
+#define VT_FUNCTION_NOT_FOUND_IN_BINARY 38
 #define VT_ENTRY_NOT_FOUND              39
-#define VT_SEP_SYNTAX_ERROR             40 //use this for sep syntax error
-#define VT_SEP_OPTIONS_ERROR            41 //use this for sep start options error
+#define VT_SEP_SYNTAX_ERROR             40
+#define VT_SEP_OPTIONS_ERROR            41
 #define VT_BAD_EVENT_MODIFIER           42
 #define VT_INCOMPATIBLE_PARAMS          43
 #define VT_FILE_OPEN_FAILED             44
-#define VT_EARLY_EXIT                   45 //early exit is requested
-#define VT_TIMEOUT_RETURN               46 //timeout was reached and no early exit was requested
-#define VT_NO_CHILD_PROCESS             47 //use for vt_wait_for_child_to_exit
-#define VT_DRIVER_RUNNING               48 //used by early_exit
-#define VT_DRIVER_STOPPED               49 //used by early_exit
+#define VT_EARLY_EXIT                   45
+#define VT_TIMEOUT_RETURN               46
+#define VT_NO_CHILD_PROCESS             47
+#define VT_DRIVER_RUNNING               48
+#define VT_DRIVER_STOPPED               49
 #define VT_MULTIPLE_RUNS_NEEDED         50
 #define VT_QUIT_IMMEDIATE               51
 #define VT_DRIVER_INIT_FAILED           52
-#define VT_NO_TB5_CREATED               53 //used to indicate no tb5 file was created (perhaps due to no samples collected)
+#define VT_NO_TB5_CREATED               53
 #define VT_NO_WRITE_PERMISSION          54
 #define VT_DSA_INIT_FAILED              55
 #define VT_INVALID_CPU_MASK             56
-#define VT_SAMP_IN_RUNNING_STATE        57 //used by run_handler to return state errors
-#define VT_SAMP_IN_PAUSE_STATE          58 //used by run_handler to return state errors
-#define VT_SAMP_IN_STOP_STATE           59 //used by run_handler to return state errors
-#define VT_SAMP_NO_SESSION              60 //used by run_handler to return state errors
+#define VT_SAMP_IN_RUNNING_STATE        57
+#define VT_SAMP_IN_PAUSE_STATE          58
+#define VT_SAMP_IN_STOP_STATE           59
+#define VT_SAMP_NO_SESSION              60
 #define VT_NOT_CONFIGURED               61
-#define VT_LAUNCH_BUILD64_FAILED        62 //used by config_n_control.DoStart()
-#define VT_BAD_PARAMETER                63 //used by vtuneapi_entry.cpp for now
+#define VT_LAUNCH_BUILD64_FAILED        62
+#define VT_BAD_PARAMETER                63
 
-#define VT_ISM_INIT_FAILED              64 // used by symbols.cpp
-#define VT_INVALID_STATE_TRANS          65 //used by CASI to indicate invalid state
-#define VT_EARLY_EXIT_N_CANCEL          66 //indicates cancel a sampling session
+#define VT_ISM_INIT_FAILED              64
+#define VT_INVALID_STATE_TRANS          65
+#define VT_EARLY_EXIT_N_CANCEL          66
 #define VT_EVT_MGR_NOT_INIT             67
-#define VT_ISM_SECTION_ENUM_FAILED      68 // used by symbols.cpp
+#define VT_ISM_SECTION_ENUM_FAILED      68
 #define VT_VG_PARSER_ERROR              69
 #define VT_MISSING_VALUE_FOR_TOKEN      70
 #define VT_EMPTY_SAMPLE_FILE_NAME       71
@@ -203,10 +195,10 @@
 #define VT_MISSING_COL_DEPNDNCIES       74
 #define VT_DEP_COL_NOT_LIB_DEFINED      75
 #define VT_COL_NOT_REG_WITH_LIB         76
-#define VT_SECTION_ALREADY_IN_USE       77 //used by tbrw
-#define VT_SECTION_NOT_EXIST            78 //used by tbrw
-#define VT_STREAM_NOT_EXIST             79 //used by tbrw
-#define VT_INVALID_STREAM               80 //used by tbrw
+#define VT_SECTION_ALREADY_IN_USE       77
+#define VT_SECTION_NOT_EXIST            78
+#define VT_STREAM_NOT_EXIST             79
+#define VT_INVALID_STREAM               80
 #define VT_STREAM_ALREADY_IN_USE        81
 #define VT_DATA_DESC_NOT_EXIST          82
 #define VT_INVALID_ERROR_CODE           83
@@ -272,10 +264,10 @@
 #define VT_UNEXPECTED_NUM_CPUIDS        143
 #define VT_UNSUPPORTED_ARCH_TYPE        144
 #define VT_NO_DATA_TO_WRITE             145
-#define VT_EM_TIME_SLICE_TOO_SMALL      146  //for event multiplexing
-#define VT_EM_TOO_MANY_EVENT_GROUPS     147  //for event multiplexing
-#define VT_EM_ZERO_GROUPS               148  //for event multiplexing
-#define VT_EM_NOT_SUPPORTED             149  //for event multiplexing
+#define VT_EM_TIME_SLICE_TOO_SMALL      146
+#define VT_EM_TOO_MANY_EVENT_GROUPS     147
+#define VT_EM_ZERO_GROUPS               148
+#define VT_EM_NOT_SUPPORTED             149
 #define VT_PMU_IN_USE                   150
 #define VT_TOO_MANY_INTERRUPTS          151
 #define VT_MAX_SAMPLES_REACHED          152
@@ -291,8 +283,8 @@
 #define VT_PAX_SERVICE_NOT_CONNECTED    162
 #define VT_PAX_SERVICE_ERROR            163
 #define VT_PAX_PMU_RESERVE_FAILED       164
-#define VT_INVALID_CPU_INFO_TYPE        165 // used by pise library
-#define VT_CACHE_DOESNT_EXIST           166 // used by pise library
+#define VT_INVALID_CPU_INFO_TYPE        165
+#define VT_CACHE_DOESNT_EXIST           166
 #define VT_UNSUPPORTED_UNCORE_ARCH_TYPE 167
 #define VT_EXCEEDED_MAX_EVENTS          168
 #define VT_MARKER_TIMER_FAILED          169
@@ -308,7 +300,19 @@
 #define VT_EVENTS_COLLECTED             179
 #define VT_UNSUPPORTED_GFX_ARCH_TYPE    180
 #define VT_GFX_CONFIG_FAILED            181
-#define VT_ENV_SETUP_FAILED             182
+#define VT_UNSUPPORTED_NON_NATIVE_MODE  182
+#define VT_INVALID_DEVICE               183
+#define VT_ENV_SETUP_FAILED             184
+#define VT_RESUME_NOT_RECEIVED          185
+#define VT_UNSUPPORTED_PWR_ARCH_TYPE    186
+#define VT_PWR_CONFIG_FAILED            187
+#define VT_NMI_WATCHDOG_FOUND           188
+#define VT_NO_PMU_RESOURCES             189
+
+/*
+ * define error code for checking on async marker request
+ */
+#define VT_INVALID_MARKER_ID           -1
 
 /*
  * ************************************************************
@@ -325,7 +329,7 @@
 // To make error checking easier, the special VT_LAST_ERROR_CODE
 // should be set to whatever is the last error on the list above
 //
-#define VT_LAST_ERROR_CODE         VT_ENV_SETUP_FAILED
+#define VT_LAST_ERROR_CODE         VT_NO_PMU_RESOURCES
 
 //
 // Define a macro to determine success or failure. Users of this
@@ -361,4 +365,5 @@
 typedef int RISE_ERROR;
 typedef void *RISE_PTR;
 
-#endif  /* _RISE_ERRORS_H_ */
+#endif
+

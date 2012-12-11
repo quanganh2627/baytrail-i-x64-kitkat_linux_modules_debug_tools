@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,9 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _PEBS_H_
 #define _PEBS_H_
@@ -218,4 +215,4 @@ struct PEBS_DISPATCH_NODE_S {
     VOID (*modify_ip)(void*, DRV_BOOL);
 };
 
-#endif  /* _PEBS_H_ */
+#endif  

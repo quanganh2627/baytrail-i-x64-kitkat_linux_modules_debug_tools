@@ -1,5 +1,5 @@
 /*
-    Copyright 2009-2011 Intel Corporation.
+    Copyright 2009-2012 Intel Corporation.
  
     This file is part of SEP Development Kit
  
@@ -26,21 +26,18 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _GFX_H_
 #define _GFX_H_
 
 #include "lwpmudrv_ioctl.h"
 
-extern U32
+extern OS_STATUS
 GFX_Read (
     S8 *buffer
 );
 
-extern U32
+extern OS_STATUS
 GFX_Set_Event_Code (
     IOCTL_ARGS arg
 );
@@ -55,4 +52,4 @@ GFX_Stop (
     void
 );
 
-#endif  // _GFX_H_
+#endif  

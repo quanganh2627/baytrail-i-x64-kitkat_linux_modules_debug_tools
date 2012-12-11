@@ -1,5 +1,5 @@
 #!/bin/sh
-
+#
 # =============================================================================
 # Filename: setup_sep_runtime_env.sh
 # Version: 1.02
@@ -15,28 +15,16 @@
 
 CURR_DIR=`pwd`
 
-cd ..
+echo 0 > /proc/sys/kernel/nmi_watchdog
+echo 0 > /proc/sys/kernel/kptr_restrict
 
 export SEP_INSTALL_PATH=`pwd`
 echo SEP is currently installed under $SEP_INSTALL_PATH
 export SEP_BASE_DIR="${CURR_DIR}"
 echo "SEP_BASE_DIR=${SEP_BASE_DIR}" 
 
-cd $CURR_DIR
-
-if [ -z "${PATH}" ]
-then
-    export PATH="${SEP_INSTALL_PATH}:${SEP_INSTALL_PATH}/sepdk"
-else
-    export PATH="${SEP_INSTALL_PATH}:${PATH}:${SEP_INSTALL_PATH}/sepdk"
-fi
-
-if [ -z "${LD_LIBRARY_PATH}" ]
-then
-    export LD_LIBRARY_PATH="${SEP_INSTALL_PATH}:${SEP_INSTALL_PATH}/sepdk"
-else
-    export LD_LIBRARY_PATH="${SEP_INSTALL_PATH}:${LD_LIBRARY_PATH}:${SEP_INSTALL_PATH}/sepdk"
-fi
+export PATH="${SEP_INSTALL_PATH}:${PATH}"
+export LD_LIBRARY_PATH="${SEP_INSTALL_PATH}:${LD_LIBRARY_PATH}"
 
 # show settings of various environment variables
 echo "PATH=${PATH}"

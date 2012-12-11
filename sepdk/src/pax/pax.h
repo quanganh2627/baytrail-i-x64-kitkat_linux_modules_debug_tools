@@ -1,5 +1,5 @@
 /*
-    Copyright 2009-2011 Intel Corporation.  All Rights Reserved.
+    Copyright 2009-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,9 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _PAX_H_
 #define _PAX_H_
@@ -43,4 +40,4 @@ pax_Unload (
     VOID
 );
 
-#endif /* _PAX_H_ */
+#endif 

@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 */
-
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _LINUXOS_H_
 #define _LINUXOS_H_
@@ -65,9 +61,9 @@ LINUXOS_Uninstall_Hooks (
     VOID
 );
 
-extern S32
+extern OS_STATUS
 LINUXOS_Enum_Process_Modules (
     DRV_BOOL at_end
 );
 
-#endif  /* _LINUXOS_H_ */
+#endif 

@@ -7,7 +7,7 @@
 #
 # Version: 1.4
 #
-#     Copyright (C) 2009-2011 Intel Corporation.  All Rights Reserved.
+#     Copyright (C) 2009-2012 Intel Corporation.  All Rights Reserved.
 # 
 #     This file is part of SEP Development Kit
 # 
@@ -37,6 +37,7 @@
 # ------------------------------ CONSTANTS -----------------------------------
 
 DRIVER_NAME=pax
+PAX_DRIVER=/dev/pax
 
 # ------------------------------- OUTPUT -------------------------------------
 
@@ -62,88 +63,26 @@ print_err()
   fi
 }
 
-# set the path to include "standard" locations so commands below can be found
-PATH="/sbin:/usr/sbin:/bin:/usr/bin/:/usr/local/sbin:/usr/local/bin:/usr/local/gnu/bin:"${PATH}":."
-export PATH
-
 # ------------------------------ COMMANDS ------------------------------------
 
-CUT="cut"
-GREP="grep"
-INSMOD="insmod"
 LSMOD="lsmod"
-RM="rm"
 RMMOD="rmmod"
-SED="sed"
-SU="su"
-TR="tr"
-UNAME="uname"
 WHICH="which"
 
-COMMANDS_TO_CHECK="${CUT} ${GREP} ${INSMOD} ${LSMOD} ${RM} ${RMMOD} ${SED} ${TR} ${UNAME}"
-
-#
-# Note: Busybox has a restricted shell environment, and 
-#       conventional system utilities may not be present;
-#       so need to account for this ...
-#
-
-# busybox binary check
-BUSYBOX_SHELL=` ${GREP} --help 2>&1 | ${GREP} BusyBox`
-
-if [ -z "${BUSYBOX_SHELL}" ] ; then
-  COMMANDS_TO_CHECK="${SU} ${COMMANDS_TO_CHECK}"
-fi
-
-# if any of the COMMANDS_TO_CHECK are not executable, then exit script
-OK="true"
-for c in ${COMMANDS_TO_CHECK} ; do
-  CMD=`${WHICH} $c 2>&1` ;
-  if [ -z "${CMD}" ] ; then
-    OK="false"
-    print_err "ERROR: unable to find command \"$c\" !"
-  fi
-done
-if [ ${OK} != "true" ] ; then
-  print_err "Please add the above commands to your PATH and re-run the script ... exiting."
-  exit 255
-fi
-
 # ------------------------------ VARIABLES -----------------------------------
-
-SCRIPT=$0
-PLATFORM=`${UNAME} -m`
-KERNEL_VERSION=`${UNAME} -r`
-SEP_FORCE=
-if [ -n "${BUSYBOX_SHELL}" ] ; then
-   SEP_SHELL=sh
-   SEP_FORCE=
-fi
 
 # --------------------------------- MAIN -------------------------------------
 
 # check if a driver is currently loaded ...
-DRIVER_LOADED=`${LSMOD} | ${GREP} ${DRIVER_NAME} | ${CUT} -d ' ' -f 1`
-if [ -z "${DRIVER_LOADED}" ] ; then
-  print_msg "Warning:  no ${DRIVER_NAME} driver was found loaded in the kernel."
+ls ${PAX_DRIVER} 
+DRIVER_LOADED_SUCC=$?
+if [ "${DRIVER_LOADED_SUCC}" != "0" ] ; then
+  print_msg "Warning: no ${DRIVER_NAME} driver was found loaded in the kernel."
   exit 0
 fi
 
-# check if USER is root
-if [ -z "${BUSYBOX_SHELL}" ] ; then
-    if [ "${USER}x" != "rootx" ] ; then
-      if [ ! -w /dev ] ; then
-        print_msg "NOTE:  super-user or \"root\" privileges are required in order to continue."
-        print_nnl "Please enter \"root\" "
-        exec ${SU} -c "/bin/sh ${SCRIPT} $*"
-        print_msg ""
-        exit 0
-      fi
-    fi
-fi
-
 # remove any currently loaded driver (should be only one)
-if [ -n "${DRIVER_LOADED}" ] ; then
+if [ "${DRIVER_LOADED_SUCC}" == "0" ] ; then
   print_nnl "Removing ${DRIVER_NAME} driver from the kernel ... "
   sleep 2
   ${RMMOD} ${DRIVER_NAME}
@@ -155,18 +94,6 @@ if [ -n "${DRIVER_LOADED}" ] ; then
     exit 246
   fi
   print_msg "done."
-fi
-
-# check if driver is still active
-DRIVER_EXISTS=`${GREP} ${DRIVER_NAME} /proc/devices | ${TR} -s ' ' | ${CUT} -d ' ' -f 1`
-if [ -z "${DRIVER_EXISTS}" ] ; then
-  # remove driver devices that were previously created by the insmod script
-  if [ -e /dev/${DRIVER_NAME} ] ; then
-    print_nnl "Deleting previously created /dev/${DRIVER_NAME} device ... "
-    sleep 1
-    ${RM} ${SEP_FORCE} /dev/${DRIVER_NAME}
-    print_msg "done."
-  fi
 fi
 
 # show which driver was loaded

@@ -1,6 +1,6 @@
 /*COPYRIGHT**
 
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -28,9 +28,6 @@
 
 **COPYRIGHT*/
 
-/*
- *  CVS_Id="$Id$"
- */
 
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
@@ -50,16 +47,16 @@ U32 drv_x2apic_enabled = 0;
 // enable local APIC for SP systems
 // initialize PMI entry in LVT for MP systems
 
-/*
- * APIC_Disable_PMI
- *     Parameters
- *         None
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_DIsable_PMU(VOID)
+ * 
+ * @brief       mask the performance interrupt vector in the LVT
  *
- *     Description
- *         mask performance interrupt vector in LVT
+ * @param       None
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
  */
 extern VOID 
 APIC_Disable_PMI(VOID)
@@ -75,16 +72,17 @@ APIC_Disable_PMI(VOID)
     }
 }
 
-/*
- * APIC_deinit_phase1
- *     Parameters
- *         IN cpu_idx  -  the cpu to perform this action on
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Deinit_Phase1(cpu_idx)
+ * 
+ * @brief       Part1 of removing the interrupt vector entry
  *
- *     Description
- *         unmap all apic logical address ranges
+ * @param       int cpu_idx - The cpu to deinit
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *              <NONE>
  */
 extern VOID 
 APIC_Deinit_Phase1(int  cpu_idx)
@@ -97,16 +95,17 @@ APIC_Deinit_Phase1(int  cpu_idx)
     }
 }
 
-/*
- * APIC_init
- *     Parameters
- *         IN cpu_idx
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Init(param)
+ * 
+ * @brief       initialize the local APIC
  *
- *     Description
- *         initialize the local APIC
+ * @param       int cpu_idx - The cpu to deinit
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *              This routine is expected to be called via the CONTROL_Parallel routine
  */
 extern VOID 
 APIC_Init (PVOID param)
@@ -204,16 +203,18 @@ APIC_Init (PVOID param)
     }
 }
 
-/*
- * APIC_Install_Interrupt_Handler
- *     Parameters
- *         IN cpu_idx
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Install_Interrupt_Handler(param)
+ * 
+ * @brief       Install the interrupt handler
  *
- *     Description
- *         initialize PMI entry in LVT
+ * @param       int param - The linear address of the Local APIC 
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *             The linear address is necessary if the LAPIC is used.  If X2APIC is
+ *             used the linear address is not necessary.
  */
 extern VOID 
 APIC_Install_Interrupt_Handler (PVOID param)
@@ -240,16 +241,17 @@ cleanup:
     SYS_Local_Irq_Restore(eflags);
 }
 
-/*
- * APIC_Unmap
- *     Parameters
- *         IN apic_linear_addr  -  the linear address to unmap
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Unmap(apic_linear_address)
+ * 
+ * @brief       Unmap the APIC region
  *
- *     Description
- *         unmap all apic logical address ranges
+ * @param       PVOID apic_linear_address - The linear address of the Local APIC 
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *             Unmap all apic logical address ranges
  */
 extern VOID
 APIC_Unmap (PVOID apic_linear_addr)
@@ -265,40 +267,17 @@ APIC_Unmap (PVOID apic_linear_addr)
     return;
 }
 
-/*
- * APIC_read_priority
- *     Parameters
- *         None
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Ack_Eoi(void)
+ * 
+ * @brief       Acknowledge the End-Of-Interrupt
  *
- *     Description
- *         read the contents of Processor Priority Register
+ * @param       None
+ * 
+ * @return      None
  *
- */
-extern int 
-APIC_Read_Priority(VOID)
-{
-    if (drv_x2apic_enabled) {
-        int value = (U32)SYS_Read_MSR(DRV_APIC_LCL_PPR_MSR);
-        return value;
-    }
-    else {
-        char *apic  = (char*)CPU_STATE_apic_linear_addr(&pcb[CONTROL_THIS_CPU()]); 
-        return *(int*)&apic[DRV_APIC_LCL_PPR];
-    }
-}
-
-/*
- * APIC_ack_eoi
- *     Parameters
- *         None
- *     Returns
- *         None
- *
- *     Description
- *         Acknowledge the end of interrupt
- *
+ * <I>Special Notes:</I>
+ *             <NONE>
  */
 extern VOID 
 APIC_Ack_Eoi(VOID)
@@ -314,16 +293,17 @@ APIC_Ack_Eoi(VOID)
     }
 }
 
-/*
- * APIC_Enable_Pmi
- *     Parameters
- *         None
- *     Returns
- *         None
+/*!
+ * @fn          extern VOID APIC_Enable_PMI(void)
+ * 
+ * @brief       Enable the PMU interrupt
  *
- *     Description
- *         Acknowledge the PMU interrupt
+ * @param       None
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *             <NONE>
  */
 extern VOID 
 APIC_Enable_Pmi(VOID)

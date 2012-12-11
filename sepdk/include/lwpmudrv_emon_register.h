@@ -5,14 +5,9 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2009-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2009-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
-
-/*
- *  File  : lwpmudrv_emon.h
- *  cvs_id[] = "$Id: lwpmudrv_emon.h 57206 2009-05-06 18:50:32Z shobhar $"
- */
 
 #ifndef _LWPMUDRV_EMON_H_
 #define _LWPMUDRV_EMON_H_
@@ -34,4 +29,5 @@ struct EMON_REGISTER_INFO_S
 #define EMON_REGISTER_INFO_reg(er)      (er)->reg
 #define EMON_REGISTER_INFO_value(er)    (er)->value
 
-#endif // _LWPMUDRV_EMON_H_
+#endif
+

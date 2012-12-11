@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright 2009-2011 Intel Corporation.  All Rights Reserved.
+    Copyright 2009-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -25,9 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-/*
- * cvs_id = "$Id$"
- */
 
 #include <asm/uaccess.h>
 #include <linux/fs.h>
@@ -49,7 +46,7 @@
 #include "control.h"
 #include "pax_shared.h"
 
-MODULE_AUTHOR("Copyright(c) 2009-2011 Intel Corporation");
+MODULE_AUTHOR("Copyright(c) 2009-2012 Intel Corporation");
 MODULE_VERSION(PAX_NAME"_"PAX_VERSION_STR);
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -105,15 +102,17 @@ static struct class     *pax_class   = NULL;
 #define PAX_TASKLIST_READ_UNLOCK()  rcu_read_unlock()
 #endif
 
-/*
- * pax_Init
- *     Parameters
- *         none
- *     Returns
- *         none
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     void pax_Init()
  *
- *     Description
- *         Initialize PAX system
+ * @param  none
+ *
+ * @return none
+ *
+ * @brief  Initialize PAX system
+ *
+ * <I>Special Notes</I>
  */
 static void
 pax_Init (
@@ -136,17 +135,21 @@ pax_Init (
     pax_status.pid         = 0;
     pax_status.start_time  = 0;
     pax_status.is_reserved = PAX_PMU_UNRESERVED;
+
+    return;
 }
 
-/*
- * pax_Cleanup
- *     Parameters
- *         none
- *     Returns
- *         none
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     void pax_Cleanup()
  *
- *     Description
- *         UnInitialize PAX system
+ * @param  none
+ *
+ * @return none
+ *
+ * @brief  UnInitialize PAX system
+ *
+ * <I>Special Notes</I>
  */
 static void
 pax_Cleanup (
@@ -165,17 +168,19 @@ pax_Cleanup (
     return;
 }
 
-/*
- * pax_Process_Valid
- *     Parameters
- *         U32 pid
- *     Returns
- *         TRUE if process is valid or FALSE otherwise
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     U32 pax_Process_Valid()
  *
- *     Description
- *         Check whether process with pid still exists, and if so, 
+ * @param  U32 pid - process ID
+ *
+ * @return TRUE or FALSE
+ *
+ * @brief  Check whether process with pid still exists, and if so, 
  *         whether it is still "alive".  If so, then process is
  *         deemed valid.  Otherwise, process is deemed invalid.
+ *
+ * <I>Special Notes</I>
  */
 static U32
 pax_Process_Valid (
@@ -217,11 +222,19 @@ pax_Process_Valid (
 //
 // **************************************************************************
 
-/*******************************************************************************
- *  Generic Driver functions - Open
- *      This function is called when doing an open(/dev/pax)
- *******************************************************************************/
-
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     int pax_Open()
+ *
+ * @param  struct inode *inode
+ * @param  struct file  *filp
+ *
+ * @return int (TODO: check for open failure)
+ *
+ * @brief  This function is called when doing an open(/dev/pax)
+ *
+ * <I>Special Notes</I>
+ */
 static int
 pax_Open (
     struct inode *inode,
@@ -241,17 +254,18 @@ pax_Open (
 //
 // **************************************************************************
 
-/*
- * pax_Get_Info
- *     Parameters
- *         IN: arg       - pointer to the output buffer
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     OS_STATUS pax_Get_Info()
  *
- *     Description
- *         Local function that handles the PAX_IOCTL_INFO call
+ * @param  IOCTL_ARGS arg  - pointer to the output buffer
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Local function that handles the PAX_IOCTL_INFO call
  *         Returns static information related to PAX (e.g., version)
  *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 pax_Get_Info (
@@ -276,17 +290,18 @@ pax_Get_Info (
     return OS_SUCCESS;
 }
 
-/*
- * pax_Get_Status
- *     Parameters
- *         IN: arg       - pointer to the output buffer
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     OS_STATUS pax_Get_Status()
  *
- *     Description
- *         Local function that handles the PAX_IOCTL_STATUS call
- *         Returns the status of reservation (e.g., who owns)
+ * @param  IOCTL_ARGS arg  - pointer to the output buffer
  *
+ * @return OS_STATUS
+ *
+ * @brief  Local function that handles the PAX_IOCTL_STATUS call
+ *         Returns status of the reservation (e.g., who owns)
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 pax_Get_Status (
@@ -310,17 +325,18 @@ pax_Get_Status (
     return OS_SUCCESS;
 }
 
-/*
- * pax_Unreserve
- *     Parameters
- *         none
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     OS_STATUS pax_Unreserve()
  *
- *     Description
- *         Local function that handles the PAX_IOCTL_UNRESERVE call
- *         Returns success if PMU unreservation succeeded, otherwise failure
+ * @param  none
  *
+ * @return OS_STATUS
+ *
+ * @brief  Local function that handles the PAX_IOCTL_UNRESERVE call
+ *         Returns OS_SUCCESS if PMU unreservation succeeded, otherwise failure
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 pax_Unreserve (
@@ -353,17 +369,18 @@ pax_Unreserve (
     return ((pax_status.is_reserved == PAX_PMU_UNRESERVED) ? OS_SUCCESS : OS_FAULT);
 }
 
-/*
- * pax_Reserve_All
- *     Parameters
- *         none
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     OS_STATUS pax_Reserve_All()
  *
- *     Description
- *         Local function that handles the PAX_IOCTL_RESERVE_ALL call
- *         Returns success if PMU reservation succeeded, otherwise failure
+ * @param  none
  *
+ * @return OS_STATUS
+ *
+ * @brief  Local function that handles the PAX_IOCTL_RESERVE_ALL call
+ *         Returns OS_SUCCESS if PMU reservation succeeded, otherwise failure
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 pax_Reserve_All (
@@ -423,19 +440,20 @@ pax_Reserve_All (
     return OS_FAULT;
 }
 
-/*
- * pax_Device_Control
- *     Parameters
- *         IN: inode - pointer to the device object
- *         IN: filp  - pointer to the file object
- *         IN: cmd   - ioctl value (defined in lwpmu_ioctl.h)
- *         IN: arg   - arg or arg pointer
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     OS_STATUS pax_Reserve_All()
  *
- *     Description
- *         Worker function that handles IOCTL requests from the user mode
+ * @param  inode - pointer to the device object
+ * @param  filp  - pointer to the file object
+ * @param  cmd   - ioctl value (defined in lwpmu_ioctl.h)
+ * @param  arg   - arg or arg pointer
  *
+ * @return OS_STATUS
+ *
+ * @brief  Worker function that handles IOCTL requests from the user mode
+ *
+ * <I>Special Notes</I>
  */
 extern IOCTL_OP_TYPE
 pax_Device_Control (
@@ -487,6 +505,7 @@ pax_Device_Control (
             status = OS_ILLEGAL_IOCTL;
             break;
     }
+
 cleanup:
 
     PAX_PRINT_DEBUG("cmd: %d device type: %d, subcommand: %d, returned %d\n",
@@ -515,49 +534,51 @@ static struct file_operations pax_Fops = {
     .llseek =  NULL,
 };
 
-/*
- * pax_Setup_Cdev
- *     Parameters
- *         dev    - pointer to the device object
- *        fops    - point to file operations struct
- *     dev_number - major/minor device number
- *     Returns
- *         OS_STATUS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     int pax_Setup_Cdev()
  *
- *     Description
- *         Set up the device object.
+ * @param  dev    - pointer to the device object
+ * @param  devnum - major/minor device number
+ * @param  fops   - point to file operations struct
  *
+ * @return int
+ *
+ * @brief  Set up functions to be handled by PAX device
+ *
+ * <I>Special Notes</I>
  */
 static int
 pax_Setup_Cdev (
     PAX_DEV                 dev,
     struct file_operations *fops,
-    dev_t                   dev_number
+    dev_t                   devnum
 )
 {
     cdev_init(&PAX_DEV_cdev(dev), fops);
     PAX_DEV_cdev(dev).owner = THIS_MODULE;
     PAX_DEV_cdev(dev).ops   = fops;
 
-    return cdev_add(&PAX_DEV_cdev(dev), dev_number, 1);
+    return cdev_add(&PAX_DEV_cdev(dev), devnum, 1);
 }
 
 // **************************************************************************
 //
-// PAX exported functions (see pax.h) ; will appear under /proc/kallsyms
+// Exported PAX functions (see pax.h) ; will appear under /proc/kallsyms
 //
 // **************************************************************************
 
-/*
- * pax_Load
- *     Parameters
- *         none
- *     Returns
- *         Status
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     int pax_Load()
  *
- *     Description
- *         Load the PAX subsystem
+ * @param  none
  *
+ * @return int
+ *
+ * @brief  Load the PAX subsystem
+ *
+ * <I>Special Notes</I>
  */
 extern int
 pax_Load (
@@ -617,16 +638,17 @@ pax_Load (
 
 EXPORT_SYMBOL(pax_Load);
 
-/*
- * pax_Unload
- *     Parameters
- *         none
- *     Returns
- *         none
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn     int pax_Unload()
  *
- *     Description
- *         Unload the PAX subsystem
+ * @param  none
  *
+ * @return none
+ *
+ * @brief  Unload the PAX subsystem
+ *
+ * <I>Special Notes</I>
  */
 extern VOID
 pax_Unload (

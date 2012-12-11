@@ -5,7 +5,7 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2009-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2009-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
@@ -18,7 +18,6 @@
  *
 */
 
-// char cvs_id[] = "$Id: pax_shared.h 62714 2010-02-24 18:07:22Z jevillac $;
 
 #ifndef _PAX_SHARED_H_
 #define _PAX_SHARED_H_
@@ -82,13 +81,23 @@
 #define PAX_IOCTL_RESERVE_ALL    PAX_CTL_READ_CODE(3)
 #define PAX_IOCTL_UNRESERVE      PAX_CTL_READ_CODE(4)
 
-#elif defined(DRV_OS_LINUX) || defined(DRV_OS_ANDROID)
+#elif defined(DRV_OS_LINUX) || defined (DRV_OS_ANDROID)
 
 #define PAX_DEVICE_NAME          "/dev/" PAX_NAME
 
 #define PAX_IOC_MAGIC            100
 #define PAX_IOCTL_INFO           _IOW(PAX_IOC_MAGIC, 1, IOCTL_ARGS)
 #define PAX_IOCTL_STATUS         _IOW(PAX_IOC_MAGIC, 2, IOCTL_ARGS)
+#define PAX_IOCTL_RESERVE_ALL    _IO (PAX_IOC_MAGIC, 3)
+#define PAX_IOCTL_UNRESERVE      _IO (PAX_IOC_MAGIC, 4)
+
+#elif defined(DRV_OS_FREEBSD)
+
+#define PAX_DEVICE_NAME          "/dev/" PAX_NAME
+
+#define PAX_IOC_MAGIC            100
+#define PAX_IOCTL_INFO           _IOW(PAX_IOC_MAGIC, 1, IOCTL_ARGS_NODE)
+#define PAX_IOCTL_STATUS         _IOW(PAX_IOC_MAGIC, 2, IOCTL_ARGS_NODE)
 #define PAX_IOCTL_RESERVE_ALL    _IO (PAX_IOC_MAGIC, 3)
 #define PAX_IOCTL_UNRESERVE      _IO (PAX_IOC_MAGIC, 4)
 
@@ -158,4 +167,5 @@ typedef        PAX_VERSION_NODE   *PAX_VERSION;
 #define PAX_VERSION_NODE_minor(v)   (v)->u1.s1.minor
 #define PAX_VERSION_NODE_bugfix(v)  (v)->u1.s1.bugfix
 
-#endif // _PAX_SHARED_H_
+#endif
+

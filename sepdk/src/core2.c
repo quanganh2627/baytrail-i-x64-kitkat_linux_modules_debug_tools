@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -26,10 +26,6 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  cvs_id[] = "$Id$"
- */
-
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/wait.h>
@@ -49,27 +45,151 @@
 #include "pebs.h"
 #include "apic.h"
 
+#if !defined(DRV_ATOM_ONLY)
+#include "jktunc_ha.h"
+#include "jktunc_ubox.h"
+#include "jktunc_qpill.h"
+#include "pci.h"
+#endif
+
 extern EVENT_CONFIG   global_ec;
 extern U64           *read_counter_info;
 extern LBR            lbr;
 extern DRV_CONFIG     pcfg;
 extern PWR            pwr;
 
-/*
- * core2_Write_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Disable_Direct2core(ECB)
  *
- *     Parameters
- *         UNUSED
+ * @param    pecb     ECB of group being scheduled
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    program the QPILL and HA register for disabling of direct2core
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+core2_Disable_Direct2core (
+    ECB pecb
+)
+{
+#if !defined(DRV_ATOM_ONLY)
+    U32            busno       = 0;
+    U32            dev_idx     = 0;
+    U32            pci_address = 0;
+    U32            device_id   = 0;
+    U32            value       = 0;
+    U32            vendor_id   = 0;
+    U32 core2_qpill_dev_no[2]  = {8,9};
+
+    if (ECB_flags(pecb) && ECB_direct2core_bit) {
+
+        // Discover the bus # for HA
+        for (busno = 0; busno < 256; busno++) {
+            pci_address = FORM_PCI_ADDR(busno,
+                                        JKTUNC_HA_DEVICE_NO,
+                                        JKTUNC_HA_D2C_FUNC_NO,
+                                        0);
+            value = PCI_Read_Ulong(pci_address);
+            vendor_id = value & VENDOR_ID_MASK;
+            device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
+            
+            if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+                continue;
+            }
+            if (device_id != JKTUNC_HA_D2C_DID) {
+                continue;
+            }
+
+            // now program at the offset
+            pci_address = FORM_PCI_ADDR(busno,
+                                        JKTUNC_HA_DEVICE_NO,
+                                        JKTUNC_HA_D2C_FUNC_NO,
+                                        JKTUNC_HA_D2C_OFFSET);
+            value   = PCI_Read_Ulong(pci_address);
+            value  |= value | JKTUNC_HA_D2C_BITMASK;
+            PCI_Write_Ulong(pci_address, value);
+        }
+
+        // Discover the bus # for QPI
+        for (dev_idx = 0; dev_idx < 2; dev_idx++) {
+            for (busno = 0; busno < 256; busno++) {
+                pci_address = FORM_PCI_ADDR(busno,
+                                            core2_qpill_dev_no[dev_idx],
+                                            JKTUNC_QPILL_D2C_FUNC_NO,
+                                            0);
+                value = PCI_Read_Ulong(pci_address);
+                vendor_id = value & VENDOR_ID_MASK;
+                device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
+                
+                if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+                    continue;
+                }
+                if ((device_id != JKTUNC_QPILL0_D2C_DID) &&
+                    (device_id != JKTUNC_QPILL1_D2C_DID)) {
+                    continue;
+                }
+                // now program at the corresponding offset
+                pci_address = FORM_PCI_ADDR(busno,
+                                            core2_qpill_dev_no[dev_idx],
+                                            JKTUNC_QPILL_D2C_FUNC_NO,
+                                            JKTUNC_QPILL_D2C_OFFSET);
+                value   = PCI_Read_Ulong(pci_address);
+                value  |= value | JKTUNC_QPILL_D2C_BITMASK;
+                PCI_Write_Ulong(pci_address, value);
+            }
+        }
+    }
+#endif
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Disable_BL_Bypass(ECB)
+ *
+ * @param    pecb     ECB of group being scheduled
+ *
+ * @return   None     No return needed
+ *
+ * @brief    Disable the BL Bypass
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+core2_Disable_BL_Bypass (
+    ECB pecb
+)
+{
+#if !defined(DRV_ATOM_ONLY)
+    U64            value;
+
+    if (ECB_flags(pecb) && ECB_bl_bypass_bit) {
+        value = SYS_Read_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR);
+        value |= CORE2UNC_BLBYPASS_BITMASK;
+        SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, value);
+    }
+
+#endif
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Write_PMU(param)
+ *
+ * @param    param    dummy parameter which is not used
+ *
+ * @return   None     No return needed
+ *
+ * @brief    Initial set up of the PMU registers
+ *
+ * <I>Special Notes</I>
  *         Initial write of PMU registers.
  *         Walk through the enties and write the value of the register accordingly.
+ *         Assumption:  For CCCR registers the enable bit is set to value 0.
  *         When current_group = 0, then this is the first time this routine is called,
  *         initialize the locks and set up EM tables.
- *
  */
 static VOID
 core2_Write_PMU (
@@ -79,6 +199,12 @@ core2_Write_PMU (
     U32            this_cpu = CONTROL_THIS_CPU();
     CPU_STATE      pcpu     = &pcb[this_cpu];
 
+#if !defined(DRV_ATOM_ONLY)
+    // JKT workarounds 
+    core2_Disable_Direct2core(PMU_register_data[CPU_STATE_current_group(pcpu)]);
+    core2_Disable_BL_Bypass(PMU_register_data[CPU_STATE_current_group(pcpu)]);
+#endif
+    
     if (CPU_STATE_current_group(pcpu) == 0) {
         if (EVENT_CONFIG_mode(global_ec) != EM_DISABLED) {
             U32            index;
@@ -137,18 +263,15 @@ core2_Write_PMU (
     return;
 }
 
-/*
- * core2_Disable_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Disable_PMU(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Zero out the global control register.  This automatically disables
- *         the PMU counters.
+ * @brief    Zero out the global control register.  This automatically disables the PMU counters.
  *
  */
 static VOID
@@ -156,32 +279,31 @@ core2_Disable_PMU (
     PVOID  param
 )
 {
-    SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, 0LL);
-    SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
-    FOR_EACH_CCCR_REG(pecb,i) {
-       if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
-           SYS_Write_MSR(COMPOUND_CTR_CTL,0LL);
-       }
-    } END_FOR_EACH_CCCR_REG;
-
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_RUNNING) {
+        SEP_PRINT_DEBUG("driver state = %d\n", GLOBAL_STATE_current_phase(driver_state));
+        SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, 0LL);
+        SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+        FOR_EACH_CCCR_REG(pecb,i) {
+            if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
+                SYS_Write_MSR(COMPOUND_CTR_CTL,0LL);
+            }
+        } END_FOR_EACH_CCCR_REG;
+
         APIC_Disable_PMI();
     }
 
     return;
 }
 
-/*
- * core2_Enable_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Enable_PMU(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Set the enable bit for all the CCCR registers.
+ * @brief    Set the enable bit for all the Control registers
  *
  */
 static VOID
@@ -200,63 +322,109 @@ core2_Enable_PMU (
 
     if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_RUNNING) {
         APIC_Enable_Pmi();
-        SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
-        SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
-        SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
-        FOR_EACH_CCCR_REG(pecb,i) {
-           if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
-                 SYS_Write_MSR(COMPOUND_CTR_CTL, ECB_entries_reg_value(pecb,i));
-           }
-        } END_FOR_EACH_CCCR_REG;
-#if defined(MYDEBUG)
-        {
-            U64 val;
-            val = SYS_Read_MSR(IA32_PERF_GLOBAL_CTRL);
-            SEP_PRINT_DEBUG("Write reg 0x%x--- read 0x%llx\n",
-                            ECB_entries_reg_id(pecb,0), SYS_Read_MSR(IA32_PERF_GLOBAL_CTRL));
+        if (CPU_STATE_reset_mask(pcpu)) {
+            SEP_PRINT_DEBUG("Overflow reset mask %llx\n", CPU_STATE_reset_mask(pcpu));
+            // Reinitialize the global overflow control register
+            SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
+            SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
+            CPU_STATE_reset_mask(pcpu) = 0LL;
         }
+        if (CPU_STATE_group_swap(pcpu)) {
+            CPU_STATE_group_swap(pcpu) = 0;
+            SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
+            SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
+            SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
+            FOR_EACH_CCCR_REG(pecb,i) {
+                if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
+                    SYS_Write_MSR(COMPOUND_CTR_CTL, ECB_entries_reg_value(pecb,i));
+                }
+            } END_FOR_EACH_CCCR_REG;
+#if defined(MYDEBUG)
+            {
+                U64 val;
+                val = SYS_Read_MSR(IA32_PERF_GLOBAL_CTRL);
+                SEP_PRINT_DEBUG("Write reg 0x%x--- read 0x%llx\n",
+                        ECB_entries_reg_id(pecb,0), SYS_Read_MSR(IA32_PERF_GLOBAL_CTRL));
+            }
 #endif
+        }
     }
     SEP_PRINT_DEBUG("Reenabled PMU with value 0x%llx\n", ECB_entries_reg_value(pecb,0));
 
     return;
 }
 
-/*
- * core2_ReInit_Data
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void corei7_Enable_PMU_2(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *
- *         Called by the interrupt handler to reinitialize the counters before
- *         re-enabling the collection.
+ * @brief    Set the enable bit for all the Control registers
  *
  */
 static VOID
-core2_ReInit_Data (
-    PVOID param
+corei7_Enable_PMU_2 (
+    PVOID   param
 )
 {
+    /*
+     * Get the value from the event block
+     *   0 == location of the global control reg for this block.
+     */
+    U32          this_cpu    = CONTROL_THIS_CPU();
+    CPU_STATE    pcpu        = &pcb[this_cpu];
+    ECB          pecb        = PMU_register_data[CPU_STATE_current_group(pcpu)];
+    U64          pebs_val    = 0;
+
+    if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_RUNNING) {
+        APIC_Enable_Pmi();
+        if (CPU_STATE_group_swap(pcpu)) {
+            CPU_STATE_group_swap(pcpu) = 0;
+            pebs_val = SYS_Read_MSR(IA32_PEBS_ENABLE);
+            if (ECB_entries_reg_value(pecb,2) != 0) {
+                SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
+            }
+            else if (pebs_val != 0) {
+                SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+            }
+            SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
+            FOR_EACH_CCCR_REG(pecb,i) {
+                if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
+                    SYS_Write_MSR(COMPOUND_CTR_CTL, ECB_entries_reg_value(pecb,i));
+                }
+            } END_FOR_EACH_CCCR_REG;
+            SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
+#if defined(MYDEBUG)
+            SEP_PRINT_DEBUG("Reenabled PMU with value 0x%llx\n", ECB_entries_reg_value(pecb,0));
+#endif
+        }
+        if (CPU_STATE_reset_mask(pcpu)) {
+#if defined(MYDEBUG)
+            SEP_PRINT_DEBUG("Overflow reset mask %llx\n", CPU_STATE_reset_mask(pcpu));
+#endif
+            // Reinitialize the global overflow control register
+            SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
+            SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
+            CPU_STATE_reset_mask(pcpu) = 0LL;
+        }
+    }
+    
     return;
 }
 
-/*
- * core2_Read_PMU_Data
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core2_Read_PMU_Data(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Read all the data MSR's into a buffer.
- *         Called by the interrupt handler.
+ * @brief    Read all the data MSR's into a buffer.  Called by the interrupt handler.
  *
  */
 static void
@@ -290,18 +458,19 @@ core2_Read_PMU_Data (
     return;
 }
 
-/*
- * core2_Check_Overflow_Errata
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core2_Check_Overflow_Errata(pecb, index, overflow_status)
  *
- *     Parameters
- *         pecb:            The current event control block
- *         index:           index of the register to process
- *         overflow_status: current overflow mask
+ * @param  pecb:            The current event control block
+ * @param  index:           index of the register to process
+ * @param  overflow_status: current overflow mask
  *
- *     Returns
- *         Updated Event mask of the overflowed registers.
+ * @return Updated Event mask of the overflowed registers.
  *
- *     Description
+ * @brief  Go through the overflow errata for the architecture and set the mask
+ *
+ * <I>Special Notes</I>
  *         fixed_counter1 on some architectures gets interfered by 
  *         other event counts.  Overcome this problem by reading the
  *         counter value and resetting the overflow mask.
@@ -314,6 +483,9 @@ core2_Check_Overflow_Errata (
     U64   overflow_status
 )
 {
+    if (DRV_CONFIG_num_events(pcfg) == 1) {
+        return overflow_status;
+    }
     if (ECB_entries_reg_id(pecb, index) == IA32_FIXED_CTR1 &&
         (overflow_status & 0x200000000LL) == 0LL) {
         U64 val = SYS_Read_MSR(IA32_FIXED_CTR1);
@@ -327,20 +499,15 @@ core2_Check_Overflow_Errata (
     return overflow_status;
 }
 
-/*
- * core2_Check_Overflow
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Check_Overflow(masks)
  *
- *     Parameters
- *         INOUT masks
+ * @param    masks    the mask structure to populate
  *
- *     Returns
- *         Event mask of the overflowed registers.
+ * @return   None     No return needed
  *
- *     Description
- *         Called by the data processing method to figure out
- *         which registers have overflowed.
- *         Does not include Nehalem and Bonnell specific code
- *         Uncore also does not exist.
+ * @brief  Called by the data processing method to figure out which registers have overflowed.
  *
  */
 static void
@@ -429,26 +596,29 @@ core2_Check_Overflow (
     } END_FOR_EACH_DATA_REG;
 
 
+    CPU_STATE_reset_mask(pcpu) = overflow_status_clr;
     // Reinitialize the global overflow control register
     SYS_Write_MSR(IA32_PERF_GLOBAL_OVF_CTRL, overflow_status_clr);
 
     SEP_PRINT_DEBUG("Check Overflow completed %d\n", this_cpu);
 }
 
-/*
- * core_Swap_Group
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core2_Swap_Group(restart)
  *
- *     Parameters
- *         IN restart
+ * @param    restart    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    Perform the mechanics of swapping the event groups for event mux operations
+ *
+ * <I>Special Notes</I>
  *         Swap function for event multiplexing.
  *         Freeze the counting.
  *         Swap the groups.
  *         Enable the counting.
+ *         Reset the event trigger count
  *
  */
 static VOID
@@ -522,19 +692,26 @@ core2_Swap_Group (
      */
     CPU_STATE_trigger_count(pcpu) = EVENT_CONFIG_em_factor(global_ec);
 
+    /*
+     * The enable routine needs to rewrite the control registers
+     */
+    CPU_STATE_reset_mask(pcpu) = 0LL;
+    CPU_STATE_group_swap(pcpu) = 1;
+
     return;
 }
 
-/*
- * core2_Initialize
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core2_Initialize(params)
  *
- *     Parameters
- *         UNUSED
+ * @param    params    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    Initialize the PMU setting up for collection
+ *
+ * <I>Special Notes</I>
  *         Saves the relevant PMU state (minimal set of MSRs required
  *         to avoid conflicts with other Linux tools, such as Oprofile).
  *         This function should be called in parallel across all CPUs
@@ -573,16 +750,17 @@ core2_Initialize (
     return;
 }
 
-/*
- * core2_Destroy
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core2_Destroy(params)
  *
- *     Parameters
- *         UNUSED
+ * @param    params    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    Reset the PMU setting up after collection
+ *
+ * <I>Special Notes</I>
  *         Restores the previously saved PMU state done in core2_Initialize.
  *         This function should be called in parallel across all CPUs
  *         after sampling collection ends/terminates.
@@ -627,7 +805,7 @@ core2_Destroy (
 }
 
 /*
- * @FN core2_Read_LBRs(buffer)
+ * @fn core2_Read_LBRs(buffer)
  *
  * @param   IN buffer - pointer to the buffer to write the data into
  * @return  None
@@ -718,20 +896,66 @@ corei7_Errata_Fix (
     return;
 }
 
-/*
- * core2_Check_Overflow_Htoff_Mode
+static VOID
+corei7_Errata_Fix_2 (
+    void
+)
+{
+    U64 mlc_event, rat_event, siu_event;
+    U64 clr = 0;
+
+    SEP_PRINT_DEBUG("Entered PMU Errata_Fix\n");
+    mlc_event = 0x4300B5LL;
+    rat_event = 0x4300D2LL;
+    siu_event = 0x4300B1LL;
+
+    SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL,clr);
+    SYS_Write_MSR(0x186,mlc_event);
+    SYS_Write_MSR(0xC1, clr);
+
+    SYS_Write_MSR(0x187, rat_event);
+    SYS_Write_MSR(0xC2, clr);
+
+    SYS_Write_MSR(0x188, siu_event);
+    SYS_Write_MSR(0xC3, clr);
+
+    // this additional write seems to fix per counter issue
+    // - some how an SIU event taken in the last counter in a group after
+    // a group that has been sampling a SIU event renders the last counter useless
+    // and it does not count
+    SYS_Write_MSR(0x189, siu_event);
+    SYS_Write_MSR(0xC4, clr);
+
+    clr = 0xFLL;
+    SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL,clr);
+
+    //hoping that by now it fixed the issue
+
+    clr = 0x0;
+    SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL,clr);
+    SYS_Write_MSR(0x186,clr);
+    SYS_Write_MSR(0xc1,clr);
+    SYS_Write_MSR(0x187,clr);
+    SYS_Write_MSR(0xc2,clr);
+    SYS_Write_MSR(0x188,clr);
+    SYS_Write_MSR(0xC3, clr);
+    SYS_Write_MSR(0x189,clr);
+    SYS_Write_MSR(0xC4, clr);
+    SEP_PRINT_DEBUG("Exited PMU Errata_Fix\n");
+
+    return;
+}
+
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Check_Overflow_Htoff_Mode(masks)
  *
- *     Parameters
- *         INOUT masks
+ * @param    masks    the mask structure to populate
  *
- *     Returns
- *         Event mask of the overflowed registers.
+ * @return   None     No return needed
  *
- *     Description
- *         Called by the data processing method to figure out
- *         which registers have overflowed.
- *         Does not include Nehalem and Bonnell specific code.
- *         Uncore also does not exist.
+ * @brief  Called by the data processing method to figure out which registers have overflowed.
  *
  */
 static void
@@ -824,23 +1048,22 @@ core2_Check_Overflow_Htoff_Mode (
         }
     } END_FOR_EACH_DATA_REG;
 
+    CPU_STATE_reset_mask(pcpu) = overflow_status_clr;
     // Reinitialize the global overflow control register
     SYS_Write_MSR(IA32_PERF_GLOBAL_OVF_CTRL, overflow_status_clr);
 
     SEP_PRINT_DEBUG("Check Overflow completed %d\n", this_cpu);
 }
 
-/*
- * core2_Read_Power
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core2_Read_Power(buffer)
  *
- *     Parameters
- *         IN buffer - pointer to the buffer to write the data into
+ * @param    buffer   - pointer to the buffer to write the data into
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Read all the PWR registers into the buffer provided and return.
+ * @brief  Read all the power MSRs into the buffer provided and return.
  *
  */
 static VOID
@@ -912,20 +1135,17 @@ core2_Read_Counts (
     return;
 }
 
-/*
- * corei7_Check_Overflow_Errata
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn corei7_Check_Overflow_Errata(pecb)
  *
- *     Parameters
- *         IN pecb:            The current event control block
- *         OUT overflow_status: current overflow mask
+ * @param pecb:            The current event control block
+ * @param overflow_status: current overflow mask
  *
- *     Returns
- *         Updated Event mask of the overflowed registers.
+ * @return   Updated Event mask of the overflowed registers.
  *
- *     Description
- *         There is a bug where highly correlated precise events do
- *         not raise an indication on overflows in Core i7 and SNB.
- *
+ * @brief    There is a bug where highly correlated precise events do
+ *           not raise an indication on overflows in Core i7 and SNB.
  */
 static U64
 corei7_Check_Overflow_Errata (
@@ -938,6 +1158,9 @@ corei7_Check_Overflow_Errata (
     U32 this_cpu = CONTROL_THIS_CPU();
 #endif
 
+    if (DRV_CONFIG_num_events(pcfg) == 1) {
+        return *overflow_status_clr;
+    }
     overflow_status = *overflow_status_clr;
     FOR_EACH_DATA_REG(pecb, i) {
         if (ECB_entries_reg_value(pecb, i) == 0) {
@@ -1025,7 +1248,6 @@ DISPATCH_NODE  core2_dispatch =
     core2_Write_PMU,        // write
     core2_Disable_PMU,      // freeze
     core2_Enable_PMU,       // restart
-    core2_ReInit_Data,      // reinit
     core2_Read_PMU_Data,    // read
     core2_Check_Overflow,   // check for overflow
     core2_Swap_Group,
@@ -1047,13 +1269,33 @@ DISPATCH_NODE  corei7_dispatch =
     core2_Write_PMU,        // write
     core2_Disable_PMU,      // freeze
     core2_Enable_PMU,       // restart
-    core2_ReInit_Data,      // reinit
     core2_Read_PMU_Data,    // read
     core2_Check_Overflow,   // check for overflow
     core2_Swap_Group,
     core2_Read_LBRs,
     core2_Clean_Up,
     corei7_Errata_Fix,
+    corei7_Read_Power,
+    NULL,
+    core2_Read_Counts,
+    corei7_Check_Overflow_Errata,
+    NULL,                   // read_ro
+    corei7_Platform_Info    // platform_info
+};
+
+DISPATCH_NODE  corei7_dispatch_2 =
+{
+    core2_Initialize,       // init
+    core2_Destroy,          // finis
+    core2_Write_PMU,        // write
+    core2_Disable_PMU,      // freeze
+    corei7_Enable_PMU_2,    // restart
+    core2_Read_PMU_Data,    // read
+    core2_Check_Overflow,   // check for overflow
+    core2_Swap_Group,
+    core2_Read_LBRs,
+    core2_Clean_Up,
+    corei7_Errata_Fix_2,
     corei7_Read_Power,
     NULL,
     core2_Read_Counts,
@@ -1069,7 +1311,6 @@ DISPATCH_NODE  corei7_dispatch_htoff_mode =
     core2_Write_PMU,        // write
     core2_Disable_PMU,      // freeze
     core2_Enable_PMU,       // restart
-    core2_ReInit_Data,      // reinit
     core2_Read_PMU_Data,    // read
     core2_Check_Overflow_Htoff_Mode,   // check for overflow
     core2_Swap_Group,
@@ -1083,3 +1324,26 @@ DISPATCH_NODE  corei7_dispatch_htoff_mode =
     NULL,                   // read_ro
     corei7_Platform_Info    // platform_info
 };
+
+DISPATCH_NODE  corei7_dispatch_htoff_mode_2 =
+{
+    core2_Initialize,       // init
+    core2_Destroy,          // fini
+    core2_Write_PMU,        // write
+    core2_Disable_PMU,      // freeze
+    corei7_Enable_PMU_2,    // restart
+    core2_Read_PMU_Data,    // read
+    core2_Check_Overflow_Htoff_Mode,   // check for overflow
+    core2_Swap_Group,
+    core2_Read_LBRs,
+    core2_Clean_Up,
+    corei7_Errata_Fix_2,
+    corei7_Read_Power,
+    NULL,
+    core2_Read_Counts,
+    corei7_Check_Overflow_Errata,
+    NULL,                   // read_ro
+    corei7_Platform_Info    // platform_info
+};
+
+

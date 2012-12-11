@@ -5,14 +5,9 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2007-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2007-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
-
-/*
- *  File  : lwpmudrv_struct.h
- *  cvsid[] = "$Id: lwpmudrv_struct.h 188550 2011-09-08 17:33:28Z jevillac $"
- */
 
 #ifndef _LWPMUDRV_STRUCT_H_
 #define _LWPMUDRV_STRUCT_H_
@@ -59,14 +54,12 @@ struct DRV_CONFIG_NODE_S {
     DRV_BOOL     start_paused;
     DRV_BOOL     counting_mode;
     U32          dispatch_id;
-#if defined(BUILD_CHIPSET)
     DRV_BOOL     enable_chipset;
     U32          num_chipset_events;
     U32          chipset_offset;
-#endif
-#if defined(BUILD_GFX)
     DRV_BOOL     enable_gfx;
-#endif
+    DRV_BOOL     enable_pwr;
+    DRV_BOOL     emon_mode;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     U32          pebs_mode;
     U32          pebs_capture;
@@ -74,10 +67,13 @@ struct DRV_CONFIG_NODE_S {
     DRV_BOOL     debug_inject;
     DRV_BOOL     virt_phys_translation;
     DRV_BOOL     latency_capture;
-    U32          core_max_gp_core_counters;
+    U32          max_gp_counters;
     DRV_BOOL     htoff_mode;
     DRV_BOOL     power_capture;
     U32          results_offset;   // this is to store the offset for this device's results
+    DRV_BOOL     eventing_ip_capture;
+    DRV_BOOL     hle_capture;
+    U32          emon_unc_offset;
 #else
     DRV_BOOL     collect_ro;
 #endif
@@ -85,14 +81,15 @@ struct DRV_CONFIG_NODE_S {
     U64          target_pid;
     DRV_BOOL     use_pcl;
     DRV_BOOL     enable_ebc;
+    DRV_BOOL     enable_tbc;
     union {
         S8      *seed_name;
         U64      dummy1;
-    };
+    } u1;
     union {
         S8      *cpu_mask;
         U64      dummy2;
-    };
+    } u2;
 };
 
 #define DRV_CONFIG_size(cfg)                      (cfg)->size
@@ -100,14 +97,12 @@ struct DRV_CONFIG_NODE_S {
 #define DRV_CONFIG_start_paused(cfg)              (cfg)->start_paused
 #define DRV_CONFIG_counting_mode(cfg)             (cfg)->counting_mode
 #define DRV_CONFIG_dispatch_id(cfg)               (cfg)->dispatch_id
-#if defined(BUILD_CHIPSET)
 #define DRV_CONFIG_enable_chipset(cfg)            (cfg)->enable_chipset
 #define DRV_CONFIG_num_chipset_events(cfg)        (cfg)->num_chipset_events
 #define DRV_CONFIG_chipset_offset(cfg)            (cfg)->chipset_offset
-#endif
-#if defined(BUILD_GFX)
 #define DRV_CONFIG_enable_gfx(cfg)                (cfg)->enable_gfx
-#endif
+#define DRV_CONFIG_enable_pwr(cfg)                (cfg)->enable_pwr
+#define DRV_CONFIG_emon_mode(cfg)                 (cfg)->emon_mode
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #define DRV_CONFIG_pebs_mode(cfg)                 (cfg)->pebs_mode
 #define DRV_CONFIG_pebs_capture(cfg)              (cfg)->pebs_capture
@@ -115,19 +110,24 @@ struct DRV_CONFIG_NODE_S {
 #define DRV_CONFIG_debug_inject(cfg)              (cfg)->debug_inject
 #define DRV_CONFIG_virt_phys_translation(cfg)     (cfg)->virt_phys_translation
 #define DRV_CONFIG_latency_capture(cfg)           (cfg)->latency_capture
-#define DRV_CONFIG_core_max_gp_core_counters(cfg) (cfg)->core_max_gp_core_counters
+#define DRV_CONFIG_max_gp_counters(cfg)           (cfg)->max_gp_counters
 #define DRV_CONFIG_htoff_mode(cfg)                (cfg)->htoff_mode
 #define DRV_CONFIG_power_capture(cfg)             (cfg)->power_capture
 #define DRV_CONFIG_results_offset(cfg)            (cfg)->results_offset
+#define DRV_CONFIG_eventing_ip_capture(cfg)       (cfg)->eventing_ip_capture
+#define DRV_CONFIG_hle_capture(cfg)               (cfg)->hle_capture
+
+#define DRV_CONFIG_emon_unc_offset(cfg)           (cfg)->emon_unc_offset
 #else
 #define DRV_CONFIG_collect_ro(cfg)                (cfg)->collect_ro
 #endif
-#define DRV_CONFIG_seed_name(cfg)                 (cfg)->seed_name
+#define DRV_CONFIG_seed_name(cfg)                 (cfg)->u1.seed_name
 #define DRV_CONFIG_seed_name_len(cfg)             (cfg)->seed_name_len
-#define DRV_CONFIG_cpu_mask(cfg)                  (cfg)->cpu_mask
+#define DRV_CONFIG_cpu_mask(cfg)                  (cfg)->u2.cpu_mask
 #define DRV_CONFIG_target_pid(cfg)                (cfg)->target_pid
 #define DRV_CONFIG_use_pcl(cfg)                   (cfg)->use_pcl
 #define DRV_CONFIG_event_based_counts(cfg)        (cfg)->enable_ebc
+#define DRV_CONFIG_timer_based_counts(cfg)        (cfg)->enable_tbc
 
 /*
  *    X86 processor code descriptor
@@ -290,7 +290,8 @@ typedef struct ModuleRecord_s {
                                             //  in the SampleHeaderEx struct and this flag
                                             //  is set, the associated module indicates
                                             //  the beginning of a new process
-         U32  rsvd1                  : 22;  // reserved
+         U32  source                 : 1;   // 0 for path in target system, 1 for path in host system (offloaded)
+         U32  rsvd1                  : 21;  // reserved
       } s1;
    } u2;
    U64   length64;         // module length
@@ -340,6 +341,7 @@ typedef struct ModuleRecord_s {
 #define MODULE_RECORD_global_module_tb5(x)              (x)->u2.s1.globalModuleTB5
 #define MODULE_RECORD_segment_name_set(x)               (x)->u2.s1.segmentNameSet
 #define MODULE_RECORD_first_module_rec_in_process(x)    (x)->u2.s1.firstModuleRecInProcess
+#define MODULE_RECORD_source(x)                         (x)->u2.s1.source
 #define MODULE_RECORD_length64(x)                       (x)->length64
 #define MODULE_RECORD_load_addr64(x)                    (x)->loadAddr64
 #define MODULE_RECORD_pid_rec_index(x)                  (x)->pidRecIndex
@@ -526,7 +528,7 @@ typedef struct __node_info {
     U32 node_num_available;        // total number cpus on this node
     U32 node_num_used;             // USER: number used based on cpu mask at time of run
 
-    U64 node_physical_memory;      // amount of physical memory on this node
+    U64 node_physical_memory;      // amount of physical memory (bytes) on this node
 
     //
     // pointer to the first generic header that
@@ -676,6 +678,29 @@ typedef struct _MarkerWallClockData {
 #define MARKER_DATA_wallclock(pdata)       (pdata)->wallclock
 
 
+#define OSSNAMELEN      64 
+#define OSNAMELEN       128 
+
+typedef struct _SOFTWARE_INFO_NODE_S SOFTWARE_INFO_NODE;
+typedef SOFTWARE_INFO_NODE          *SOFTWARE_INFO;
+
+struct _SOFTWARE_INFO_NODE_S {
+    char sysname[OSSNAMELEN];
+    char hostname[OSSNAMELEN];
+    char ipaddr[OSSNAMELEN];
+    char osname[OSNAMELEN];
+    char release[OSSNAMELEN];
+    char machine[OSSNAMELEN];
+};
+
+#define SOFTWARE_INFO_sysname(info)        (info)->sysname    
+#define SOFTWARE_INFO_hostname(info)       (info)->hostname    
+#define SOFTWARE_INFO_ipaddr(info)         (info)->ipaddr
+#define SOFTWARE_INFO_osname(info)         (info)->osname    
+#define SOFTWARE_INFO_release(info)        (info)->release
+#define SOFTWARE_INFO_machine(info)        (info)->machine
+
+
 /*
  *  Common Register descriptions
  */
@@ -754,17 +779,17 @@ struct SEP_VERSION_NODE_S {
     union {
         U32      sep_version;
         struct {
-            U32  major:8;
-            U32  minor:8;
-            U32  api:16;
-        };
-    };
+            S32  major:8;
+            S32  minor:8;
+            S32  api:16;
+        }s1;
+    }u1;
 };
 
-#define SEP_VERSION_NODE_sep_version(version) (version)->sep_version
-#define SEP_VERSION_NODE_major(version)       (version)->major
-#define SEP_VERSION_NODE_minor(version)       (version)->minor
-#define SEP_VERSION_NODE_api(version)         (version)->api
+#define SEP_VERSION_NODE_sep_version(version) (version)->u1.sep_version
+#define SEP_VERSION_NODE_major(version)       (version)->u1.s1.major
+#define SEP_VERSION_NODE_minor(version)       (version)->u1.s1.minor
+#define SEP_VERSION_NODE_api(version)         (version)->u1.s1.api
 
 typedef struct DEVICE_INFO_NODE_S  DEVICE_INFO_NODE;
 typedef        DEVICE_INFO_NODE   *DEVICE_INFO;
@@ -773,6 +798,7 @@ struct DEVICE_INFO_NODE_S {
     S8                 *dll_name;
     PVOID               dll_handle;
     S8                 *cpu_name;
+    S8                 *pmu_name;
     S8                 *event_db_file_name;
     //PLATFORM_IDENTITY plat_identity;  // this is undefined right now. Please take this as structure containing U64
     U32                 plat_type;      // device type (e.g., DEVICE_INFO_CORE, etc. ... see enum below)
@@ -786,6 +812,10 @@ struct DEVICE_INFO_NODE_S {
     PVOID               drv_event;
     U32                 num_events;
     U32                 event_id_index; // event id index of device (basically how many events processed before this device)
+    U32                 num_counters;
+    U32                 group_index;
+    U32                 num_packages;
+    U32                 num_units;
 };
 
 #define MAX_EVENT_NAME_LENGTH 64
@@ -793,6 +823,7 @@ struct DEVICE_INFO_NODE_S {
 #define DEVICE_INFO_dll_name(pdev)                  (pdev)->dll_name
 #define DEVICE_INFO_dll_handle(pdev)                (pdev)->dll_handle
 #define DEVICE_INFO_cpu_name(pdev)                  (pdev)->cpu_name
+#define DEVICE_INFO_pmu_name(pdev)                  (pdev)->pmu_name
 #define DEVICE_INFO_event_db_file_name(pdev)        (pdev)->event_db_file_name
 #define DEVICE_INFO_plat_type(pdev)                 (pdev)->plat_type
 #define DEVICE_INFO_plat_sub_type(pdev)             (pdev)->plat_sub_type
@@ -804,6 +835,11 @@ struct DEVICE_INFO_NODE_S {
 #define DEVICE_INFO_drv_event(pdev)                 (pdev)->drv_event
 #define DEVICE_INFO_num_events(pdev)                (pdev)->num_events
 #define DEVICE_INFO_event_id_index(pdev)            (pdev)->event_id_index
+#define DEVICE_INFO_num_counters(pdev)              (pdev)->num_counters
+#define DEVICE_INFO_group_index(pdev)               (pdev)->group_index
+#define DEVICE_INFO_num_packages(pdev)              (pdev)->num_packages
+#define DEVICE_INFO_num_units(pdev)                 (pdev)->num_units
+
 
 typedef struct DEVICE_INFO_DATA_NODE_S DEVICE_INFO_DATA_NODE;
 typedef        DEVICE_INFO_DATA_NODE  *DEVICE_INFO_DATA;
@@ -823,7 +859,8 @@ typedef enum
     DEVICE_INFO_CORE    =    0,
     DEVICE_INFO_UNCORE  =    1,
     DEVICE_INFO_CHIPSET =    2,
-    DEVICE_INFO_GFX     =    3
+    DEVICE_INFO_GFX     =    3,
+    DEVICE_INFO_PWR     =    4
 }   DEVICE_INFO_TYPE;
 
 #if defined(__cplusplus)
@@ -890,4 +927,26 @@ struct DRV_MASKS_NODE_S {
 #define DRV_MASKS_masks_num(d)           (d)->masks_num
 #define DRV_MASKS_eventmasks(d)          (d)->eventmasks
 
-#endif /* _LWPMUDRV_STRUCT_H_ */
+typedef struct EMON_SCHED_INFO_NODE_S   EMON_SCHED_INFO_NODE;
+typedef        EMON_SCHED_INFO_NODE     *EMON_SCHED_INFO;
+
+struct EMON_SCHED_INFO_NODE_S {
+     U32   max_counters_for_all_pmus;
+     U32   num_cpus;
+     U32   group_index;
+     U32   offset_for_next_device;
+     U32   device_id;
+     U32   num_packages;
+     U32   num_units;
+};
+
+#define EMON_SCHED_INFO_max_counters_for_all_pmus(x)  (x)->max_counters_for_all_pmus
+#define EMON_SCHED_INFO_num_cpus(x)                   (x)->num_cpus
+#define EMON_SCHED_INFO_group_index(x)                (x)->group_index
+#define EMON_SCHED_INFO_offset_for_next_device(x)     (x)->offset_for_next_device
+#define EMON_SCHED_INFO_device_id(x)                  (x)->device_id
+#define EMON_SCHED_INFO_num_packages(x)               (x)->num_packages
+#define EMON_SCHED_INFO_num_units(x)                  (x)->num_units
+
+#endif
+

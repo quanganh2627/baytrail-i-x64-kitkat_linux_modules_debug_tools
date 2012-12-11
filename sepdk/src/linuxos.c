@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,10 +26,6 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- * cvs_id = "$Id$"
- */
-
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 
@@ -53,7 +49,14 @@
 
 #include "inc/linuxos.h"
 
-extern uid_t uid;
+extern uid_t          uid;
+extern volatile pid_t control_pid;
+extern volatile S32   abnormal_terminate;
+static volatile S32   hooks_installed = 0;
+
+extern int
+LWPMUDRV_Abnormal_Terminate(void);
+
 #define MY_TASK  PROFILE_TASK_EXIT
 #define MY_UNMAP PROFILE_MUNMAP
 
@@ -139,7 +142,7 @@ linuxos_Load_Image_Notify_Routine (
     MODULE_RECORD_pid_rec_index_raw(mra) = 1; // raw pid
 #if defined(DEBUG)
     if (total_loads_init) {
-        VDK_PRINT_DEBUG("samp_load_image_notify: setting pid_rec_index_raw pid 0x%x %s \n", 
+        SEP_PRINT_DEBUG("samp_load_image_notify: setting pid_rec_index_raw pid 0x%x %s \n", 
                          pid, name);
     }
 #endif
@@ -244,7 +247,7 @@ linuxos_VMA_For_Process (
 // iterating...
 //
 static S32
-linuxos_Enum_Modules_For_Process(
+linuxos_Enum_Modules_For_Process (
     struct task_struct *p, 
     struct mm_struct   *mm,
     S32                 load_event
@@ -294,7 +297,6 @@ linuxos_Enum_Modules_For_Process(
  *              data IN  - this is cast in the mm_struct of the task that is call unmap 
  *
  * @return      none
- *  
  *
  * <I>Special Notes:</I>
  *
@@ -304,9 +306,8 @@ linuxos_Enum_Modules_For_Process(
  * However it is not called when a process is exiting instead exit_mmap is called 
  * (resulting in an EXIT_MMAP notification).
  */
-
 static int
-linuxos_Exec_Unmap_Notify(
+linuxos_Exec_Unmap_Notify (
     struct notifier_block *self, 
     unsigned long          val, 
     PVOID                  data
@@ -327,6 +328,11 @@ linuxos_Exec_Unmap_Notify(
         return 0;
     }
 #endif
+
+    if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_UNINITIALIZED) {
+        return 0;
+    }
+
     mm = current->mm;
     down_read(&mm->mmap_sem);
     mmap = FIND_VMA (mm, data);
@@ -343,7 +349,7 @@ linuxos_Exec_Unmap_Notify(
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          S32 LINUXOS_Enum_Process_Modules(DRV_BOOL at_end) 
+ * @fn          OS_STATUS LINUXOS_Enum_Process_Modules(DRV_BOOL at_end) 
  *
  * @brief       gather all the process modules that are present.
  *
@@ -357,14 +363,19 @@ linuxos_Exec_Unmap_Notify(
  *              act as if all the modules are being unloaded.
  *
  */
-extern S32
+extern OS_STATUS
 LINUXOS_Enum_Process_Modules (
     DRV_BOOL  at_end
 )
 {
-    int                 n=0;
+    int                 n = 0;
     struct task_struct *p;
+
     SEP_PRINT_DEBUG("Enum_Process_Modules begin tasks\n");
+
+    if (abnormal_terminate == 1) {
+        return OS_SUCCESS;
+    }
     FOR_EACH_TASK(p) {
         SEP_PRINT_DEBUG("Enum_Process_Modules looking at task %d\n", n);
         /*
@@ -399,6 +410,7 @@ LINUXOS_Enum_Process_Modules (
         n++;
     }
     SEP_PRINT_DEBUG("Enum_Process_Modules done with %d tasks\n", n);
+
     return OS_SUCCESS;
 }
 
@@ -414,16 +426,12 @@ LINUXOS_Enum_Process_Modules (
  *
  * @return      none
  *
- *  
- *
  * <I>Special Notes:</I>
- *
  * this function is called whenever a task exits.  It is called right before
  * the virtual memory areas are freed.  We just enumerate through all the modules
  * of the task and set the unload sample count and the load event flag to 1 to
  * indicate this is a module unload
  */
-
 static int
 linuxos_Exit_Task_Notify (
     struct notifier_block *self,
@@ -431,16 +439,32 @@ linuxos_Exit_Task_Notify (
     PVOID                  data
 )
 {
-    struct task_struct *p = (struct task_struct *)data;
+    struct task_struct *p     = (struct task_struct *)data;
+    int                status = OS_SUCCESS;
+
+    if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_UNINITIALIZED) {
+        return status;
+    }
 
     if (!p->mm) {
-         return 0;
+         return status;
     }
 
     SEP_PRINT_DEBUG("exit_task_notify pid = %d tgid = %d\n", p->pid, p->tgid);
-    linuxos_Enum_Modules_For_Process(p, p->mm, 1);
+    if (p->pid == control_pid) {
+        SEP_PRINT_DEBUG("The collector task has been terminated via an uncatchable signal\n");
 
-    return 0;
+        if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_PREPARE_STOP ||
+            GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_STOPPED) {
+            return status;
+        }
+        status = LWPMUDRV_Abnormal_Terminate();
+    }
+    else if (abnormal_terminate == 0) {
+        linuxos_Enum_Modules_For_Process(p, p->mm, 1);
+    }
+
+    return status;
 }
 
 
@@ -469,20 +493,28 @@ static struct notifier_block linuxos_exit_task_nb = {
  * None
  */
 extern int
-LINUXOS_Install_Hooks(VOID)
+LINUXOS_Install_Hooks (
+    VOID
+)
 {
     int err = 0;
     int err2 = 0;
 
+    if (hooks_installed == 1) {
+        SEP_PRINT_DEBUG("The OS Hooks are already installed\n");
+        return 0;
+    }
     err = profile_event_register(MY_UNMAP, &linuxos_exec_unmap_nb);
     err2= profile_event_register(MY_TASK,  &linuxos_exit_task_nb);
     if (err || err2) {
-        if (err == -ENOSYS) {
+        if (err == OS_NO_SYSCALL) {
             SEP_PRINT_WARNING("This kernel does not implement kernel profiling hooks.  "
                               "Task termination and image unloads will not be tracked "
                               "during sampling session!!\n");
         }
     }
+    hooks_installed = 1;
+
     return err;
 }
 
@@ -500,9 +532,17 @@ LINUXOS_Install_Hooks(VOID)
  * None
  */
 extern VOID
-LINUXOS_Uninstall_Hooks(VOID)
+LINUXOS_Uninstall_Hooks (
+    VOID
+)
 {
+    if (hooks_installed == 0) {
+        return;
+    }
+    SEP_PRINT_DEBUG("Uninstalling OS Hooks\n");
+    hooks_installed = 0;
     profile_event_unregister(MY_UNMAP, &linuxos_exec_unmap_nb);
     profile_event_unregister(MY_TASK,  &linuxos_exit_task_nb);
+
     return;
 }

@@ -1,5 +1,5 @@
 /*
-    Copyright 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,9 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _LWPMUDRV_H_
 #define _LWPMUDRV_H_
@@ -43,7 +40,6 @@
 #include "lwpmudrv_chipset.h"
 #endif
 
-//#define MYDEBUG
 
 /*
  * Print macros for driver messages
@@ -70,7 +66,6 @@
 #define OVERFLOW_ARGS  U64*, U64*, U64*, U64*, U64*, U64*
 #endif
 
-
 /*
  *  Dispatch table for virtualized functions.
  *  Used to enable common functionality for different
@@ -85,7 +80,6 @@ struct DISPATCH_NODE_S {
     VOID (*write)(PVOID);
     VOID (*freeze)(PVOID);
     VOID (*restart)(PVOID);
-    VOID (*reinit)(PVOID);
     VOID (*read_data)(PVOID);
     VOID (*check_overflow)(DRV_MASKS);
     VOID (*swap_group)(DRV_BOOL);
@@ -135,14 +129,15 @@ typedef struct LWPMU_DEVICE_NODE_S  LWPMU_DEVICE_NODE;
 typedef        LWPMU_DEVICE_NODE   *LWPMU_DEVICE;
 
 struct LWPMU_DEVICE_NODE_S {
-    VOID     **PMU_register_data_unc;
+    VOID       **PMU_register_data_unc;
     DISPATCH   dispatch_unc;
     S32        em_groups_count_unc;
-    VOID      *pcfg_unc;
-    U64     **acc_per_thread;
-    U64     **prev_val_per_thread;
-    U64       counter_mask;
-    U64       num_events;
+    VOID       *pcfg_unc;
+    U64        **acc_per_thread;
+    U64        **prev_val_per_thread;
+    U64        counter_mask;
+    U64        num_events;
+    U32        num_units;
 };
 
 #define LWPMU_DEVICE_PMU_register_data(dev)   (dev)->PMU_register_data_unc
@@ -153,6 +148,7 @@ struct LWPMU_DEVICE_NODE_S {
 #define LWPMU_DEVICE_prev_val_per_thread(dev) (dev)->prev_val_per_thread
 #define LWPMU_DEVICE_counter_mask(dev)        (dev)->counter_mask
 #define LWPMU_DEVICE_num_events(dev)          (dev)->num_events
+#define LWPMU_DEVICE_num_units(dev)           (dev)->num_units
 
 extern U32            num_devices;
 extern U32            cur_devices;
@@ -160,7 +156,7 @@ extern LWPMU_DEVICE   devices;
 extern U64           *pmu_state;
 
 // Handy macro
-#define TSC_SKEW(this_cpu)     (CPU_STATE_tsc(&pcb[this_cpu]) - CPU_STATE_tsc(&pcb[0]))
+#define TSC_SKEW(this_cpu)     (tsc_info[this_cpu] - tsc_info[0])
 
 /*
  *  The IDT / GDT descriptor for use in identifying code segments
@@ -176,4 +172,4 @@ typedef struct _idtgdtDesc {
 extern IDTGDT_DESC         gdt_desc;
 #endif
 
-#endif  /* _LWPMUDRV_H_ */
+#endif  

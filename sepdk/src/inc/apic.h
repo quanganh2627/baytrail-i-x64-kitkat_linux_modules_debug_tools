@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -26,10 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
-
 #ifndef _APIC_H_
 #define _APIC_H_
 
@@ -43,10 +39,10 @@ typedef U64 *PHYSICAL_ADDRESS;
 /*
 // APIC registers and constants
 */
-/// APIC base MSR
+// APIC base MSR
 #define DRV_APIC_BASE_MSR   0x001b
 
-/// APIC registers
+// APIC registers
 #define DRV_APIC_LCL_ID     0x0020
 #define DRV_APIC_LCL_TSKPRI 0x0080
 #define DRV_APIC_LCL_PPR    0x00a0
@@ -75,14 +71,14 @@ typedef U64 *PHYSICAL_ADDRESS;
 #define DRV_APIC_LVT_LINT1_MSR  0x836
 #define DRV_APIC_LVT_ERROR_MSR  0x837
 
-/// masks for LVT
+// masks for LVT
 #define DRV_LVT_MASK        0x10000
 #define DRV_LVT_EDGE        0x00000
 #define DRV_LVT_LEVEL       0x08000
 #define DRV_LVT_EXTINT      0x00700
 #define DRV_LVT_NMI         0x00400
 
-/// task priorities
+// task priorities
 #define DRV_APIC_TSKPRI_LO  0x0000
 #define DRV_APIC_TSKPRI_HI  0x00f0
 
@@ -125,9 +121,4 @@ extern VOID APIC_Init(PVOID param);
 extern VOID APIC_Install_Interrupt_Handler(PVOID param);
 extern VOID APIC_Unmap(PVOID addr);
 
-/*
-// APIC query functions
-*/
-extern int APIC_Read_Priority(VOID);
-
-#endif /* _APIC_H_ */
+#endif 

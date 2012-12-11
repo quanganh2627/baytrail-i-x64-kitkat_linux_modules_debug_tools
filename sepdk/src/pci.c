@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -39,18 +39,17 @@
 #include "lwpmudrv.h"
 #include "pci.h"
 
-/*
- * PCI_Read_From_Memory_Address
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Read_From_Memory_Address(addr, val)
  *
- * Abstract
- *     Read memory mapped i/o physical location
+ * @param    addr    - physical address in mmio
+ * @param   *value  - value at this address
  *
- * Parameters
- *         physical_address - physical address in mmio
- *         value            - value at this address
+ * @return  status
  *
- * Returns
- *     Status
+ * @brief   Read memory mapped i/o physical location
+ *
  */
 extern int
 PCI_Read_From_Memory_Address (
@@ -87,18 +86,17 @@ PCI_Read_From_Memory_Address (
 }
 
 
-/*
- * PCI_Write_To_Memory_Address
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Write_To_Memory_Address(addr, val)
  *
- * Abstract
- *     Write to memory mapped i/o physical location
+ * @param   addr   - physical address in mmio
+ * @param   value  - value to be written
  *
- * Parameters
- *         physical_address - physical address in mmio
- *         value            - value to be written
+ * @return  status
  *
- * Returns
- *     Status
+ * @brief   Write to memory mapped i/o physical location
+ *
  */
 extern int
 PCI_Write_To_Memory_Address (
@@ -132,18 +130,16 @@ PCI_Write_To_Memory_Address (
     return OS_SUCCESS;
 }
 
-/*
- * PCI_Read_Ulong
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Read_Ulong(pci_address)
  *
- * Abstract
- *     Reads a ULONG from PCI configuration space
+ * @param    pci_address - PCI configuration address
  *
- * Parameters
- *     pci_address - PCI configuration address
- *     value       - Value at this location
+ * @return  value at this location
  *
- * Returns
- *     The ULONG read from the given PCI address.
+ * @brief   Reads a ULONG from PCI configuration space
+ *
  */
 extern int
 PCI_Read_Ulong (
@@ -161,18 +157,17 @@ PCI_Read_Ulong (
 }
 
 
-/*
- * PCI_Write_Ulong
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Write_Ulong(addr, val)
  *
- * Abstract
- *     Writes a ULONG to PCI configuration space
+ * @param    pci_address - PCI configuration address
+ * @param    value - Value to be written
  *
- * Parameters
- *     pci_address - PCI configuration address
- *     value - Value to be written
+ * @return  status
  *
- * Returns
- *     None
+ * @brief   Writes a ULONG to PCI configuration space
+ *
  */
 extern void
 PCI_Write_Ulong (

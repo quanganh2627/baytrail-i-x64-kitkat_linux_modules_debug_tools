@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,10 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
-
 #ifndef _OUTPUT_H_
 #define _OUTPUT_H_
 
@@ -37,6 +33,7 @@
  * Initial allocation 
  * Size of buffer     = 512KB (2^19)
  * number of buffers  = 2
+ * The max size of the buffer cannot exceed 1<<22 i.e. 4MB
  */
 #define OUTPUT_SMALL_BUFFER        (1<<15)
 #define OUTPUT_LARGE_BUFFER        (1<<19)
@@ -93,4 +90,4 @@ extern ssize_t OUTPUT_Module_Read (struct file *filp, char *buf, size_t count, l
 extern ssize_t OUTPUT_Sample_Read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
 extern void*   OUTPUT_Reserve_Buffer_Space (BUFFER_DESC  bd, U32 size);
 
-#endif /* _OUTPUT_H_ */
+#endif 

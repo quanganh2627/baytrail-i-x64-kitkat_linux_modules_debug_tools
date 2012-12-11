@@ -15,14 +15,14 @@ HELP_ID	CODE	UMASK	OTHER	COMMON	WEIGHT	COUNTER	NAME	DESCRIPTION	HELP_FILE	OVERFL
 0x10003	0x5	0x92	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.ST_BUBBLE	Nonzero segbase store 1 bubble	pmb.chm	200000	0	0	0	0	0
 0x10003	0x5	0x94	0x53	0x9	0	"0,1"	MISALIGN_MEM_REF.RMW_BUBBLE	Nonzero segbase ld-op-st 1 bubble	pmb.chm	200000	0	0	0	0	0
 0x10004	0x6	0x80	0x53	0x3	0	"0,1"	SEGMENT_REG_LOADS.ANY	Number of segment register loads.	pmb.chm	200000	0	0	0	0	0
-0x10005	0x7	0x81	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT0	Streaming SIMD Extensions (SSE) PrefetchT0 instructions executed.	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0x82	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT1	Streaming SIMD Extensions (SSE) PrefetchT1 instructions executed.	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0x84	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT2	Streaming SIMD Extensions (SSE) PrefetchT2 instructions executed.	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0x86	0x53	0x801	0	"0,1"	PREFETCH.SW_L2	Streaming SIMD Extensions (SSE) PrefetchT1 and PrefetchT2 instructions executed	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0x88	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHNTA	Streaming SIMD Extensions (SSE) Prefetch NTA instructions executed	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0x81	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT0	Streaming SIMD Extensions (SSE) PrefetchT0 instructions executed.	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x82	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT1	Streaming SIMD Extensions (SSE) PrefetchT1 instructions executed.	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x84	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHT2	Streaming SIMD Extensions (SSE) PrefetchT2 instructions executed.	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x86	0x53	0x801	0	"0,1"	PREFETCH.SW_L2	Streaming SIMD Extensions (SSE) PrefetchT1 and PrefetchT2 instructions executed	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x88	0x53	0x801	0	"0,1"	PREFETCH.PREFETCHNTA	Streaming SIMD Extensions (SSE) Prefetch NTA instructions executed	pmb.chm	200000	0	0	0	0	0
 0x10005	0x7	0x10	0x53	0x801	0	"0,1"	PREFETCH.HW_PREFETCH	L1 hardware prefetch request	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0xF	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH	Any Software prefetch	pmb.chm	2000000	0	0	0	0	0
-0x10005	0x7	0x8F	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH.AR	Any Software prefetch	pmb.chm	2000000	0	0	0	0	0
+0x10005	0x7	0xF	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH	Any Software prefetch	pmb.chm	200000	0	0	0	0	0
+0x10005	0x7	0x8F	0x53	0x801	0	"0,1"	PREFETCH.SOFTWARE_PREFETCH.AR	Any Software prefetch	pmb.chm	200000	0	0	0	0	0
 0x10006	0x8	0x7	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.DTLB_MISS	Memory accesses that missed the DTLB.	pmb.chm	200000	0	0	0	0	0
 0x10006	0x8	0x5	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.DTLB_MISS_LD	DTLB misses due to load operations.	pmb.chm	200000	0	0	0	0	0
 0x10006	0x8	0x9	0x53	0x101	0	"0,1"	DATA_TLB_MISSES.L0_DTLB_MISS_LD	L0 DTLB misses due to load operations.	pmb.chm	200000	0	0	0	0	0
@@ -142,9 +142,9 @@ HELP_ID	CODE	UMASK	OTHER	COMMON	WEIGHT	COUNTER	NAME	DESCRIPTION	HELP_FILE	OVERFL
 0x10022	0x40	0xA2	0x53	0x21	0	"0,1"	L1D_CACHE.ST	L1 Cacheable Data Writes	pmb.chm	2000000	0	0	0	0	0
 0x10022	0x40	0x83	0x53	0x21	0	"0,1"	L1D_CACHE.ALL_REF	L1 Data reads and writes	pmb.chm	2000000	0	0	0	0	0
 0x10022	0x40	0xA3	0x53	0x21	0	"0,1"	L1D_CACHE.ALL_CACHE_REF	L1 Data Cacheable reads and writes	pmb.chm	2000000	0	0	0	0	0
-0x10022	0x40	0x8	0x53	0x21	0	"0,1"	L1D_CACHE.REPL	L1 Data line replacements	pmb.chm	2000000	0	0	0	0	0
-0x10022	0x40	0x48	0x53	0x21	0	"0,1"	L1D_CACHE.REPLM	Modified cache lines allocated in the L1 data cache	pmb.chm	2000000	0	0	0	0	0
-0x10022	0x40	0x10	0x53	0x21	0	"0,1"	L1D_CACHE.EVICT	Modified cache lines evicted from the L1 data cache	pmb.chm	2000000	0	0	0	0	0
+0x10022	0x40	0x8	0x53	0x21	0	"0,1"	L1D_CACHE.REPL	L1 Data line replacements	pmb.chm	200000	0	0	0	0	0
+0x10022	0x40	0x48	0x53	0x21	0	"0,1"	L1D_CACHE.REPLM	Modified cache lines allocated in the L1 data cache	pmb.chm	200000	0	0	0	0	0
+0x10022	0x40	0x10	0x53	0x21	0	"0,1"	L1D_CACHE.EVICT	Modified cache lines evicted from the L1 data cache	pmb.chm	200000	0	0	0	0	0
 0x10023	0x60	0xE0	0x53	0x201	0	"0,1"	BUS_REQUEST_OUTSTANDING.ALL_AGENTS	Outstanding cacheable data read bus requests duration.	pmb.chm	200000	0	0	0	0	0
 0x10023	0x60	0x40	0x53	0x201	0	"0,1"	BUS_REQUEST_OUTSTANDING.SELF	Outstanding cacheable data read bus requests duration.	pmb.chm	200000	0	0	0	0	0
 0x10024	0x61	0x20	0x53	0x201	0	"0,1"	BUS_BNR_DRV.ALL_AGENTS	Number of Bus Not Ready signals asserted.	pmb.chm	200000	0	0	0	0	0
@@ -210,11 +210,11 @@ HELP_ID	CODE	UMASK	OTHER	COMMON	WEIGHT	COUNTER	NAME	DESCRIPTION	HELP_FILE	OVERFL
 0x1003E	0x88	0x10	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.DIR_CALL	All non-indirect calls	pmb.chm	2000000	0	0	0	0	0
 0x1003E	0x88	0x20	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.IND_CALL	"All indirect calls, including both register and memory indirect."	pmb.chm	2000000	0	0	0	0	0
 0x1003E	0x88	0x41	0x53	0x9	0	"0,1"	BR_INST_TYPE_RETIRED.COND_TAKEN	Only taken macro conditional branch instructions	pmb.chm	2000000	0	0	0	0	0
-0x1003F	0x89	0x1	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND	Mispredicted cond branch instructions retired	pmb.chm	2000000	0	0	0	0	0
-0x1003F	0x89	0x2	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND	Mispredicted ind branches that are not calls	pmb.chm	2000000	0	0	0	0	0
-0x1003F	0x89	0x4	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.RETURN	Mispredicted return branches	pmb.chm	2000000	0	0	0	0	0
-0x1003F	0x89	0x8	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND_CALL	"Mispredicted indirect calls, including both register and memory indirect. "	pmb.chm	2000000	0	0	0	0	0
-0x1003F	0x89	0x11	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND_TAKEN	Mispredicted and taken cond branch instructions retired	pmb.chm	2000000	0	0	0	0	0
+0x1003F	0x89	0x1	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND	Mispredicted cond branch instructions retired	pmb.chm	200000	0	0	0	0	0
+0x1003F	0x89	0x2	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND	Mispredicted ind branches that are not calls	pmb.chm	200000	0	0	0	0	0
+0x1003F	0x89	0x4	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.RETURN	Mispredicted return branches	pmb.chm	200000	0	0	0	0	0
+0x1003F	0x89	0x8	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.IND_CALL	"Mispredicted indirect calls, including both register and memory indirect. "	pmb.chm	200000	0	0	0	0	0
+0x1003F	0x89	0x11	0x53	0x9	0	"0,1"	BR_MISSP_TYPE_RETIRED.COND_TAKEN	Mispredicted and taken cond branch instructions retired	pmb.chm	200000	0	0	0	0	0
 0x10040	0xAA	0x1	0x53	0x3	0	"0,1"	MACRO_INSTS.NON_CISC_DECODED	Non-CISC nacro instructions decoded 	pmb.chm	2000000	0	0	0	0	0
 0x10040	0xAA	0x2	0x53	0x3	0	"0,1"	MACRO_INSTS.CISC_DECODED	CISC macro instructions decoded 	pmb.chm	2000000	0	0	0	0	0
 0x10040	0xAA	0x3	0x53	0x3	0	"0,1"	MACRO_INSTS.ALL_DECODED	All Instructions decoded	pmb.chm	2000000	0	0	0	0	0
@@ -240,24 +240,24 @@ HELP_ID	CODE	UMASK	OTHER	COMMON	WEIGHT	COUNTER	NAME	DESCRIPTION	HELP_FILE	OVERFL
 0x10046	0xC2	0x10	0x1D3	0x1009	0	"0,1"	UOPS_RETIRED.STALLED_CYCLES	Cycles no micro-ops retired.	pmb.chm	2000000	0	0	0	0	0
 0x10046	0xC2	0x10	0x1D7	0x1009	0	"0,1"	UOPS_RETIRED.STALLS	Periods no micro-ops retired.	pmb.chm	2000000	0	0	0	0	0
 0x10046	0xA9	0x1	0x153	0x3	0	"0,1"	UOPS.MS_CYCLES	"This event counts the cycles where 1 or more uops are issued by the micro-sequencer (MS), including microcode assists and inserted flows, and written to the IQ. "	pmb.chm	2000000	0	0	0	0	0
-0x10047	0xC3	0x1	0x53	0x3	0	"0,1"	MACHINE_CLEARS.SMC	Self-Modifying Code detected.	pmb.chm	2000000	0	0	0	0	0
+0x10047	0xC3	0x1	0x53	0x3	0	"0,1"	MACHINE_CLEARS.SMC	Self-Modifying Code detected.	pmb.chm	200000	0	0	0	0	0
 0x10048	0xC4	0x0	0x53	0x9	0	"0,1"	BR_INST_RETIRED.ANY	Retired branch instructions.	pmb.chm	2000000	0	0	0	0	0
 0x10048	0xC4	0x1	0x53	0x9	0	"0,1"	BR_INST_RETIRED.PRED_NOT_TAKEN	Retired branch instructions that were predicted not-taken.	pmb.chm	2000000	0	0	0	0	0
-0x10048	0xC4	0x2	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_NOT_TAKEN	Retired branch instructions that were mispredicted not-taken.	pmb.chm	2000000	0	0	0	0	0
+0x10048	0xC4	0x2	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_NOT_TAKEN	Retired branch instructions that were mispredicted not-taken.	pmb.chm	200000	0	0	0	0	0
 0x10048	0xC4	0x4	0x53	0x9	0	"0,1"	BR_INST_RETIRED.PRED_TAKEN	Retired branch instructions that were predicted taken.	pmb.chm	2000000	0	0	0	0	0
-0x10048	0xC4	0x8	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_TAKEN	Retired branch instructions that were mispredicted taken.	pmb.chm	2000000	0	0	0	0	0
-0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions.	pmb.chm	2000000	0	0	0	0	0
-0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED.PS	Retired mispredicted branch instructions.	pmb.chm	2000000	0	0	0	1	0
+0x10048	0xC4	0x8	0x53	0x9	0	"0,1"	BR_INST_RETIRED.MISPRED_TAKEN	Retired branch instructions that were mispredicted taken.	pmb.chm	200000	0	0	0	0	0
+0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions.	pmb.chm	200000	0	0	0	0	0
+0x10048	0xC4	0xA	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED.PS	Retired mispredicted branch instructions.	pmb.chm	200000	0	0	0	1	0
 0x10048	0xC4	0xC	0x53	0x9	0	"0,1"	BR_INST_RETIRED.TAKEN	Retired taken branch instructions.	pmb.chm	2000000	0	0	0	0	0
 0x10048	0xC4	0xF	0x53	0x9	0	"0,1"	BR_INST_RETIRED.ANY1	Retired branch instructions.	pmb.chm	2000000	0	0	0	0	0
-0x10049	0xC5	0x0	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions (precise event).	pmb.chm	2000000	0	0	0	1	0
+0x10049	0xC5	0x0	0x53	0x19	0	"0,1"	BR_INST_RETIRED.MISPRED	Retired mispredicted branch instructions (precise event).	pmb.chm	200000	0	0	0	1	0
 0x1004A	0xC6	0x1	0x53	0x4001	0	"0,1"	CYCLES_INT_MASKED.CYCLES_INT_MASKED	Cycles during which interrupts are disabled.	pmb.chm	2000000	0	0	0	0	0
 0x1004A	0xC6	0x2	0x53	0x4001	0	"0,1"	CYCLES_INT_MASKED.CYCLES_INT_PENDING_AND_MASKED	Cycles during which interrupts are pending and disabled.	pmb.chm	2000000	0	0	0	0	0
 0x1004B	0xC7	0x1	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.PACKED_SINGLE	Retired Streaming SIMD Extensions (SSE) packed-single instructions.	pmb.chm	2000000	0	0	0	0	0
 0x1004B	0xC7	0x2	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.SCALAR_SINGLE	Retired Streaming SIMD Extensions (SSE) scalar-single instructions.	pmb.chm	2000000	0	0	0	0	0
 0x1004B	0xC7	0x8	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.SCALAR_DOUBLE	Retired Streaming SIMD Extensions 2 (SSE2) scalar-double instructions.	pmb.chm	2000000	0	0	0	0	0
 0x1004B	0xC7	0x10	0x53	0x9	0	"0,1"	SIMD_INST_RETIRED.VECTOR	Retired Streaming SIMD Extensions 2 (SSE2) vector instructions.	pmb.chm	2000000	0	0	0	0	0
-0x1004C	0xC8	0x0	0x53	0x4001	0	"0,1"	HW_INT_RCV	Hardware interrupts received.	pmb.chm	2000000	0	0	0	0	0
+0x1004C	0xC8	0x0	0x53	0x4001	0	"0,1"	HW_INT_RCV	Hardware interrupts received.	pmb.chm	200000	0	0	0	0	0
 0x1004D	0xCA	0x1	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.PACKED_SINGLE	Retired computational Streaming SIMD Extensions (SSE) packed-single instructions.	pmb.chm	2000000	0	0	0	0	0
 0x1004D	0xCA	0x2	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.SCALAR_SINGLE	Retired computational Streaming SIMD Extensions (SSE) scalar-single instructions.	pmb.chm	2000000	0	0	0	0	0
 0x1004D	0xCA	0x8	0x53	0x9	0	"0,1"	SIMD_COMP_INST_RETIRED.SCALAR_DOUBLE	Retired computational Streaming SIMD Extensions 2 (SSE2) scalar-double instructions.	pmb.chm	2000000	0	0	0	0	0

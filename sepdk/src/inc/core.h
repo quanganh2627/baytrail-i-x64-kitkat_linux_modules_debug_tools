@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,46 +26,12 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id: core.h $"
- */
-
 #ifndef _CORE_H_
 #define _CORE_H_
 
-/*
- * Local to this architecture: Core Solo, Core Duo
- * Arch Perf monitoring version 2
- */
-#define IA32_PMC0               0x0C1
-#define IA32_PMC1               0x0C2
-#define IA32_PERFEVTSEL0        0x186
-#define IA32_PERFEVTSEL1        0x187
-
+#include "msrdefs.h"
 #define EM_INT_MASK             0x00100000
 
 extern DISPATCH_NODE  core_dispatch;
 
-extern VOID
-CORE_Disable_PMU (
-    PVOID  param
-);
-
-extern VOID
-CORE_Enable_PMU (
-    PVOID   param
-);
-
-extern VOID
-CORE_ReInit_Data (
-    PVOID   param
-);
-
-extern VOID
-CORE_Read_PMU_Data (
-    U64   *buffer, 
-    int    start, 
-    int    stop
-);
-
-#endif /* _CORE_H_*/
+#endif

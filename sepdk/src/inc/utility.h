@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -26,9 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- * cvs_id[] = "$Id$"
- */
 
 #ifndef _UTILITY_H_
 #define _UTILITY_H_
@@ -207,4 +204,4 @@ extern  CS_DISPATCH
 UTILITY_Configure_Chipset (void);
 #endif
 
-#endif /* _UTILITY_H_ */
+#endif 

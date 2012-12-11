@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,11 +26,8 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  cvs_id[] = "$Id: chap.c 27894 2011-09-08 20:58:40Z jevillac $"
- */
-
 #include <linux/version.h>
+#include <linux/percpu.h>
 
 #include "lwpmudrv_defines.h"
 #include "lwpmudrv_types.h"
@@ -48,17 +45,19 @@ extern CHIPSET_CONFIG     pma;
 extern CPU_STATE          pcb;
 extern EVENT_CONFIG       global_ec;
 
-/******************************************************************************
- * chap_Init_Chipset
- *     Parameters
- *         None
- *     Returns
- *         VT_SUCCESS if successful, otherwise error
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          static U32 chap_Init_Chipset(void)
+ * 
+ * @brief       Chipset PMU initialization
  *
- *     Description
- *         Chipset initialization.
+ * @param       None
+ * 
+ * @return      VT_SUCCESS if successful, otherwise error
  *
- *****************************************************************************/
+ * <I>Special Notes:</I>
+ *             <NONE>
+ */
 static U32
 chap_Init_Chipset (
     VOID
@@ -93,8 +92,7 @@ chap_Init_Chipset (
             }
         }
 
-        // Here we map the MMIO registers for the Gen X processors.  The number
-        // and size are controlled by VTune ML.
+        // Here we map the MMIO registers for the Gen X processors.
         if (CHIPSET_CONFIG_noa_chipset(pma)) {
             if (CHIPSET_SEGMENT_virtual_address(noa_chipset_seg) == 0) {
                 // Map the virtual address of the PCI CHAP interface.
@@ -108,7 +106,8 @@ chap_Init_Chipset (
         // always collect processor events
         //
         CHIPSET_CONFIG_processor(pma) = 1;
-    } else {
+    }
+    else {
         CHIPSET_CONFIG_processor(pma) = 0;
     }
     SEP_PRINT_DEBUG("Initializing chipset done.\n");
@@ -118,17 +117,16 @@ chap_Init_Chipset (
 
 
 
-/*****************************************************************************
- * chap_Start_Chipset
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          static U32 chap_Start_Chipset(void)
+ * @param       None
+ * @return      VT_SUCCESS if successful, otherwise error
+ * @brief       Start collection on the Chipset PMU
  *
- *     Description
- *         Configure CHAP chipset counters to start counting.
- *
- *****************************************************************************/
+ * <I>Special Notes:</I>
+ *             <NONE>
+ */
 static VOID
 chap_Start_Chipset (
     VOID
@@ -166,17 +164,19 @@ chap_Start_Chipset (
     return;
 }
 
-/******************************************************************************
- * chap_Read_Counters
- *     Parameters
- *         PVOID param
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          static U32 chap_Read_Counters(PVOID param)
+ * 
+ * @brief       Read the CHAP counter data
  *
- *     Description
- *         Read CHAP counter data
+ * @param       PVOID param - address of the buffer to write into
+ * 
+ * @return      None
  *
- *****************************************************************************/
+ * <I>Special Notes:</I>
+ *             <NONE>
+ */
 static VOID
 chap_Read_Counters (
     PVOID  param
@@ -196,7 +196,7 @@ chap_Read_Counters (
     CHIPSET_SEGMENT ich_chipset_seg = &CHIPSET_CONFIG_ich(pma);
     CHIPSET_SEGMENT noa_chipset_seg = &CHIPSET_CONFIG_noa(pma);
 
-    data = param;
+    data       = param;
     data_index = 0;
 
     // Save the Motherboard time.  This is universal time for this
@@ -238,8 +238,6 @@ chap_Read_Counters (
         // everything since last interrupt - regardless of cpu!  This
         // way there is only one count of the Gen 4 counters.
         //
-        // FIXME (JIS): There's an SMP race condition here between the
-        // read and write of last_mch_count!
         mch_cpu = CHIPSET_CONFIG_host_proc_run(pma) ? this_cpu : 0;
         for (i = 0; i < CHIPSET_SEGMENT_total_events(mch_chipset_seg); i++) {
             tmp_data = mch_data[i];
@@ -324,18 +322,19 @@ chap_Read_Counters (
     return;
 }
 
-
-/******************************************************************************
- * chap_Stop_Chipset
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          static VOID chap_Stop_Chipset(void)
+ * 
+ * @brief       Stop the Chipset PMU
  *
- *     Description
- *         Stop chipset counters.
+ * @param       None
+ * 
+ * @return      None
  *
- *****************************************************************************/
+ * <I>Special Notes:</I>
+ *             <NONE>
+ */
 static VOID
 chap_Stop_Chipset (
     VOID
@@ -389,29 +388,27 @@ chap_Stop_Chipset (
     return;
 }
 
-/*
- * chap_Fini_Chipset
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          static VOID chap_Fini_Chipset(void)
+ * 
+ * @brief       Finish routine on a per-logical-core basis
  *
- *     Description
- *         Reset CHAP to state where it can be used again
+ * @param       None
+ * 
+ * @return      None
  *
+ * <I>Special Notes:</I>
+ *             <NONE>
  */
 static VOID
 chap_Fini_Chipset (
     VOID
 )
 {
-    // Placeholder for now
     return;
 }
 
-/*****************************************************************************
- * Initialize the CHAP dispatch table
- ****************************************************************************/
 CS_DISPATCH_NODE  chap_dispatch =
 {
     chap_Init_Chipset,

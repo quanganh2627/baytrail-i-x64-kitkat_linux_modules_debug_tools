@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 */
-
-/*
- *  cvs_id[] = "$Id$"
- */
 
 #ifndef _CPUMON_H_
 #define _CPUMON_H_
@@ -63,4 +59,4 @@
 extern VOID CPUMON_Install_Cpuhooks(VOID);
 extern VOID CPUMON_Remove_Cpuhooks(VOID);
 
-#endif /* _CPUMON_H_ */
+#endif 

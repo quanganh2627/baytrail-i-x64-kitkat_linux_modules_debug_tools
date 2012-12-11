@@ -1,12 +1,29 @@
 /*COPYRIGHT**
- * -------------------------------------------------------------------------
- *               INTEL CORPORATION PROPRIETARY INFORMATION
- *  This software is supplied under the terms of the accompanying license
- *  agreement or nondisclosure agreement with Intel Corporation and may not
- *  be copied or disclosed except in accordance with the terms of that
- *  agreement.
- *        Copyright (c) 2007-2011 Intel Corporation.  All Rights Reserved.
- * -------------------------------------------------------------------------
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
+
+    This file is part of SEP Development Kit
+
+    SEP Development Kit is free software; you can redistribute it
+    and/or modify it under the terms of the GNU General Public License
+    version 2 as published by the Free Software Foundation.
+
+    SEP Development Kit is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with SEP Development Kit; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+    As a special exception, you may use this file as part of a free software
+    library without restriction.  Specifically, if other files instantiate
+    templates or use macros or inline functions from this file, or you compile
+    this file and link it with other files to produce an executable, this
+    file does not by itself cause the resulting executable to be covered by
+    the GNU General Public License.  This exception does not however
+    invalidate any other reasons why the executable file might be covered by
+    the GNU General Public License.
 **COPYRIGHT*/
 
 #include <linux/version.h>
@@ -31,6 +48,9 @@ static volatile int lock_gmch_read = 0;
 // global variables for determining which register offsets to use
 static U32 gmch_register_read  = 0;     // value=0 indicates invalid read register
 static U32 gmch_register_write = 0;     // value=0 indicates invalid write register
+
+// global variable for tracking number of overflows per GMCH counter
+static U32 gmch_overflow[MAX_CHIPSET_COUNTERS];
 
 extern DRV_CONFIG        pcfg;
 extern CHIPSET_CONFIG    pma;
@@ -107,9 +127,13 @@ gmch_Init_Chipset (
             // initialize the GMCH counter state
             for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
                 pcb[i].chipset_count_init = TRUE;
-                for (j = 0; j < 8; j++) {
+                for (j = 0; j < MAX_CHIPSET_COUNTERS; j++) {
                     pcb[i].last_gmch_count[j] = 0;
                 }
+            }
+            // initialize the GMCH per-counter overflow numbers
+            for (i = 0; i < MAX_CHIPSET_COUNTERS; i++) {
+                gmch_overflow[i] = 0;  // only used if storing raw counts (i.e., GMCH_COMPUTE_DELTAS is undefined)
             }
             gmch = FORM_PCI_ADDR(0, 0, 0, 0);
             if (gmch != 0) {
@@ -185,9 +209,8 @@ gmch_Read_Counters (
     U32             gmch;
     U32             gmch_cpu;
     int             i, data_index;
-    U64             tmp_data;
+    U64             val;
     U64            *gmch_data;
-//  U64             gmch_data_valid[1]; // tbd: add this to the data stream ...
     U32             counter_data_low;
     U32             counter_data_high;
     U64             counter_data;
@@ -211,17 +234,30 @@ gmch_Read_Counters (
         //       the GMCH counters on interrupt ...
         //
 
-        // place in sample record where GMCH data will be written as gmch_data[0], gmch_data[1], ...
+	// Write GroupID
+        data[data_index] = 1;
+        // Increment the data index as the event id starts from zero
+        data_index++;
+        
+	// place in sample record where GMCH data will be written as gmch_data[0], gmch_data[1], ...
         gmch_data = data + data_index;
 
-        // tbd: initially mark GMCH data as invalid
-        // gmch_data_valid[0] = DATA_IS_INVALID;  
+        // decide whether current CPU or default CPU 0 will handle the GMCH read
+        gmch_cpu = (CHIPSET_CONFIG_host_proc_run(pma)) ? this_cpu : 0;
 
         // first cpu to grab the lock gets to read the GMCH counters
-        if (cmpxchg(&lock_gmch_read, 0, 1) != 0) {
-            return;  // failed to grab lock, so return
+        if (cmpxchg(&lock_gmch_read,   // variable to update
+                    0,                 // old value to compare
+                    1)) {              // new value to use
+#if !defined(GMCH_COMPUTE_DELTAS)
+            for (i = 0; i < CHIPSET_SEGMENT_total_events(gmch_chipset_seg); i++) {
+                // save the previous count as the current count (i.e., unchanged)
+                gmch_data[i] = pcb[gmch_cpu].last_gmch_count[i];
+            }
+#endif
+            return;  // failed to grab the lock, so return
         }
-        
+
         // read the GMCH counters and add them into the sample record
         gmch = FORM_PCI_ADDR(0, 0, 0, 0);
         if (gmch == 0) {
@@ -283,17 +319,19 @@ gmch_Read_Counters (
         if (pcb[this_cpu].chipset_count_init == TRUE) {
             for (i = 0; i < CHIPSET_SEGMENT_total_events(gmch_chipset_seg); i++) {
                 pcb[this_cpu].last_gmch_count[i] = gmch_data[i];
+                gmch_overflow[i] = 0;
             }
         }
 
-        gmch_cpu = (CHIPSET_CONFIG_host_proc_run(pma)) ? this_cpu : 0;
-        // tbd: assume the GMCH data is valid
-        // gmch_data_valid[0] = DATA_IS_VALID;
+        // for all counters - save the count data to the sampling stream
         for (i = 0; i < CHIPSET_SEGMENT_total_events(gmch_chipset_seg); i++) {
             U32 event_id = CHIPSET_EVENT_event_id(&chipset_events[i]);
             U64 overflow = (event_id == 0) ? GMCH_PMON_FIXED_CTR_OVF_VAL : GMCH_PMON_GP_CTR_OVF_VAL;
+            // discard higher-order bits (which may contain garbage), only keep relevant lower-order bits
+            gmch_data[i] &= overflow;
+#if defined(GMCH_COMPUTE_DELTAS)
             // get the current count
-            tmp_data = gmch_data[i];
+            val = gmch_data[i];    // in this context, val represents the non-running count
             // if the current count is bigger than the previous one, then the counter overflowed
             // so make sure the delta gets adjusted to account for it
             if (gmch_data[i] < pcb[gmch_cpu].last_gmch_count[i]) {
@@ -303,13 +341,16 @@ gmch_Read_Counters (
             else {
                 gmch_data[i] = gmch_data[i] - pcb[gmch_cpu].last_gmch_count[i];
             }
-            // tbd: if the delta exceeds the overflow value, then mark the GMCH data as invalid
-            if (gmch_data[i] >= overflow) {
-               // gmch_data_valid[0] = DATA_OUT_OF_RANGE;
-               gmch_data[i] = 0;
+#else       // just keep track of raw count for this counter
+            // if the current count is bigger than the previous one, then the counter overflowed
+            if (gmch_data[i] < pcb[gmch_cpu].last_gmch_count[i]) {
+                gmch_overflow[i]++;
             }
+            gmch_data[i] = gmch_data[i] + gmch_overflow[i]*overflow;
+            val = gmch_data[i];  // in this context, val represents the *running* count!
+#endif
             // save the current count
-            pcb[gmch_cpu].last_gmch_count[i] = tmp_data;
+            pcb[gmch_cpu].last_gmch_count[i] = val;
         }
     }
 

@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,9 +26,6 @@
     the GNU General Public License.
 */
 
-/*
- * cvs_id[] = "$Id$"
- */
 
 #ifndef _SYS_INFO_H_
 #define _SYS_INFO_H_
@@ -121,4 +118,4 @@ typedef struct __config_info_2 {
 } CONFIG_INFO_2, *PCONFIG_INFO_2;
 #endif
 
-#endif  /* _SYS_INFO_H_ */
+#endif  

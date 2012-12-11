@@ -156,28 +156,28 @@ extern "C" {
 
 #define END_FOR_EACH_REG_ENTRY_UNC  }}
 
-#define FOR_EACH_PCI_DATA_REG(pecb,i, device_idx, offset_delta) {                                                   \
-    U32                 (i)    = 0;                                                                     \
-    ECB                 (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];             \
-    for ((i) = ECB_data_start(pecb);                                                                    \
-         (i) < ECB_data_start(pecb)+ECB_data_pop(pecb);                                                 \
-         (i)++) {                                                                                       \
-        if (ECB_entries_pci_id_offset((pecb),(i)) == 0) {                                               \
-            continue;                                                                                   \
-        }                                                                                               \
-        (offset_delta) =  ECB_entries_pci_id_offset(pecb,i) -                                           \
+#define FOR_EACH_PCI_DATA_REG(pecb,i, device_idx, offset_delta) {                                 \
+    U32                 (i)    = 0;                                                                \
+    ECB                 (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];        \
+    for ((i) = ECB_data_start(pecb);                                                               \
+         (i) < ECB_data_start(pecb)+ECB_data_pop(pecb);                                            \
+         (i)++) {                                                                                  \
+        if (ECB_entries_pci_id_offset((pecb),(i)) == 0) {                                          \
+            continue;                                                                              \
+        }                                                                                          \
+        (offset_delta) =  ECB_entries_pci_id_offset(pecb,i) -                                      \
                           DRV_PCI_DEVICE_ENTRY_base_offset_for_mmio(&ECB_pcidev_entry_node(pecb));  
 
 #define END_FOR_EACH_PCI_DATA_REG    } }   
 
-#define FOR_EACH_PCI_DATA_REG_RAW(pecb,i, device_idx ) {                                                 \
-    U32                 (i)    = 0;                                                                     \
-    ECB                 (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];             \
-    for ((i) = ECB_data_start(pecb);                                                                    \
-         (i) < ECB_data_start(pecb)+ECB_data_pop(pecb);                                                 \
-         (i)++) {                                                                                       \
-        if (ECB_entries_pci_id_offset((pecb),(i)) == 0) {                                               \
-            continue;                                                                                   \
+#define FOR_EACH_PCI_DATA_REG_RAW(pecb,i, device_idx ) {                                           \
+    U32                 (i)    = 0;                                                                \
+    ECB                 (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];        \
+    for ((i) = ECB_data_start(pecb);                                                               \
+         (i) < ECB_data_start(pecb)+ECB_data_pop(pecb);                                            \
+         (i)++) {                                                                                  \
+        if (ECB_entries_pci_id_offset((pecb),(i)) == 0) {                                          \
+            continue;                                                                              \
         }                                                                                               
 
 #define END_FOR_EACH_PCI_DATA_REG_RAW    } }
@@ -194,51 +194,8 @@ extern "C" {
 
 #define END_FOR_EACH_PCI_CCCR_REG_RAW   } }
 
-#define FOR_EACH_PCI_REG_RAW(pecb, i, device_idx ) {                                              \
-    U32                 (i)    = 0;                                                               \
-    ECB                 (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];       \
-    for ((i) = 0;                                                                                 \
-         (i) < ECB_num_entries(pecb);                                                             \
-         (i)++) {                                                                                 \
-        if (ECB_entries_pci_id_offset((pecb),(i)) == 0) {                                         \
-            continue;                                                                             \
-        }
-
-#define END_FOR_EACH_PCI_REG_RAW   } }
-
-#define FOR_EACH_DATA_REG_UNC_VER2(pecb,i, device_idx ) {                                                 \
-    U32            (i)    = 0;                                                                            \
-    ECB            (pecb) = LWPMU_DEVICE_PMU_register_data(&devices[(device_idx)])[0];                    \
-    for ((i) = ECB_data_start(pecb);                                                                      \
-         (i) < ECB_data_start(pecb)+ECB_data_pop(pecb);                                                   \
-         (i)++) {                                                                                         \
-         if ((ECB_flags(pecb) & ECB_pci_id_offset_bit)  && (ECB_entries_pci_id_offset(pecb,i) == 0) ){    \
-              continue;                                                                                   \
-         }                                                                                                \
-         else if (ECB_entries_reg_id(pecb,i) == 0) {                                                      \
-                 continue;                                                                                \
-         }                                                                                                \
-         if (ECB_entries_emon_event_id_index_local(pecb_unc, k)) {                                        \
-                 continue;                                                                                \
-         }
-
-#define END_FOR_EACH_DATA_REG_UNC_VER2    } }
-
-#define CHECK_SAVE_RESTORE_EVENT_INDEX(prev_ei, cur_ei, evt_index)  {                                   \
-        if (prev_ei == 0) {                                                                             \
-            prev_ei = cur_ei;                                                                           \
-        }                                                                                               \
-        if (prev_ei < cur_ei) {                                                                         \
-            prev_ei = cur_ei;                                                                           \
-            evt_index++;                                                                                \
-        }                                                                                               \
-        else {                                                                                          \
-             evt_index = 0;                                                                             \
-             prev_ei = cur_ei;                                                                          \
-        }}                                                                                              
-
 #if defined(__cplusplus)
 }
 #endif
 
-#endif 
+#endif /* _ECB_ITERATORS_H_ */

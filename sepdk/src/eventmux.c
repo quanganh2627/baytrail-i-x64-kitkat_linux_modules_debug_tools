@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,14 +26,12 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  cvsid[] = "$Id$"
- */
 
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/jiffies.h>
 #include <linux/time.h>
+#include <linux/percpu.h>
 #include "lwpmudrv_types.h"
 #include "rise_errors.h"
 #include "lwpmudrv_ecb.h"
@@ -319,7 +317,7 @@ EVENTMUX_Initialize (
                      sizeof(S64);
 
     em_tables_size = GLOBAL_STATE_num_cpus(driver_state) * size_of_vector;
-    em_tables = CONTROL_Allocate_Large_Memory(em_tables_size);
+    em_tables = CONTROL_Allocate_Memory(em_tables_size);
     CONTROL_Invoke_Parallel(eventmux_Allocate_Groups,
                             (VOID *)&(size_of_vector));
     
@@ -357,7 +355,7 @@ EVENTMUX_Destroy (
         eventmux_Cancel_Timers();
     }
 
-    em_tables      = CONTROL_Free_Large_Memory(em_tables, em_tables_size);
+    em_tables      = CONTROL_Free_Memory(em_tables);
     em_tables_size = 0;
     CONTROL_Invoke_Parallel(eventmux_Deallocate_Groups, (VOID *)(size_t)0);
 }

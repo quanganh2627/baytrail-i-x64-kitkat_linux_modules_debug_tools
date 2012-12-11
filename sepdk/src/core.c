@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2002-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2002-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,10 +26,6 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  cvs_id[] = "$Id$"
- */
-
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/wait.h>
@@ -55,22 +51,22 @@ extern EVENT_CONFIG   global_ec;
 extern U64           *read_counter_info;
 extern DRV_CONFIG     pcfg;
 
-/*
- * core_Write_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core_Write_PMU(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    Initial set up of the PMU registers
+ *
+ * <I>Special Notes</I>
  *         Initial write of PMU registers.
  *         Walk through the enties and write the value of the register accordingly.
  *         Assumption:  For CCCR registers the enable bit is set to value 0.
  *         When current_group = 0, then this is the first time this routine is called,
  *         initialize the locks and set up EM tables.
- *
  */
 static VOID
 core_Write_PMU (
@@ -107,17 +103,15 @@ core_Write_PMU (
     return;
 }
 
-/*
- * core_Disable_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core_Disable_PMU(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Reset the enable bit for all the CCCR registers.
+ * @brief    Reset the enable bit for all the Control registers
  *
  */
 static VOID
@@ -125,10 +119,10 @@ core_Disable_PMU (
     PVOID  param
 )
 {
-    U64       val;
-
-    val = SYS_Read_MSR(IA32_PERFEVTSEL0);
-    SYS_Write_MSR(IA32_PERFEVTSEL0, (val & ~(CORE_ENABLE_BIT)));
+    U32        this_cpu = CONTROL_THIS_CPU();
+    CPU_STATE  pcpu     = &pcb[this_cpu];
+    ECB        pecb     = PMU_register_data[CPU_STATE_current_group(pcpu)];
+    SYS_Write_MSR(IA32_PERFEVTSEL0, ECB_entries_reg_value(pecb,0));
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_RUNNING) {
         APIC_Disable_PMI();
     }
@@ -136,17 +130,15 @@ core_Disable_PMU (
     return;
 }
 
-/*
- * core_Enable_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core_Enable_PMU(param)
  *
- *     Parameters
- *         UNUSED
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Set the enable bit for all the CCCR registers.
+ * @brief    Set the enable bit for all the Control registers
  *
  */
 static VOID
@@ -154,52 +146,26 @@ core_Enable_PMU (
     PVOID   param
 )
 {
-    U64       val;
-
+    U32        this_cpu = CONTROL_THIS_CPU();
+    CPU_STATE  pcpu     = &pcb[this_cpu];
+    ECB        pecb     = PMU_register_data[CPU_STATE_current_group(pcpu)];
     if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_RUNNING) {
         APIC_Enable_Pmi();
-        val = SYS_Read_MSR(IA32_PERFEVTSEL0);
-        SYS_Write_MSR(IA32_PERFEVTSEL0, (val | (CORE_ENABLE_BIT)));
+        SYS_Write_MSR(IA32_PERFEVTSEL0, (ECB_entries_reg_value(pecb,0) | CORE_ENABLE_BIT));
     }
 
     return;
 }
 
-/*
- * core_ReInit_Data
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void core_Check_Overflow(masks)
  *
- *     Parameters
- *         UNUSED
+ * @param    masks    the mask structure to populate
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         
- *         Called by the interrupt handler to reinitialize the counters
- *         before re-enabling the collection.
- *
- */
-static VOID
-core_ReInit_Data (
-    PVOID param
-)
-{
-    return;
-}
-
-/*
- * core_Check_Overflow
- *
- *     Parameters
- *         INOUT masks
- *
- *     Returns
- *         Event mask of the overflowed registers.
- *
- *     Description
- *         Called by the data processing method to figure out
- *         which registers have overflowed.
+ * @brief  Called by the data processing method to figure out which registers have overflowed.
  *
  */
 static void
@@ -251,20 +217,15 @@ core_Check_Overflow (
     return;
 }
 
-/*
- * core_Read_PMU_Data
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core_Read_PMU_Data(param)
  *
- *     Parameters
- *         OUT: buffer      - pointer to the output buffer
- *         IN:  start       - position of the first entry
- *         IN:  stop        - last possible entry to this buffer
+ * @param    param    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
- *         Read all the data MSR's into a buffer.
- *         Called by the interrupt handler.
+ * @brief    Read all the data MSR's into a buffer.  Called by the interrupt handler.
  *
  */
 static void
@@ -290,16 +251,17 @@ core_Read_PMU_Data (
     return;
 }
 
-/*
- * core_Swap_Group
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core_Swap_Group(restart)
  *
- *     Parameters
- *         IN restart
+ * @param    restart    dummy parameter which is not used
  *
- *     Returns
- *         NONE
+ * @return   None     No return needed
  *
- *     Description
+ * @brief    Perform the mechanics of swapping the event groups for event mux operations
+ *
+ * <I>Special Notes</I>
  *         Swap function for event multiplexing.
  *         Freeze the counting.
  *         Swap the groups.
@@ -365,6 +327,17 @@ core_Swap_Group (
     return;
 }
 
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn core_Clean_Up(param)
+ *
+ * @param    param    dummy parameter which is not used
+ *
+ * @return   None     No return needed
+ *
+ * @brief    Set all the registers with the cleanup bit to 0
+ *
+ */
 static VOID
 core_Clean_Up (
     VOID   *param
@@ -463,7 +436,6 @@ DISPATCH_NODE  core_dispatch =
     core_Write_PMU,        // write
     core_Disable_PMU,      // freeze
     core_Enable_PMU,       // restart
-    core_ReInit_Data,      // reinit
     core_Read_PMU_Data,    // read
     core_Check_Overflow,   // check for overflow
     core_Swap_Group,

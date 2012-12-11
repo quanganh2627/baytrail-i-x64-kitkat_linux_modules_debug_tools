@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-
-/*
- *  cvsid[] = "$Id$"
- */
 
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
@@ -96,21 +92,18 @@ sys_info_nbits (
     // adjust to 0 based number so we return 1 bit for value of 2
     //
     return (i-1);
-
 }
 
-/*
- * sys_info_Get_Num_Cpuid_Funcs
- *     Parameters
- *         OUT: basic_functions    - pointer to the number of basic functions
- *         OUT: basic_4_funcs      - pointer to the basic 4 functions
- *         OUT: extended_funcs     - pointer to the number of extended functions
- *     Returns
- *         total number of cpuid functions
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void sys_info_Get_Num_Cpuid_Funcs(basic_funcs, basic_4_funcs, extended_funcs)
  *
- *     Description
- *         This routine gets the number of basic and extended cpuid functions.
- *         structure.
+ * @param basic_functions    - pointer to the number of basic functions
+ * @param basic_4_funcs      - pointer to the basic 4 functions
+ * @param extended_funcs     - pointer to the number of extended functions
+ * @return total number of cpuid functions
+ *
+ * @brief  This routine gets the number of basic and extended cpuid functions.
  *
  */
 static U32
@@ -188,20 +181,19 @@ sys_info_Get_Num_Cpuid_Funcs (
     if (extended_funcs != NULL) {
         *extended_funcs = (U32) num_extended_funcs;
     }
+
     return ((U32) (num_basic_funcs + num_basic_4_funcs + num_extended_funcs));
 }
 #endif /* defined(DRV_IA32) || defined(DRV_EM64T) */
 
-/*
- * sys_info_Get_Cpuid_Entry_Count
- *     Parameters
- *         OUT: buffer    - pointer to the buffer to hold the info
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void sys_info_Get_Cpuid_Entry_Cpunt(buffer)
  *
- *     Returns
- *         NONE
+ * @param  buffer    - pointer to the buffer to hold the info
+ * @return None
  *
- *     Description
- *         Service Routine to query the CPU for the number of entries needed
+ * @brief  Service Routine to query the CPU for the number of entries needed
  *
  */
 static VOID
@@ -231,16 +223,15 @@ sys_info_Get_Cpuid_Entry_Count (
     return;
 }
 
-/*
- * sys_info_Get_Cpuid_Buffer_Size
- *     Parameters
- *         IN: cpuid_entries   - number of cpuid entries
- *     Returns
- *         size of buffer needed in bytes
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static U32 sys_info_Get_Cpuid_Buffer_Size(cpuid_entries)
  *
- *     Description
- *         This routine returns number of bytes needed to hold the CPU_CS_INFO
- *         structure.
+ * @param    cpuid_entries   - number of cpuid entries
+ * @return   size of buffer needed in bytes
+ *
+ * @brief  This routine returns number of bytes needed to hold the CPU_CS_INFO
+ * @brief  structure.
  *
  */
 static U32
@@ -368,23 +359,22 @@ sys_info_Fill_CPUID (
 #endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * sys_info_Fill_CPUID
- *     Parameters
- *         num_cpuids,
- *         basic_funcs,
- *         extended_funcs,
- *         cpu,
- *        *current_cpuid
- *        *gen_per_cpu,
- *        *local_gpc
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void sys_info_Fill_CPUID(...)
  *
- *     Returns
- *         NONE
+ * @param        num_cpuids,
+ * @param        basic_funcs,
+ * @param        extended_funcs,
+ * @param        cpu,
+ * @param       *current_cpuid
+ * @param       *gen_per_cpu,
+ * @param       *local_gpc
  *
- *     Description
- *         This routine is called to build per cpu information.
- *         Fills in the cpuid for the processor in the right location in the buffer
+ * @return   None
+ *
+ * @brief  This routine is called to build per cpu information.
+ * @brief  Fills in the cpuid for the processor in the right location in the buffer
  *
  */
 static void
@@ -553,22 +543,21 @@ sys_info_Fill_CPUID (
     VTSA_GEN_PER_CPU_cpu_core_num(local_gpc)               = (U16)core_id;
     VTSA_GEN_PER_CPU_cpu_hw_thread_num(local_gpc)          = (U16)thread_id;
     VTSA_GEN_PER_CPU_cpu_threads_per_core(local_gpc)       = (U16)threads_per_core;
+    
+    core_to_package_map[cpu] = package_id;
 
     return;
 }
 #endif
 
-
-/*
- * sys_info_Build_Percpu
- *     Parameters
- *         buffer  -  points to the base of GEN_PER_CPU structure
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void sys_info_Build_Percpu(buffer)
  *
- *     Returns
- *         NONE
+ * @param    buffer  -  points to the base of GEN_PER_CPU structure
+ * @return   None
  *
- *     Description
- *         This routine is called to build per cpu information.
+ * @brief  This routine is called to build per cpu information.
  *
  */
 static VOID
@@ -684,22 +673,20 @@ sys_info_Build_Percpu (
 
 #if defined(DRV_IA64)
     sys_info_Fill_CPUID (num_cpuids, cpu, current_cpuid, gen_per_cpu, local_gpc);
-#endif /* DRV_IA64 */
+#endif
 
     return;
 }
 
-
-/*
- * SYS_INFO_Build
- *     Parameters
- *         None
- *     Returns
- *         size of buffer needed to transfer the generated data back to the caller
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void SYS_Info_Build(void)
  *
- *     Description
- *         This is the driver routine that constructs the VTSA_SYS_INFO
- *         structure used to report system information into the tb5 file
+ * @param    None
+ * @return   None
+ *
+ * @brief  This is the driver routine that constructs the VTSA_SYS_INFO
+ * @brief  structure used to report system information into the tb5 file
  *
  */
 extern U32
@@ -754,7 +741,7 @@ SYS_INFO_Build (
     }
 
     ioctl_sys_info_size = sys_info_Get_Cpuid_Buffer_Size(total_cpuid_entries);
-    ioctl_sys_info      = CONTROL_Allocate_Large_Memory(ioctl_sys_info_size);
+    ioctl_sys_info      = CONTROL_Allocate_Memory(ioctl_sys_info_size);
     if (ioctl_sys_info == NULL) {
         SEP_PRINT_ERROR("SYS_INFO_Build: memory alloc failed\n");
         cpuid_entry_count = CONTROL_Free_Memory(cpuid_entry_count);
@@ -867,19 +854,15 @@ SYS_INFO_Build (
     return ioctl_sys_info_size - sizeof(GENERIC_IOCTL);
 }
 
-/*
- * SYS_INFO_Transfer
- *     Parameters
- *         out_buf      - pointer to the buffer to write the data into
- *         out_buf_len  - length of the buffer passed in
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void SYS_Info_Transfer(out_buf, out_buf_len)
  *
- *     Description
- *         Transfer the data collected via the SYS_INFO_Build routine
- *         back to the caller.
- *         Free up the memory that was used to collect the data
- *         If there is no data collected, do nothing and silently return to the user
+ * @param  out_buf      - pointer to the buffer to write the data into
+ * @param  out_buf_len  - length of the buffer passed in
+ *
+ * @brief  Transfer the data collected via the SYS_INFO_Build routine
+ * @brief  back to the caller.
  *
  */
 extern VOID
@@ -907,22 +890,22 @@ SYS_INFO_Transfer (
     return;
 }
 
-/*
- * SYS_INFO_Destroy
- *     Parameters
- *        None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void SYS_Info_Destroy(void)
  *
- *     Description
- *         Free any memory associated with the sys info before unloading the driver
+ * @param    None
+ * @return   None
+ *
+ * @brief  Free any memory associated with the sys info before unloading the driver
  *
  */
 extern VOID
 SYS_INFO_Destroy (
+    void
 )
 {
-    ioctl_sys_info      = CONTROL_Free_Large_Memory(ioctl_sys_info, ioctl_sys_info_size);
+    ioctl_sys_info      = CONTROL_Free_Memory(ioctl_sys_info);
     ioctl_sys_info_size = 0;
 
     return;

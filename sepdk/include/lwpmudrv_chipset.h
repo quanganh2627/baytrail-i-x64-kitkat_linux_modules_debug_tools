@@ -5,7 +5,7 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2007-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2007-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
@@ -17,7 +17,13 @@ extern "C" {
 #endif
 
 #define MAX_CHIPSET_EVENT_NAME  64
-#define MAX_CHIPSET_COUNTERS    16
+#define MAX_CHIPSET_COUNTERS    5  // TODO: this covers 1 fixed counter
+                                   // plus 4 general counters on GMCH;
+                                   // for other chipset devices, this
+                                   // can vary from 8 to 32; might consider
+                                   // making this per-chipset-type since
+                                   // event-multiplexing is currently not
+                                   // supported for chipset collections
 
 #if defined(_NTDDK_)
 #define CHIPSET_PHYS_ADDRESS PHYSICAL_ADDRESS
@@ -251,8 +257,11 @@ struct CHAP_INTERFACE_NODE_S {
 #define CDV_GMCH_REGISTER_READ          0x10000000
 #define CDV_GMCH_REGISTER_WRITE         0x11000000
 
+//#define GMCH_COMPUTE_DELTAS             1           // use event count deltas instead of raw counts
+
 #if defined(__cplusplus)
 }
 #endif
 
-#endif  /* _LWPMUDRV_CHIPSET_H_ */
+#endif
+

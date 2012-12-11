@@ -5,12 +5,11 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2010-2011 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2010-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 /*
  *  File  : lwpmudrv_version.h
- *  cvsid[] = "$Id: lwpmudrv_version.h 203263 2011-12-09 07:15:49Z hmaiya $"
  */
 
 #ifndef _LWPMUDRV_VERSION_H_
@@ -24,7 +23,7 @@
 #define STRINGIFY_W(x)    _STRINGIFY_W(x)
 
 #define SEP_MAJOR_VERSION 3
-#define SEP_MINOR_VERSION 7
+#define SEP_MINOR_VERSION 9
 #define SEP_API_VERSION   1
 
 #define SEP_NAME          "sep"
@@ -41,7 +40,7 @@
 
 #endif
 
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 
 #define SEP_DRIVER_NAME   SEP_NAME""STRINGIFY(SEP_MAJOR_VERSION)"_"STRINGIFY(SEP_MINOR_VERSION)
 #define SEP_SAMPLES_NAME  SEP_DRIVER_NAME"_s"
@@ -65,4 +64,5 @@
 #define SEP_DRIVER_MODE ""
 #endif
 
-#endif /* _LWPMUDRV_VERSION_H_ */
+#endif
+

@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-
-/*
- *  CVS_Id="$Id: pmi.c 188550 2011-09-08 17:33:28Z jevillac $"
- */
 
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
@@ -154,6 +150,7 @@ PMI_Interrupt_Handler (
                 if (!psamp) {
                     continue;
                 }
+                CPU_STATE_num_samples(pcpu)           += 1;
                 SAMPLE_RECORD_descriptor_id(psamp)     = desc_id;
                 SAMPLE_RECORD_tsc(psamp)               = tsc;
                 SAMPLE_RECORD_pid_rec_index_raw(psamp) = 1;
@@ -384,6 +381,7 @@ PMI_Interrupt_Handler (
                 if (!psamp) {
                     continue;
                 }
+                CPU_STATE_num_samples(pcpu)           += 1;
                 SAMPLE_RECORD_descriptor_id(psamp)     = desc_id;
                 SAMPLE_RECORD_tsc(psamp)               = tsc;
                 SAMPLE_RECORD_pid_rec_index_raw(psamp) = 1;
@@ -480,7 +478,7 @@ PMI_Interrupt_Handler (
                         }
                     }
                 }
-            } // for 
+            }
         }
     }
     if (DRV_CONFIG_pebs_mode(pcfg)) {
@@ -575,6 +573,7 @@ pmi_Handler (
                 // There could be fields in the sample which are not used;  therefore must zero.
                 memset(psamp, 0, EVENT_DESC_sample_size(evt_desc));
 
+                CPU_STATE_num_samples(pcpu)           += 1;
                 /* Init bitfields. */
                 SAMPLE_RECORD_cpu_and_os(psamp)        = 0;
                 SAMPLE_RECORD_bit_fields2(psamp)       = 0;

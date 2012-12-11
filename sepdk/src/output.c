@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,11 +26,6 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-/*
- *  CVS_Id="$Id$"
- */
-
-//#define MYDEBUG
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/errno.h>
@@ -59,9 +54,9 @@
  */
 static wait_queue_head_t flush_queue;
 static atomic_t          flush_writers;
-
 static volatile int      flush = 0;
 
+extern S32               abnormal_terminate;
 
 /*
  *  @fn output_Free_Buffers(output, size)
@@ -85,7 +80,7 @@ output_Free_Buffers (
     }
     outbuf = &BUFFER_DESC_outbuf(buffer);
     for (j = 0; j < OUTPUT_NUM_BUFFERS; j++) {
-        CONTROL_Free_Large_Memory(OUTPUT_buffer(outbuf,j),size);
+        CONTROL_Free_Memory(OUTPUT_buffer(outbuf,j));
         OUTPUT_buffer(outbuf,j) = NULL;
     }
 
@@ -289,31 +284,37 @@ output_Read (
 #else
         if (wait_event_interruptible(BUFFER_DESC_queue(kernel_buf),
                                  flush||OUTPUT_buffer_full(outbuf, cur_buf))) {
-            return -ERESTARTSYS;
+            return OS_RESTART_SYSCALL;
         }
 #endif
         SEP_PRINT_DEBUG("Get to copy\n", (S32)cur_buf);
         to_copy = OUTPUT_buffer_full(outbuf, cur_buf);
-        SEP_PRINT_DEBUG("output_Read awakened, buffer %d has %d bytes\n",cur_buf,to_copy );
+        SEP_PRINT_DEBUG("output_Read awakened, buffer %d has %d bytes\n",cur_buf, (int)to_copy );
     }
 
     /* Ensure that the user's buffer is large enough */
     if (to_copy > count) {
         SEP_PRINT_DEBUG("user buffer is too small\n");
-        return -ENOMEM;
+        return OS_NO_MEM;
     }
 
     /* Copy data to user space. Note that we use cur_buf as the source */ 
-    uncopied = copy_to_user(buf,
-                            OUTPUT_buffer(outbuf, cur_buf),
-                            to_copy);
-    /* Mark the buffer empty */
-    OUTPUT_buffer_full(outbuf, cur_buf) = 0;
-    *f_pos += to_copy-uncopied;
-    if (uncopied) {
-        SEP_PRINT_DEBUG("only copied %d of %lld bytes of module records\n", 
-                        (S32)to_copy, (long long)uncopied);
-        return (to_copy - uncopied);
+    if (abnormal_terminate == 0) {
+        uncopied = copy_to_user(buf,
+                                OUTPUT_buffer(outbuf, cur_buf),
+                                to_copy);
+        /* Mark the buffer empty */
+        OUTPUT_buffer_full(outbuf, cur_buf) = 0;
+        *f_pos += to_copy-uncopied;
+        if (uncopied) {
+            SEP_PRINT_DEBUG("only copied %d of %lld bytes of module records\n", 
+                    (S32)to_copy, (long long)uncopied);
+            return (to_copy - uncopied);
+        }
+    }
+    else {
+        to_copy = 0;
+        SEP_PRINT_DEBUG("to copy set to 0\n");
     }
 
     // At end-of-file, decrement the count of active buffer writers
@@ -404,18 +405,18 @@ OUTPUT_Sample_Read (
 
     return output_Read(filp, buf, count, f_pos, &(cpu_buf[i]));
 }
+
 /*
  *  @fn output_Initialized_Buffers()
  *
  *  @result OUTPUT
  *  @brief  Allocate, initialize, and return an output data structure
  *
+ * <I>Special Notes:</I>
  *     Multiple (OUTPUT_NUM_BUFFERS) buffers will be allocated
  *     Each buffer is of size (OUTPUT_BUFFER_SIZE)
  *     Each field in the buffer is initialized
  *     The event queue for the OUTPUT is initialized
- *
- * <I>Special Notes:</I>
  *
  */
 static BUFFER_DESC
@@ -440,7 +441,7 @@ output_Initialized_Buffers (
     spin_lock_init(&OUTPUT_buffer_lock(outbuf));
     for (j = 0; j < OUTPUT_NUM_BUFFERS; j++) {
         if (OUTPUT_buffer(outbuf,j) == NULL) {
-            OUTPUT_buffer(outbuf,j) = CONTROL_Allocate_Large_Memory(OUTPUT_BUFFER_SIZE);
+            OUTPUT_buffer(outbuf,j) = CONTROL_Allocate_Memory(OUTPUT_BUFFER_SIZE);
         }
         OUTPUT_buffer_full(outbuf,j) = 0;
         if (!OUTPUT_buffer(outbuf,j)) {
@@ -459,17 +460,14 @@ output_Initialized_Buffers (
 }
 
 /*
- *  OUTPUT_Initialize
+ *  @fn extern void OUTPUT_Initialize(buffer, len)
  *
- *    Arguments:
- *      buffer  -  seed name of the output file
- *      len     -  length of the seed name
+ *  @param   buffer  -  seed name of the output file
+ *  @param   len     -  length of the seed name
+ *  @returns None
+ *  @brief  Allocate, initialize, and return all output data structure
  *
- *    Return Value:
- *      none
- *
- * Routine Description:
- *
+ * <I>Special Notes:</I>
  *      Initialize the output structures.
  *      For each CPU in the system, allocate the output buffers.
  *      Initialize a module buffer and temp file to hold module information
@@ -521,8 +519,9 @@ OUTPUT_Flush (
     VOID
 )
 {
-    int              i;
-    OUTPUT           outbuf;
+    int        i;
+    int        writers = 0;
+    OUTPUT     outbuf;
 
     /*
      *  Flush all remaining data to files
@@ -530,19 +529,26 @@ OUTPUT_Flush (
      */
     init_waitqueue_head(&flush_queue);
     SEP_PRINT_DEBUG("flush: waiting for %d writers\n",(GLOBAL_STATE_num_cpus(driver_state)+ OTHER_C_DEVICES));
-    atomic_set(&flush_writers, GLOBAL_STATE_num_cpus(driver_state) + OTHER_C_DEVICES);   
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+        if (CPU_STATE_initial_mask(&pcb[i]) == 0) {
+            continue;
+        }
         outbuf = &(cpu_buf[i].outbuf);
+        writers += 1;
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-               OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
     }
+    atomic_set(&flush_writers, writers + OTHER_C_DEVICES);   
     // Flip the switch to terminate the output threads
     // Do not do this earlier, as threads may terminate before all the data is flushed
     flush = 1;
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+        if (CPU_STATE_initial_mask(&pcb[i]) == 0) {
+            continue;
+        }
         outbuf = &BUFFER_DESC_outbuf(&cpu_buf[i]);
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-          OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
         wake_up_interruptible_sync(&BUFFER_DESC_queue(&cpu_buf[i]));
     }
 
@@ -556,27 +562,25 @@ OUTPUT_Flush (
 
     //Wait for buffers to empty
     if (wait_event_interruptible(flush_queue, atomic_read(&flush_writers)==0)) {
-        return -ERESTARTSYS;
+        return OS_RESTART_SYSCALL;
     }
     SEP_PRINT_DEBUG("OUTPUT_Flush - awakened from flush_queue\n");
     flush = 0;
 
     return 0;
 }
+
 /*
- *  OUTPUT_Destroy
+ *  @fn extern void OUTPUT_Destroy()
  *
- *    Arguments:
- *      none
+ *  @param   buffer  -  seed name of the output file
+ *  @param   len     -  length of the seed name
+ *  @returns OS_STATUS
+ *  @brief   Deallocate output structures
  *
- *    Return Value:
- *      OS_STATUS 
- *
- * Routine Description:
- *
+ * <I>Special Notes:</I>
  *      Free the module buffers
  *      For each CPU in the system, free the sampling buffers
- *
  */
 extern int 
 OUTPUT_Destroy (

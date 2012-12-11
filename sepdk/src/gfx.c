@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright 2009-2011 Intel Corporation.
+    Copyright 2009-2012 Intel Corporation.
 
     This file is part of SEP Development Kit
 
@@ -25,9 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-/*
- * cvs_id = "$Id$"
- */
 
 #include <asm/page.h>
 #include <asm/uaccess.h>
@@ -41,134 +38,135 @@
 #include "lwpmudrv.h"
 #include "gfx.h"
 
-static char* virtual_addr    = NULL;
-static U32   gfx_code        = GFX_CTRL_DISABLE;
+static char *gfx_virtual_addr    = NULL;
+static U32   gfx_code            = GFX_CTRL_DISABLE;
 static U32   gfx_counter[GFX_NUM_COUNTERS] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+static U32   gfx_overflow[GFX_NUM_COUNTERS] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-volatile int in_read = 0;
-
-/*
- * GFX_Read
- *     Parameters
- *         S8  *buffer  - buffer to read the count into
- *     Returns
- *         OS_STATUS
+/*!
+ * @fn     OS_STATUS GFX_Read
  *
- *     Description
- *         Reads the counters into the buffer provided for the purpose
+ * @brief  Reads the counters into the buffer provided for the purpose
  *
+ * @param  buffer  - buffer to read the counts into
+ *
+ * @return STATUS_SUCCESS if read succeeded, otherwise error
+ *
+ * @note 
  */
-extern U32
+extern OS_STATUS
 GFX_Read (
     S8 *buffer
 )
 {
-    char *reg_addr = virtual_addr + GFX_PERF_REG;
-    U32  *samp     = (U32 *)buffer;
-    //    U64  *samp     = (U64 *)buffer;
+    U64  *samp  = (U64 *)buffer;
     U32   i;
     U32   val;
+    char *reg_addr;
 
-    SEP_PRINT_DEBUG("Entered Read\n");
-
-    /* GFX counting not specified */
-    if (virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
-        SEP_PRINT_DEBUG("GFX_Read: virtual_addr=0x%x, gfx_code=0x%x\n", virtual_addr, gfx_code);
-        SEP_PRINT_DEBUG("GFX_Read: skipping ... invalid graphics configuration\n");
-        return OS_SUCCESS;
-
+    // GFX counting was not specified
+    if (gfx_virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
+        return OS_INVALID;
     }
 
-    if (in_read == 1) {
-        return OS_SUCCESS;
+    // check for sampling buffer
+    if (! samp) {
+        return OS_INVALID;
     }
 
-    in_read = 1;
+    // set the GFX register address
+    reg_addr = gfx_virtual_addr + GFX_PERF_REG;
 
-    /* For all counters - get the value of the counter */
+    // for all counters - save the information to the sampling stream
     for (i = 0; i < GFX_NUM_COUNTERS; i++) {
+        // read the ith GFX event count
         reg_addr += 4;
         val = *(U32 *)(reg_addr);
-        SEP_PRINT_DEBUG("Reg 0x%x has value 0x%x\n", i, (val - gfx_counter[i]));
-        if (samp) {
-            if (val < gfx_counter[i]) {
-                samp[i] = val + ((U32)(-1) - gfx_counter[i]);
-            }
-            else {
-                samp[i] = val - gfx_counter[i];
-            }
+#if defined(GFX_COMPUTE_DELTAS)
+        // if the current count is bigger than the previous one, then the counter overflowed
+        // so make sure the delta gets adjusted to account for it
+        if (val < gfx_counter[i]) {
+            samp[i] = val + (GFX_CTR_OVF_VAL - gfx_counter[i]);
         }
-        // Debug code only.. print the register values on entry and exit
         else {
-            SEP_PRINT_DEBUG("Reg 0x%x has value 0x%x\n", i, (val - gfx_counter[i]));
+            samp[i] = val - gfx_counter[i];
         }
+#else   // just keep track of raw count for this counter
+        // if the current count is bigger than the previous one, then the counter overflowed
+        if (val < gfx_counter[i]) {
+            gfx_overflow[i]++;
+        }
+        samp[i] = val + gfx_overflow[i]*GFX_CTR_OVF_VAL;
+#endif
+        // save the current count
         gfx_counter[i] = val;
     }
-
-    in_read = 0;
 
     return OS_SUCCESS;
 }
 
-/*
- * GFX_Set_Event_Code
- *     Parameters
- *         NONE
- *     Returns
- *         OS_STATUS
+/*!
+ * @fn     OS_STATUS GFX_Set_Event_Code
  *
- *     Description
- *         Programs the Graphics PMU with the right event code
+ * @brief  Programs the Graphics PMU with the right event code
  *
+ * @param  arg - buffer containing graphics event code
+ *
+ * @return STATUS_SUCCESS if success, otherwise error
+ *
+ * @note 
  */
-extern U32
+extern OS_STATUS
 GFX_Set_Event_Code (
     IOCTL_ARGS arg
 )
 {
-    OS_STATUS  result;
     U32        i;
     char      *reg_addr;
     U32        reg_value;
 
-    result = get_user(gfx_code, (int*)arg->w_buf);
-    SEP_PRINT("GFX_Set_Event_Code: gfx_code=0x%x\n", gfx_code);
+    // extract the graphics event code from usermode
+    if (get_user(gfx_code, (int*)arg->w_buf)) {
+        SEP_PRINT_ERROR("GFX_Set_Event_Code: unable to obtain gfx_code from usermode!\n");
+        return OS_FAULT;
+    }
+    SEP_PRINT_DEBUG("GFX_Set_Event_Code: got gfx_code=0x%x\n", gfx_code);
 
-    /* Read the control word for perf counters */
-    if (virtual_addr == NULL) {
-        virtual_addr = (char *)(UIOP) ioremap_nocache (GFX_BASE_ADDRESS+GFX_BASE_NEW_OFFSET, PAGE_SIZE);
+    // memory map the address to GFX counters, if not already done
+    if (gfx_virtual_addr == NULL) {
+        gfx_virtual_addr = (char *)(UIOP)ioremap_nocache(GFX_BASE_ADDRESS + GFX_BASE_NEW_OFFSET, PAGE_SIZE);
     }
 
+    // initialize the GFX counts
     for (i =  0; i < GFX_NUM_COUNTERS; i++) {
         gfx_counter[i] = 0;
+        gfx_overflow[i] = 0;  // only used if storing raw counts (i.e., GFX_COMPUTE_DELTAS is undefined)
     }
 
-    reg_addr = virtual_addr + GFX_PERF_REG;
-    SEP_PRINT("GFX_Set_Event_Code: reg_addr=0x%p\n", reg_addr);
-
+    // get current GFX event code
+    reg_addr = gfx_virtual_addr + GFX_PERF_REG;
     reg_value = *(U32 *)(reg_addr);
-    SEP_PRINT("GFX_Set_Event_Code: reg_value=0x%x\n", reg_value);
+    SEP_PRINT_DEBUG("GFX_Set_Event_Code: read reg_value=0x%x from reg_addr=0x%p\n", reg_value, reg_addr);
 
-    /* Update the perf counter group */
-    /* Write the perf counter group with reset = 1 for all counters*/
+    /* Update the GFX counter group */
+    // write the GFX counter group with reset = 1 for all counters
     reg_value = (gfx_code | GFX_REG_CTR_CTRL);
     *(U32 *)(reg_addr) = reg_value;
+    SEP_PRINT_DEBUG("GFX_Set_Event_Code: wrote reg_value=0x%x to reg_addr=0x%p\n", reg_value, reg_addr);
 
-    SEP_PRINT("GFX_Set_Event_Code: write reg_value to reg_addr\n");
-
-    return result;
+    return OS_SUCCESS;
 }
 
-/*
- * GFX_Start
- *     Parameters
- *         NONE
- *     Returns
- *         OS_STATUS
+/*!
+ * @fn     OS_STATUS GFX_Start
  *
- *     Description
- *         Starts the count of the Graphics PMU
+ * @brief  Starts the count of the Graphics PMU
  *
+ * @param  NONE
+ *
+ * @return OS_SUCCESS if success, otherwise error
+ *
+ * @note 
  */
 extern OS_STATUS
 GFX_Start (
@@ -178,67 +176,60 @@ GFX_Start (
     U32   reg_value;
     char *reg_addr;
 
-    SEP_PRINT("GFX_Start: inside\n");
-
-    /* GFX counting not specified */
-    if (virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
-        SEP_PRINT("GFX_Start: virtual_addr=0x%p, gfx_code=0x%x\n", virtual_addr, gfx_code);
-        SEP_PRINT("GFX_Start: skipping ... invalid graphics configuration\n");
-        return OS_SUCCESS;
+    // GFX counting was not specified
+    if (gfx_virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
+        SEP_PRINT_ERROR("GFX_Start: invalid gfx_virtual_addr=0x%p or gfx_code=0x%x\n", gfx_virtual_addr, gfx_code);
+        return OS_INVALID;
     }
 
-    reg_addr = virtual_addr + GFX_PERF_REG;
-    /* Write the perf counter group with reset = 0 for all counters*/
-    /* The counter reset control will all be zero regardless */
-    SEP_PRINT_DEBUG("Using GFX code 0x%x\n", gfx_code);
+    // turn on GFX counters as per event code
+    reg_addr = gfx_virtual_addr + GFX_PERF_REG;
     *(U32 *)(reg_addr) = gfx_code;
 
+    // verify event code was written properly
     reg_value = *(U32 *)reg_addr;
     if (reg_value != gfx_code) {
-        SEP_PRINT_ERROR("GFX Control 0x%x, expected 0x%x\n", reg_value, gfx_code);
+        SEP_PRINT_ERROR("GFX_Start: got register value 0x%x, expected 0x%x\n", reg_value, gfx_code);
+        return OS_INVALID;
     }
-
-    /* Initialize the counter values. */
-    GFX_Read(NULL);
-
-    SEP_PRINT("GFX_Start: exiting\n");
 
     return OS_SUCCESS;
 }
 
-/*
- * GFX_Stop
- *     Parameters
- *         NONE
- *     Returns
- *         OS_STATUS
+/*!
+ * @fn     OS_STATUS GFX_Stop
  *
- *     Description
- *         Stops the count of the Graphics PMU
+ * @brief  Stops the count of the Graphics PMU
  *
+ * @param  NONE
+ *
+ * @return OS_SUCCESS if success, otherwise error
+ *
+ * @note 
  */
 extern OS_STATUS
 GFX_Stop (
     void
 )
 {
-    char *reg_addr = (char *)virtual_addr + GFX_PERF_REG;
+    char *reg_addr;
 
-    SEP_PRINT("GFX_Stop: inside\n");
-
-    /* GFX counting not specified */
-    if (virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
-        SEP_PRINT("GFX_Stop: virtual_addr=0x%p, gfx_code=0x%x\n", virtual_addr, gfx_code);
-        SEP_PRINT("GFX_Stop: skipping ... invalid graphics configuration\n");
-        return OS_SUCCESS;
+    // GFX counting was not specified
+    if (gfx_virtual_addr == NULL || gfx_code == GFX_CTRL_DISABLE) {
+        SEP_PRINT("GFX_Stop: invalid gfx_virtual_addr=0x%p or gfx_code=0x%x\n", gfx_virtual_addr, gfx_code);
+        return OS_INVALID;
     }
 
-    GFX_Read(NULL);
+    // turn off GFX counters
+    reg_addr = gfx_virtual_addr + GFX_PERF_REG;
     *(U32 *)(reg_addr) = GFX_CTRL_DISABLE;
-    gfx_code           = GFX_CTRL_DISABLE;
-    virtual_addr       = NULL;
 
-    SEP_PRINT("GFX_Stop: exiting\n");
+    // unmap the memory mapped virtual address
+    iounmap(gfx_virtual_addr);
+
+    // reset the GFX global variables
+    gfx_code           = GFX_CTRL_DISABLE;
+    gfx_virtual_addr   = NULL;
 
     return OS_SUCCESS;
 }
