@@ -419,12 +419,13 @@ void PerCoreCDumper::dump_one_c_sample_i(const PWCollector_sample_t& sample, con
     /*
      * Helper macro: convert an integer to a string.
      */
-#define GET_STRING_FROM_INT(i) ({std::stringstream __tmp; __tmp << (i); __tmp.str();})
+#define GET_STRING_FROM_INT(i) (__tmp.seekp(0), __tmp << (i) << std::ends, __tmp.str().c_str())
 #define GET_PMC_ID_STR(p, m, c) ((p) + ", " + (m) + ", " + (c))
 #define GET_PACKAGE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), "-", "-")
 #define GET_MODULE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), GET_STRING_FROM_INT(GET_MODULE_GIVEN_CORE(id)), "-")
 #define GET_CORE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), "-", GET_STRING_FROM_INT(id))
 
+    std::stringstream __tmp;
     std::string payload;
     pid_t tid = 0, pid = 0;
     int irq_num = -1;
