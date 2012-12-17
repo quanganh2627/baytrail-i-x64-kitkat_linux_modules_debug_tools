@@ -4461,6 +4461,7 @@ void pwr::WuParser::build_topology_i(void)
         m_threads.push_back(new Thread(i, m_cores[threadToCoreMap[i]]));
     }
     */
+    assert(m_packageCount < 65536);
     for (int i=0; i<m_packageCount; ++i) {
         m_packages[i] = new Package(i);
     }
