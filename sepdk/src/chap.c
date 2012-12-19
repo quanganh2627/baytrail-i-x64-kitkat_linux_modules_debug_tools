@@ -415,5 +415,6 @@ CS_DISPATCH_NODE  chap_dispatch =
     chap_Start_Chipset,
     chap_Read_Counters,
     chap_Stop_Chipset,
-    chap_Fini_Chipset
+    chap_Fini_Chipset,
+    NULL
 };

@@ -51,7 +51,7 @@
 #define FIND_VMA(mm, data)   find_vma ((mm), (U64)(data));
 #endif
 
-extern int
+extern VOID
 LINUXOS_Install_Hooks (
     VOID
 );

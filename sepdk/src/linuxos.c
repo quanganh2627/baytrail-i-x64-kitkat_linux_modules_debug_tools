@@ -481,18 +481,18 @@ static struct notifier_block linuxos_exit_task_nb = {
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          int LINUXOS_Install_Hooks(VOID) 
+ * @fn          VOID LINUXOS_Install_Hooks(VOID) 
  * @brief       registers the profiling callbacks 
  *
  * @param       none 
  *
- * @return      0 for success everything else fails
+ * @return      VOID
  *
  * <I>Special Notes:</I>
  *
  * None
  */
-extern int
+extern VOID
 LINUXOS_Install_Hooks (
     VOID
 )
@@ -502,7 +502,7 @@ LINUXOS_Install_Hooks (
 
     if (hooks_installed == 1) {
         SEP_PRINT_DEBUG("The OS Hooks are already installed\n");
-        return 0;
+        return;
     }
     err = profile_event_register(MY_UNMAP, &linuxos_exec_unmap_nb);
     err2= profile_event_register(MY_TASK,  &linuxos_exit_task_nb);
@@ -515,7 +515,7 @@ LINUXOS_Install_Hooks (
     }
     hooks_installed = 1;
 
-    return err;
+    return;
 }
 
 /* ------------------------------------------------------------------------- */

@@ -102,6 +102,7 @@ ifeq ($(BUILD_CHIPSET),YES)
     EXTRA_CFLAGS += -DBUILD_CHIPSET
 	chipset-objs :=	pci.o     \
 			chap.o            \
+			valleyview_sochap.o            \
 			gmch.o
 endif
 

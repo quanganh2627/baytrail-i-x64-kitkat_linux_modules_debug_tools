@@ -24,7 +24,7 @@
 
 #define SEP_MAJOR_VERSION 3
 #define SEP_MINOR_VERSION 9
-#define SEP_API_VERSION   1
+#define SEP_API_VERSION   2
 
 #define SEP_NAME          "sep"
 #define SEP_NAME_W        L"sep"

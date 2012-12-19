@@ -1,0 +1,118 @@
+# HSW InterView1.2.0.12-
+
+# EVENT INFORMATION
+
+# GROUP_ID         : 1000000015699
+# GROUP_NAME       : Total_Memory_BW
+# GROUP_PATH       : /SEP/ - 1000000001051
+# GROUP_DESC       : 
+# EVENT_ID         : 1000000015701
+# EVENT_NAME       : Rd 32B
+# EVENT_PATH       : /NC/Dunit0/PMI - 1035
+# EVENT_DESC       : PMI 32B Read command with trace of tag
+# EVENT_EXPRESSION : /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_cmd_1[0] == 1'b0 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_len_0[0] == 1'b0 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_irdy[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_trdy[0] == 1'b1
+# EVENT_COUNTER    : 0
+# EVENT_ID         : 1000000015702
+# EVENT_NAME       : Rd 64B
+# EVENT_PATH       : /NC/Dunit0/PMI - 1035
+# EVENT_DESC       : PMI 64B Read command with trace of tag
+# EVENT_EXPRESSION : /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_cmd_1[0] == 1'b0 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_len_0[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_irdy[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_trdy[0] == 1'b1
+# EVENT_COUNTER    : 1
+# EVENT_ID         : 15466
+# EVENT_NAME       : Wr 32B
+# EVENT_PATH       : /NC/Dunit0/PMI/ - 1035
+# EVENT_DESC       : PMI 32B Write command
+# EVENT_EXPRESSION : /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_cmd_1[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_len_0[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_irdy[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_trdy[0] == 1'b1
+# EVENT_COUNTER    : 2
+# EVENT_ID         : 15462
+# EVENT_NAME       : Wr 64B
+# EVENT_PATH       : /NC/Dunit0/PMI/ - 1035
+# EVENT_DESC       : PMI 64B Write command
+# EVENT_EXPRESSION : /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_cmd_1[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_len_0[0] == 1'b0 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_irdy[0] == 1'b1 && /soc/dunit0/dunit_wrp0/dprisw1/visa_requestxd_trdy[0] == 1'b1
+# EVENT_COUNTER    : 3
+# CLOCK_COUNTER    : 4
+
+# Visa Programing
+# HEADER	CFGTYPE	BUS_NUMBER	DEVICE_NUMBER	FUNC_NUMBER	REG_SIZE	OPERATION	BARNAME	OFFSET	VALUE	MASK	PORT_ID	OP_CODE
+#<CFGTYPE-MMIO/PCICFG>	<BUS_NUMBER>	<DEVICE_NUMBER>	<FUNC_NUMBER>	<REGISTER_SIZE>	<READ/WRITE/RMW operation>	<BARNAME>	<OFFSET>	<VALUE>	<MASK>	<PORT_ID>	<OP_CODE>
+
+# VISA CONFIGURATION
+
+# /soc/socdfx/soc_dfxfab/i_dfxfab_dfd_top/dfxfab_clm_lane0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000084	0x00000001	0xFFFFFFFF	24	1
+# /soc/socdfx/soc_dfxfab/i_dfxfab_dfd_top/dfxfab_clm_ctrl
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000080	0x00000001	0xFFFFFFFF	24	1
+# /soc/socdfx/soc_dfxfab/i_dfxfab_dfd_top/dfxfab_clm_xbar0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x000000A8	0x00000803	0xFFFFFFFF	24	1
+# /soc/socdfx/soc_dfxfab/i_dfxfab_dfd_top/dfxfab_clm_xbar1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x000000AC	0x00000001	0xFFFFFFFF	24	1
+# /soc/socdfx/soc_dfxfab/i_dfxfab_dfd_top/dfxfab_clm_xbar2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x000000B0	0x00000000	0xFFFFFFFF	24	1
+# /soc/dfxnc/nc_dfxfab/i_dfxfab_dfd_top/dfxfab_plm_lane0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00009C04	0x00001F20	0xFFFFFFFF	24	1
+# /soc/dfxnc/nc_dfxfab/i_dfxfab_dfd_top/dfxfab_plm_ctrl
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00009C00	0x00000001	0xFFFFFFFF	24	1
+# /soc/ddr3iodfx/ddr3iodfx_plm_lane0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00009D04	0x00000001	0xFFFFFFFF	24	1
+# /soc/ddr3iodfx/ddr3iodfx_plm_ctrl
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00009D00	0x00000001	0xFFFFFFFF	24	1
+# /soc/dunit0/dunit_wrp0/dunit_ulm0_lane0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00008A04	0x00000061	0xFFFFFFFF	24	1
+# /soc/dunit0/dunit_wrp0/dunit_ulm0_ctrl
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00008A00	0x00000001	0xFFFFFFFF	24	1
+# /genvlv1/glcgu1/glcgupar21/noadtogupar2unit1/mccfg1/lat_data[80]
+MEM	0	0	0	32	WRITE	GTTMMADR	0x0002F440	0x00000000	0xFFFFFFFF	0	0
+# /genvlv1/glcgu1/glcgupar21/noadtogupar2unit1/mccfg1/lat_data[81]
+MEM	0	0	0	32	WRITE	GTTMMADR	0x0002F444	0x00000000	0xFFFFFFFF	0	0
+
+# CHAP CONFIGURATION
+
+# Programming to write EV/STAT/DATA/CMD registers for all IsAllocated counters and CEC of all IsAllocated CECs
+# cec0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000008	0x00F00C02	0xFFFFFFFF	23	1
+# cec1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000000C	0x00F00E02	0xFFFFFFFF	23	1
+# cec2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000010	0x00F00F02	0xFFFFFFFF	23	1
+# cec3
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000014	0x00F00D02	0xFFFFFFFF	23	1
+# stat0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000030	0x10000000	0xFFFFFFFF	23	1
+# stat1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000040	0x10000000	0xFFFFFFFF	23	1
+# stat2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000050	0x10000000	0xFFFFFFFF	23	1
+# stat3
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000060	0x10000000	0xFFFFFFFF	23	1
+# stat4
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000070	0x00000000	0xFFFFFFFF	23	1
+# ev0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000002C	0x00008120	0xFFFFFFFF	23	1
+# ev1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000003C	0x00008121	0xFFFFFFFF	23	1
+# ev2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000004C	0x00008122	0xFFFFFFFF	23	1
+# ev3
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000005C	0x00008123	0xFFFFFFFF	23	1
+# ev4
+CFG	0	0	0	32	WRITE	SIDEBAND	0x0000006C	0x00002000	0xFFFFFFFF	23	1
+# data0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000034	0x00000000	0xFFFFFFFF	23	1
+# data1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000044	0x00000000	0xFFFFFFFF	23	1
+# data2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000054	0x00000000	0xFFFFFFFF	23	1
+# data3
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000064	0x00000000	0xFFFFFFFF	23	1
+# data4
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000074	0x00000000	0xFFFFFFFF	23	1
+# cmd0
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000028	0x00010000	0xFFFFFFFF	23	1
+# cmd1
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000038	0x00110000	0xFFFFFFFF	23	1
+# cmd2
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000048	0x00110000	0xFFFFFFFF	23	1
+# cmd3
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000058	0x00110000	0xFFFFFFFF	23	1
+# cmd4
+CFG	0	0	0	32	WRITE	SIDEBAND	0x00000068	0x00110000	0xFFFFFFFF	23	1

@@ -145,6 +145,7 @@ struct CPU_STATE_NODE_S {
     U64         num_samples;
     U64         reset_mask;
     U64         group_swap;
+    U64         last_visa_count[16];
 };
 
 #define CPU_STATE_apic_id(cpu)              (cpu)->apic_id

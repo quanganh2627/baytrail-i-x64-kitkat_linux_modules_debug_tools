@@ -117,7 +117,7 @@ DISPATCH                dispatch              = NULL;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #endif
 U64                     total_ram             = 0;
-#ifndef SMALL_RAM
+#ifdef SMALL_RAM
 U32                     output_buffer_size    = OUTPUT_SMALL_BUFFER;
 #else
 U32                     output_buffer_size    = OUTPUT_LARGE_BUFFER;
@@ -520,7 +520,7 @@ lwpmudrv_Initialize (
         OUTPUT_Initialize(DRV_CONFIG_seed_name(pcfg), DRV_CONFIG_seed_name_len(pcfg));
         SEP_PRINT_DEBUG("lwpmudrv_Initialize: After OUTPUT_Initialize\n");
         SEP_PRINT_DEBUG("lwpmudrv_Initialize: about to install module notification");
-        status = LINUXOS_Install_Hooks();
+        LINUXOS_Install_Hooks();
     }
 
     return status;
@@ -3683,6 +3683,12 @@ lwpmu_Device_Control (
             }
             status = lwpmudrv_Samp_Read_PCI_Config(&local_args);
             break;
+        case LWPMUDRV_IOCTL_CHIPSET_TRIGGER_READ:
+            if (cs_dispatch && cs_dispatch->Trigger_Read) {
+                cs_dispatch->Trigger_Read();
+            }
+            break;
+            
 #endif  // BUILD_CHIPSET
 
        /*

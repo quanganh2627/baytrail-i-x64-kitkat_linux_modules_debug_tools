@@ -110,6 +110,7 @@ struct CS_DISPATCH_NODE_S {
     VOID (*read_counters)(PVOID);  // at interrupt time, read out the chipset counters
     VOID (*stop_chipset)(VOID);    // stop the chipset counters
     VOID (*fini_chipset)(VOID);    // clean up resources and reset chipset state (called last)
+    VOID (*Trigger_Read)(VOID);    // GMCH counter reads triggered/initiated by User mode timer
 };
 extern CS_DISPATCH    cs_dispatch;
 #endif
