@@ -30,9 +30,14 @@
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/pci.h>
-
 #include "lwpmudrv_defines.h"
 #include "lwpmudrv_types.h"
+
+#if defined(DRV_ANDROID)
+#include <asm/intel_scu_ipc.h>
+#include <asm/intel-mid.h>
+#endif
+
 #include "rise_errors.h"
 #include "lwpmudrv_ecb.h"
 #include "lwpmudrv_struct.h"
@@ -63,6 +68,61 @@ extern CPU_STATE         pcb;
 extern EVENT_CONFIG      global_ec;
 
 /*
+ * @fn        gmch_PCI_Read32(address)
+ *
+ * @brief     Read the 32bit value specified by the address
+ *
+ * @return    the read value
+ *
+ */
+#if defined(DRV_ANDROID)
+#define gmch_PCI_Read32   intel_mid_msgbus_read32_raw
+#else
+static U32
+gmch_PCI_Read32 (
+    unsigned long address
+)
+{
+    U32 read_value = 0;
+    U32 gmch = FORM_PCI_ADDR(0, 0, 0, 0);
+    if (gmch == 0) {
+        return 0;
+    }
+    PCI_Write_Ulong((ULONG)(gmch + GMCH_MSG_CTRL_REG), (ULONG)address);
+    read_value = PCI_Read_Ulong((ULONG)(gmch + GMCH_MSG_DATA_REG));
+
+    return read_value;
+}
+#endif
+
+/*
+ * @fn        gmch_PCI_Write32(address, data)
+ *
+ * @brief     Write the 32bit value into the address specified
+ *
+ * @return    None
+ *
+ */
+#if defined(DRV_ANDROID)
+#define gmch_PCI_Write32  intel_mid_msgbus_write32_raw
+#else
+static void
+gmch_PCI_Write32 (
+    unsigned long address,
+    unsigned long data
+)
+{
+    U32 gmch = FORM_PCI_ADDR(0, 0, 0, 0);
+    if (gmch == 0) {
+        return;
+    }
+    PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, data);
+    PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, address);
+    return;
+}
+#endif
+
+/*
  * @fn        gmch_Check_Enabled()
  *
  * @brief     Read GMCH PMON capabilities
@@ -86,10 +146,9 @@ gmch_Check_Enabled (
         return 0;
     }
 
-    PCI_Write_Ulong( (ULONG)(gmch + GMCH_MSG_CTRL_REG), (ULONG)(GMCH_PMON_CAPABILITIES + gmch_register_read));
     SEP_PRINT_DEBUG("gmch_Check_Enabled: wrote addr=0x%lx register_value=0x%lx\n", (ULONG)(gmch+GMCH_MSG_CTRL_REG), (ULONG)(GMCH_PMON_CAPABILITIES+gmch_register_read));
 
-    enabled_value = PCI_Read_Ulong((ULONG)(gmch + GMCH_MSG_DATA_REG));
+    enabled_value = gmch_PCI_Read32(GMCH_PMON_CAPABILITIES + gmch_register_read);
 
     SEP_PRINT_DEBUG("gmch_Check_Enabled: read addr=0x%lx enabled_value=0x%lx\n", (ULONG)(gmch+GMCH_MSG_DATA_REG), enabled_value);
 
@@ -161,11 +220,9 @@ gmch_Init_Chipset (
     }
 
     // disable fixed and GP counters
-    PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, 0x00000000);
-    PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, GMCH_PMON_GLOBAL_CTRL + gmch_register_write);
+    gmch_PCI_Write32(GMCH_PMON_GLOBAL_CTRL+gmch_register_write, 0x00000000);
     // clear fixed counter filter
-    PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, 0x00000000);
-    PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, GMCH_PMON_FIXED_CTR_CTRL + gmch_register_write);
+    gmch_PCI_Write32(GMCH_PMON_FIXED_CTR_CTRL+gmch_register_write, 0x00000000);
 
     return VT_SUCCESS;
 }
@@ -193,60 +250,11 @@ gmch_Start_Counters (
     gmch = FORM_PCI_ADDR(0, 0, 0, 0);
     if (gmch != 0) {
         // enable fixed and GP counters
-        PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, 0x0001000F);
-        PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, GMCH_PMON_GLOBAL_CTRL + gmch_register_write);
+        gmch_PCI_Write32(GMCH_PMON_GLOBAL_CTRL+gmch_register_write, 0x0001000F);
         // enable fixed counter filter
-        PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, 0x00000001);
-        PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, GMCH_PMON_FIXED_CTR_CTRL + gmch_register_write);
+        gmch_PCI_Write32(GMCH_PMON_FIXED_CTR_CTRL+gmch_register_write, 0x00000001);
     }
 
-    return;
-}
-
-/*
- * @fn        gmch_PCI_Read32(address)
- *
- * @brief     Read the 32bit value specified by the address
- *
- * @return    the read value
- *
- */
-static U32
-gmch_PCI_Read32 (
-    unsigned long address
-)
-{
-    U32 read_value = 0;
-    U32 gmch = FORM_PCI_ADDR(0, 0, 0, 0);
-    if (gmch == 0) {
-        return;
-    }
-    PCI_Write_Ulong((ULONG)(gmch + GMCH_MSG_CTRL_REG), (ULONG)address);
-    read_value = PCI_Read_Ulong((ULONG)(gmch + GMCH_MSG_DATA_REG));
-
-    return read_value;
-}
-
-/*
- * @fn        gmch_PCI_Write32(address, data)
- *
- * @brief     Write the 32bit value into the address specified
- *
- * @return    None
- *
- */
-static void
-gmch_PCI_Write32 (
-    unsigned long address,
-    unsigned long data
-)
-{
-    U32 gmch = FORM_PCI_ADDR(0, 0, 0, 0);
-    if (gmch == 0) {
-        return;
-    }
-    PCI_Write_Ulong(gmch + GMCH_MSG_DATA_REG, data);
-    PCI_Write_Ulong(gmch + GMCH_MSG_CTRL_REG, address);
     return;
 }
 
