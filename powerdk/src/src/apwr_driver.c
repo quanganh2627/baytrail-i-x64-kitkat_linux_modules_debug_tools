@@ -2664,6 +2664,7 @@ static inline void producer_template(int cpu)
      */
     struct PWCollector_msg msg;
     bool should_wakeup = true; // set to FALSE if calling from scheduling context (e.g. from "sched_wakeup()")
+    msg.data_len = 0;
 
     // Populate 'sample' fields in a domain-specific
     // manner. e.g.:
@@ -2744,6 +2745,7 @@ static inline void produce_d_sc_residency_sample(u64 usec)
     msec = readl(mmio_cumulative_residency_base);
 
     memset(&msg, 0, sizeof(msg));
+    memset(&dres, 0, sizeof(dres));
 
     msg.cpuidx = cpu;
     msg.tsc = tsc;
@@ -3917,6 +3919,8 @@ static void tps(unsigned int type, unsigned int state)
     tsc_posix_sync_msg_t tsc_msg;
 
     const char *wakeup_reasons[] = {"IRQ", "TIM", "SCHED", "IPI", "WRQ", "BEGIN", "NOT", "ABRT", "?"};
+
+    memset(msr_vals, 0, sizeof(u64) * MAX_MSR_ADDRESSES);
 
     tscval(&tsc);
 
@@ -5661,6 +5665,10 @@ void get_frequency_steps(void)
 	if( (buffer_len = freq_attrs->show(policy, buffer)) == -ENODEV){
 	    OUTPUT(0, KERN_INFO "WARNING: cpufreq_attrs->show(...) error for CPU = %d\n", cpu);
 	}else{
+            if (buffer_len >= 512) {
+                pw_pr_error("Error: buffer_len (%d) >= 512\n", buffer_len);
+                return;
+            }
 	    /*
 	     * (3) Tokenize the string to extract the
 	     * actual frequencies. At this point
@@ -7179,6 +7187,8 @@ static void restore_ref(void)
 
     u32 *data_copy;
     u32 data[2];
+
+    memset(data, 0, sizeof(u32) * 2);
 
     for_each_online_cpu(cpu){
         /*

@@ -491,6 +491,10 @@ unsigned long pw_consume_data(u32 mask, char __user *buffer, size_t bytes_to_rea
     }
     which_cpu = mask >> 16; which_seg = mask & 0xffff;
     pw_pr_debug(KERN_INFO "CONSUME: cpu = %d, seg = %d\n", which_cpu, which_seg);
+    if (which_seg >= NUM_SEGS_PER_BUFFER) {
+        pw_pr_error("Error: which_seg (%d) >= NUM_SEGS_PER_BUFFER (%d)\n", which_seg, NUM_SEGS_PER_BUFFER);
+        return bytes_to_read;
+    }
     /*
      * OK to access unlocked; either the segment is FULL, or no collection
      * is ongoing. In either case, we're GUARANTEED no producer is touching
