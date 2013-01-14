@@ -68,7 +68,7 @@ ifneq ($(KERNELRELEASE),)
 else
 	#KERNEL_SRC_DIR ?= /lib/modules/$(shell uname -r)/build
         PWD := $(shell pwd)
-        KERNEL_SRC_DIR := $(PWD)/../../../../../../hardware/intel/linux-2.6	
+        KERNEL_SRC_DIR := $(PWD)/../../../../../../$(KERNEL_SRC_DIR)	
 
 all: default
 

@@ -132,7 +132,7 @@ endif
 else
 	#KERNEL_SRC_DIR ?= /lib/modules/$(shell uname -r)/build
 	PWD := $(shell pwd)
-	KERNEL_SRC_DIR := $(PWD)/../../../../../hardware/intel/linux-2.6
+	KERNEL_SRC_DIR := $(PWD)/../../../../../$(KERNEL_SRC_DIR)
 	PATH := $(KERNEL_SRC_DIR)/../../../prebuilt/linux-x86/toolchain/i686-android-linux-4.4.3/bin:$(PATH)
 	export PATH
 
