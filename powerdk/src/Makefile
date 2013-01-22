@@ -114,12 +114,18 @@ EXTRA_CFLAGS += -I$(INC2)
 KERNEL_VERSION=$(shell uname -r | awk 'BEGIN{FS="[^0-9]"} {print $$3}')
 
 APWR_RED_HAT := "0"
+WAKELOCK_SAMPLE := "1"
+TRACE_CPU_HOTPLUG := "0"
+
 
 EXTRA_CFLAGS += -DAPWR_RED_HAT=$(APWR_RED_HAT)
+EXTRA_CFLAGS += -DDO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)
+EXTRA_CFLAGS += -DTRACE_CPU_HOTPLUG=$(TRACE_CPU_HOTPLUG)
 
 obj-m := $(DRIVER_NAME).o
 $(DRIVER_NAME)-objs :=	src/apwr_driver.o \
 			src/pw_output_buffer.o
+#src/pw_output_buffer.o
 
 .PHONY: kernel_check
 
@@ -133,6 +139,8 @@ default: kernel_check
 	@echo "************************************************************"
 	@echo "KERNEL_SRC_DIR=$(KERNEL_SRC_DIR)"
 	@echo "APWR_RED_HAT=$(APWR_RED_HAT)"
+	@echo "DO_WAKELOCK_SAMPLE=$(WAKELOCK_SAMPLE)"
+	@echo "TRACE_CPU_HOTPLUG=$(TRACE_CPU_HOTPLUG)"
 	@echo "************************************************************"
 	make -C $(KERNEL_SRC_DIR) M=$(PWD) modules PWD=$(PWD)
 

@@ -290,6 +290,7 @@ typedef enum {
     TSC_POSIX_MONO_SYNC, /* Used to sync TSC <-> posix CLOCK_MONOTONIC timers; REQUIRED for AXE support */ 
     CONSTANT_POOL_ENTRY, /* Used to send constant pool information */
     PKG_MAP, /* Used to send UID and package name mappings used for Android */
+    CPUHOTPLUG_SAMPLE, /* Used to note when a CPU goes online or offline in ARM systems */
     SAMPLE_TYPE_END
 } sample_type_t;
 

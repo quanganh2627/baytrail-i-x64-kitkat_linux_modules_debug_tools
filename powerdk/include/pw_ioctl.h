@@ -126,6 +126,8 @@
 #define PW_IOCTL_COLLECTION_TIME _IOW(APWR_IOCTL_MAGIC_NUM, 12, unsigned long *)
 #define PW_IOCTL_MMAP_SIZE _IOW(APWR_IOCTL_MAGIC_NUM, 13, unsigned long *)
 #define PW_IOCTL_BUFFER_SIZE _IOW(APWR_IOCTL_MAGIC_NUM, 14, unsigned long *)
+#define PW_IOCTL_DO_D_NC_READ _IOR(APWR_IOCTL_MAGIC_NUM, 15, unsigned long *)
+#define PW_IOCTL_FSB_FREQ _IOR(APWR_IOCTL_MAGIC_NUM, 16, unsigned long *)
 
 /*
  * 32b-compatible version of the above
@@ -152,6 +154,8 @@
     #define PW_IOCTL_COLLECTION_TIME32 _IOW(APWR_IOCTL_MAGIC_NUM, 12, compat_uptr_t)
     #define PW_IOCTL_MMAP_SIZE32 _IOW(APWR_IOCTL_MAGIC_NUM, 13, compat_uptr_t)
     #define PW_IOCTL_BUFFER_SIZE32 _IOW(APWR_IOCTL_MAGIC_NUM, 14, compat_uptr_t)
+    #define PW_IOCTL_DO_D_NC_READ32 _IOR(APWR_IOCTL_MAGIC_NUM, 15, compat_uptr_t)
+    #define PW_IOCTL_FSB_FREQ32 _IOR(APWR_IOCTL_MAGIC_NUM, 16, compat_uptr_t)
 #endif // defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
 
 #endif // _PW_IOCTL_H_

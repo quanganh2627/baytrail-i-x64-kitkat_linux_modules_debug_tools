@@ -60,6 +60,7 @@ namespace pwr {
             pw_s32_t m_packageCount;
             pw_u32_t m_tscFreq;
             pw_u32_t m_busClockFreq;
+            float m_busClockFreqMHz;
             pw_u32_t m_microPatchVer;
             pw_u32_t m_cStateMult;
             pw_u32_t m_perfBitsLow;

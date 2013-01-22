@@ -31,6 +31,7 @@
  * c_type := 'Package' | 'Core' | 'Thread'
  *
  * AUTHOR: Gautam Upadhyaya <gautam.upadhyaya@intel.com>
+ * ARM port provided by Ekarat Tony Mongkolsmai (ekarat.t.mongkolsmai@intel.com)
  * ***************************************************************************
  */
 
@@ -44,6 +45,7 @@
 #include <stdlib.h> // for "strtoul"
 #include <string.h> // for "memcpy"
 #include <assert.h>
+#include <dirent.h>
 
 #include <string>
 #include <iostream>
@@ -62,12 +64,8 @@
 */
 
 
-#define EOL '\0'
-#define SPACE ' '
-#define TAB '\t'
 #define NEWLINE '\n'
 #define HASH '#'
-
 #define IS_WHITESPACE(c) ( ((c) >= 0x0 && (c) <= 0x20) || (c) == HASH )
 #define IS_VALID_CHAR(c) !(IS_WHITESPACE(c))
 
@@ -871,15 +869,86 @@ bool PWParser::rec_i()
 
     if (!c_states_i())
 	return false;
-
+    
     return true;
 };
 
+void read_file_line(char *filename, char *line)
+{
+    size_t len = 0;
+    size_t read = 0;
+    FILE *fp = fopen(filename, "r");
+
+    line[0] = '\0';
+    fgets(line, sizeof(line), fp);
+
+    fclose(fp);
+}
+
+#ifdef __arm__
+/*
+ * Read C-state info from the linux system
+ */
+void read_system_c_states(PWArch_rec_t *rec)
+{
+    char filename[1024];
+    int num_state = 0;
+    size_t len = 0;
+    size_t read = 0;
+    char line[1024];
+
+    FILE *fp = NULL;
+    DIR *dirp = NULL;
+    struct dirent *dp;
+    
+    dirp = opendir("/sys/devices/system/cpu/cpu0/cpuidle/");
+    while ((dp = readdir(dirp)) != NULL ) {
+        if (strncmp(dp->d_name, "state", 5) == 0) {
+            ++num_state;
+        }
+    }
+    closedir(dirp);
+
+    int i = 0;
+    rec->get_c_states().push_back(CRec());
+    CRec *cs = &rec->get_c_states().back();
+
+    cs->m_type = PW_MSR_CORE;
+    cs->msr_addr = 0;
+    cs->num = 0;
+    cs->tres = 0;
+    for (i = 0; i < num_state; ++i) {
+        rec->get_c_states().push_back(CRec());
+        CRec *cs = &rec->get_c_states().back();
+        cs->num = i+1;
+        cs->m_type = PW_MSR_CORE;
+        cs->msr_addr = 0;
+
+        sprintf(filename, "/sys/devices/system/cpu/cpu0/cpuidle/state%i/latency", i);
+        read_file_line(filename, line);
+        cs->tres = atoi(line);
+    }
+}
+#endif // __arm__
+ 
 /*
  * The PROGRAM non-terminal.
  */
 PWArch_rec_t *PWParser::program_i(int fam, int mod, int step)
 {
+#ifdef __arm__
+    if (fam == 0 && mod == 0 && step == 0) {
+        m_curr_rec->set_name(m_lexer->get_curr_token());
+        m_curr_rec->add_fms_value(fms_t(0,0,0));
+        // since we don't know bus speed we set to 1000 and then we multiple things out right
+        // using the bus speed variable in wulib and apwr_driver, basically this works as a
+        // reasonable common denominator so we don't have rounding issues 
+	    m_curr_rec->set_bus_freq(1000);
+        m_curr_rec->set_cx_clock_rate(0);
+        read_system_c_states(m_curr_rec);
+        return new PWArch_rec(*m_curr_rec);
+    } 
+#endif
     /*
      * Instantiating the m_lexer should have
      * bootstrapped the process by stripping out

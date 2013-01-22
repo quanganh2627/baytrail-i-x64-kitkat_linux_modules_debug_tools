@@ -377,6 +377,7 @@ Wuwatch::Wuwatch()
     initialTimeval = 0;
     m_initialTime = 0;
     turboThreshold = 0;
+    m_FSBFreqMHz= 0.0;
 
     m_totalSamples = 0;
     m_droppedSamples = 0;
@@ -819,6 +820,7 @@ int Wuwatch::do_ioctl_micro_patch(int fd, int& patch_ver)
 
     return PW_SUCCESS;
 }
+#ifndef __arm__
 static void cpuid(unsigned info, unsigned *eax, unsigned *ebx, unsigned *ecx, unsigned *edx)
 {
    *eax = info;
@@ -826,7 +828,7 @@ static void cpuid(unsigned info, unsigned *eax, unsigned *ebx, unsigned *ecx, un
    ("mov %%ebx, %%edi; cpuid; mov %%ebx, %%esi; mov %%edi, %%ebx;"
     :"+a" (*eax), "=S" (*ebx), "=c" (*ecx), "=d" (*edx) : : "edi");
 }
-
+#endif // __arm__
 /*
  * INTERNAL API:
  * Get CPU arch details. Adapted
@@ -835,6 +837,33 @@ static void cpuid(unsigned info, unsigned *eax, unsigned *ebx, unsigned *ecx, un
  */
 void Wuwatch::retrieve_target_arch_details_i()
 {
+#ifdef __arm__
+    sprintf(cpu_brand, "%s", "Unknown");
+    FILE *fp = fopen("/proc/cpuinfo", "r");
+
+    if (!fp) {
+        fprintf(stderr, "fopen error for /proc/cpuinfo: %s\n", strerror(errno));
+    } else {
+        std::string brand;
+        size_t len = 0;
+        ssize_t read = 0;
+        char *line = NULL;
+
+        while ((read = getline(&line, &len, fp)) != -1) {
+            if (read < 3) {
+                continue;
+            }
+            line[read-1] = '\0';
+            if (strstr(line, "Processor") != NULL && strlen(line) < 64) {
+                strncpy(cpu_brand, strstr(line, ":")+2, strlen(line));
+                break;
+            }
+        }
+    }
+    m_cpuFamily = 0; 
+    m_cpuModel = 0; 
+    m_cpuStepping = 0; 
+#else
     unsigned int eax, ebx, ecx, edx, max_level;
     unsigned int fms;
 
@@ -864,6 +893,7 @@ void Wuwatch::retrieve_target_arch_details_i()
         db_fprintf(stderr, "CPUID %s %d levels family:model:stepping 0x%x:%x:%x (%d:%d:%d)\n",
                 cpu_brand, max_level, m_cpuFamily, m_cpuModel, m_cpuStepping, m_cpuFamily, m_cpuModel, m_cpuStepping);
     }
+#endif // __arm__
 };
 
 /*
@@ -875,11 +905,17 @@ void Wuwatch::retrieve_target_arch_details_i()
  */
 unsigned long long Wuwatch::rdtsc(void)
 {
+#ifndef __arm__
     unsigned int a, d;
 
     __asm__ volatile("rdtsc" : "=a" (a), "=d" (d));
 
     return ((unsigned long long)a) | (((unsigned long long)d) << 32);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+#endif // ifndef __arm__
 };
 
 /*
@@ -1050,7 +1086,7 @@ void Wuwatch::do_ioctl_config(int fd, u32 interval)
 
             if (u_state_collection) {
                 fprintf(stderr, "Warning: user wakelock switch is only supported on Android. No user wakelock data will be collected.\n");
-                RESET_COLLECTION_SWITCH(m_collectionSwitches, PW_WAKELOCK_STATE);
+                u_state_collection = 0;
             }
         }
 
@@ -1114,7 +1150,7 @@ int Wuwatch::do_ioctl_available_frequencies(int fd, u32 *available_frequencies)
         available_frequencies[0] = 0; // last entry MUST be ZERO!!!
         return -PW_ERROR;
     }
-    available_frequencies[freqs.num_freqs] = 0; // last entry MUST be ZERO!!!
+
     return PW_SUCCESS;
 };
 
@@ -1130,6 +1166,44 @@ int Wuwatch::do_ioctl_get_turbo_threshold(int fd, u32 *turbo_thresh) {
     if(do_ioctl_i(fd, PW_IOCTL_TURBO_THRESHOLD, &thresh, sizeof(PWCollector_turbo_threshold), false) == NULL)
         return -PW_ERROR;
     *turbo_thresh = thresh.threshold_frequency;
+    return PW_SUCCESS;
+};
+/*
+ * IOCTL to get Bus frequency, in MHz
+ * @fd: the DD fd.
+ * @turbo_thresh: the bus frequency, in MHz
+ */
+int Wuwatch::do_ioctl_get_msb_freq(int fd, float *freqMHz)
+{
+    unsigned long encoding = 0;
+    if (do_ioctl_i(fd, PW_IOCTL_FSB_FREQ, &encoding, sizeof(encoding), false) == NULL) {
+        return -PW_ERROR;
+    }
+    switch (encoding & 0x7) { // mask off bits 2:0
+        case 0x0: // 000B
+            *freqMHz = 266.67;
+            break;
+        case 0x1: // 001B
+            *freqMHz = 133.33;
+            break;
+        case 0x2: // 010B
+            *freqMHz = 200.00;
+            break;
+        case 0x3: // 011B
+            *freqMHz = 166.67;
+            break;
+        case 0x4: // 100B
+            *freqMHz = 333.33;
+            break;
+        case 0x5: // 101B
+            *freqMHz = 100.00;
+            break;
+        default:
+            fprintf(stderr, "ERROR: unknown encoding = %lu\n", encoding);
+            return -PW_ERROR;
+    }
+    db_fprintf(stderr, "Encoding = %lu, freq = %f\n", encoding, *freqMHz);
+    // assert(false);
     return PW_SUCCESS;
 };
 
@@ -1195,6 +1269,7 @@ void *Wuwatch::reader_thread_i(args_t *args)
         wu_exit(-PW_ERROR);
     }
 
+
     {
         int bytes_read = 0;
         std::vector <char> read_buff(m_buff_size);
@@ -1244,6 +1319,37 @@ std::string Wuwatch::get_cpu_topology_i(void)
         size_t len = 0;
         ssize_t read = 0;
 
+#ifdef __arm__
+        char *line = NULL;
+        int i = 0;
+        int num_proc = 0;
+        while ((read = getline(&line, &len, fp)) != -1) {
+            if (read < 3) {
+                continue;
+            }
+            line[read-1] = '\0';
+            /*
+             * Format is:
+             * proc # <space> physical id <space> siblings <space> core id <space> cores <space>"
+             */
+            if (sscanf(line, "processor       : %d", &proc)) {
+                ++num_proc;
+                continue;
+            }
+        }
+        // make up fake topology
+        phys_id = 0; // package id
+        sibling = core_no = num_proc;
+        for (i = 0; i < num_proc; ++i ){
+            proc = core_id = i;
+            topology << proc << " "; // processor
+            topology << phys_id << " "; // physical id
+            topology << sibling << " "; // number of siblings
+            topology << core_id << " "; // core_id
+            tmp_map[(phys_id << 16 | core_id)].push_back(proc);
+            topology << core_no << " ";
+        }
+#else
         while ((read = pwr::StringUtils::getline(fp, str_line)) != -1) {
             if (read < 3) {
                 continue;
@@ -1278,6 +1384,7 @@ std::string Wuwatch::get_cpu_topology_i(void)
                 continue;
             }
         }
+#endif // __arm__
         fclose(fp);
     }
 
@@ -1589,7 +1696,6 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
             break;
         default:
             assert(false);
-         
     }
     if (wl_name == NULL) {
         if (cp_msg) {
@@ -2489,9 +2595,13 @@ void Wuwatch::setup_collection()
         if (d_nc_state_collection) {
             /*
              * REQUIRES TPS.
+             * *********************************************************************
+             * UPDATE: not anymore!!! This is now being driven by a Ring-3 timer.
+             * *********************************************************************
              */
-            SET_COLLECTION_SWITCH(m_collectionSwitches, PW_SLEEP); /* Use TPS tracepoint */
+            // SET_COLLECTION_SWITCH(m_collectionSwitches, PW_SLEEP); /* Use TPS tracepoint */
             SET_COLLECTION_SWITCH(m_collectionSwitches, PW_DEVICE_NC_STATE); /* GET D state state samples in north complex */
+            // assert(false);
         }
 
         /*
@@ -2588,6 +2698,14 @@ void Wuwatch::setup_collection()
      */
     {
         do_ioctl_get_turbo_threshold(m_dev_fd, &turboThreshold);
+    }
+
+    /*
+     * Get the MSB_FREQ multiplier.
+     * Update: ONLY for Saltwell!!!
+     */
+    if (PW_IS_SALTWELL(m_cpuModel)) {
+        do_ioctl_get_msb_freq(m_dev_fd, &m_FSBFreqMHz);
     }
 
     /*
@@ -2786,6 +2904,7 @@ void Wuwatch::cleanup_collection(bool should_write_results)
             fprintf(m_output_fp, "CPU Stepping = %u\n", m_cpuStepping);
             fprintf(m_output_fp, "CPU C-states Clock Rate = %u\n", m_targetArchRec->get_cx_clock_rate());
             fprintf(m_output_fp, "CPU Bus Frequency (KHz) = %u\n", m_targetArchRec->get_bus_freq());
+            fprintf(m_output_fp, "CPU Bus Frequency (MHz) = %.2f\n", m_FSBFreqMHz);
             fprintf(m_output_fp, "CPU Perf Status Bits = %u %u\n", m_targetArchRec->m_perf_bits_low, m_targetArchRec->m_perf_bits_high);
             fprintf(m_output_fp, "CPU C-states =");
             {
@@ -2841,7 +2960,12 @@ void Wuwatch::cleanup_collection(bool should_write_results)
                 const std::vector <CRec>& crecs = m_targetArchRec->get_c_states();
                 for (std::vector<CRec>::const_iterator citer = crecs.begin(); citer != crecs.end(); ++citer) {
                     if (citer->tres > 0) {
+#ifdef __arm__
+                        // latency read from file in microseconds, so convert to our time counter
+                        fprintf(m_output_fp, "C%d = %u\n", citer->num, citer->tres * 1000000 / tsc_freq_MHz);
+#else
                         fprintf(m_output_fp, "C%d = %u\n", citer->num, CONVERT_US_TO_CLOCK_TICKS(citer->tres, tsc_freq_MHz));
+#endif // __arm__
                     }
                 }
                 /*
@@ -3172,6 +3296,7 @@ static void timed_waitpid(int secs, pid_t child_pid)
     fd_set fds;
     struct timeval tv;
     int max_fd = -1;
+    int sel_val = -1;
 
     /*
      * First, initialize the pipe itself.
@@ -3194,17 +3319,21 @@ static void timed_waitpid(int secs, pid_t child_pid)
 
     tv.tv_sec = secs; tv.tv_usec = 0;
 
-    switch (select(max_fd+1, &fds, NULL, NULL, &tv)) {
-        case -1:
+    while ( (sel_val = select(max_fd+1, &fds, NULL, NULL, &tv)) == -1 && errno == EINTR) {
+        continue;
+    }
+    switch (sel_val) {
+        case -1: // ERROR!
             perror("select error");
             wu_exit(-PW_ERROR);
+            break;
         case 0: // timeout!
             if (kill(child_pid, SIGKILL)) {
                 perror("kill error");
                 wu_exit(-PW_ERROR);
             }
             break;
-        default:
+        default: // NOP!
             break;
     }
 };
@@ -3583,6 +3712,69 @@ void Wuwatch::do_exit(void)
     }
 }
 
+struct d_state_sampling_thread_args {
+    int fd;
+    int d_state_sample_interval_msecs;
+    d_state_sampling_thread_args(int f, int d) : fd(f), d_state_sample_interval_msecs(d) {};
+};
+
+static void *d_state_sampling_thread(void *args)
+{
+    d_state_sampling_thread_args *__args = (d_state_sampling_thread_args *)args;
+    int fd = __args->fd;
+    int d_state_sample_interval_msecs = __args->d_state_sample_interval_msecs;
+    struct PWCollector_ioctl_arg ioctl_arg;
+    pw_u32_t d_state_sample_interval_usecs = d_state_sample_interval_msecs * 1000;
+    unsigned long dummy = 0x0;
+
+    delete __args;
+
+    assert(d_state_sample_interval_msecs >= 0);
+
+    if (!d_state_sample_interval_usecs) {
+        pthread_exit(0);
+    }
+
+    memset(&ioctl_arg, 0, sizeof(ioctl_arg));
+    /*
+    ioctl_arg.in_len = sizeof(dummy);
+    ioctl_arg.in_arg = (char *)dummy;
+    */
+
+    for (;;) {
+        struct timeval tv;
+        double __usecs = 0.0;
+        {
+            if (gettimeofday(&tv, NULL)) {
+                perror("gettimeofday error");
+                pthread_exit(0);
+            }
+            __usecs = -(tv.tv_sec * 1e6 + tv.tv_usec);
+        }
+        usleep(d_state_sample_interval_usecs);
+        {
+            if (gettimeofday(&tv, NULL)) {
+                perror("gettimeofday error");
+                pthread_exit(0);
+            }
+            __usecs += (tv.tv_sec * 1e6 + tv.tv_usec);
+            db_fprintf(stderr, "Elapsed time = %.3f msecs\n", __usecs / 1e3);
+        }
+
+        if (ioctl(fd, PW_IOCTL_DO_D_NC_READ, &ioctl_arg)) {
+            if (errno == EBADF) {
+                fprintf(stderr, "BAD file descriptor in NC D-state sampling IOCTL: assuming collection terminated!\n");
+            } else {
+                perror("ioctl error in NC D-state sampling thread");
+            }
+            pthread_exit(0);
+        }
+        db_fprintf(stderr, "OK: sent an NC D-state sampling IOCTL!\n");
+    }
+    pthread_exit(0);
+    return NULL;
+};
+
 /*
  * EXTERNAL API:
  * Start the power data collection.
@@ -3707,6 +3899,14 @@ int Wuwatch::work(char **argv)
     if (s_barrier.wait()) {
         fprintf(stderr, "barrier_wait error");
         wu_exit(-PW_ERROR);
+    }
+
+    if (d_nc_state_collection) {
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, &d_state_sampling_thread, new d_state_sampling_thread_args(m_dev_fd, d_state_sample_interval_msecs))) {
+            perror("pthread create error for NC D-state sampling thread");
+            wu_exit(-PW_ERROR);
+        }
     }
 
     if (*argv) {

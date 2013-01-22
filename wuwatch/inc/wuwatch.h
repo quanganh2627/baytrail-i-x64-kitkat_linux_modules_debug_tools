@@ -166,6 +166,10 @@ class Wuwatch
          */
         u32 turboThreshold;
         /*
+         * Bus frequency, in MHz.
+         */
+        float m_FSBFreqMHz;
+        /*
          * cpu 'brand' information, as retrieved from the
          * 'cpuid' instruction.
          */
@@ -381,6 +385,7 @@ class Wuwatch
         void do_ioctl_config(int , u32 );
         int do_ioctl_available_frequencies(int, u32 *);
         int do_ioctl_get_turbo_threshold(int , u32 *);
+        int do_ioctl_get_msb_freq(int , float *);
         int do_ioctl_check_platform_i(int, u32&, u32&);
 
         void sig_handler(int);

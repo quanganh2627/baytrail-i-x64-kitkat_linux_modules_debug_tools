@@ -36,8 +36,10 @@ typedef enum {
 #define PW_IS_ATM(type) ( (type) == MFD || (type) == LEX || (type) == CLV )
 */
 
-#define PW_IS_SALTWELL(model) ( (model) == 0x27 || (model) == 0x35 )
+// #define PW_IS_SALTWELL(model) ( (model) == 0x27 || (model) == 0x35 || (model) == 0x36 )
 #define PW_IS_MFD(model) ( (model) == 0x27 )
 #define PW_IS_CLV(model) ( (model) == 0x35 )
+#define PW_IS_CDT(model) ( (model) == 0x36 ) /* Cedartrail */
+#define PW_IS_SALTWELL(model) ( PW_IS_MFD(model) || PW_IS_CLV(model) || PW_IS_CDT(model) )
 
 #endif // _PW_ARCH_H_

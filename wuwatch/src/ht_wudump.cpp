@@ -14,6 +14,7 @@
 # Please contact Robert Knight (robert.knight@intel.com) or Gautam Upadhyaya
 # (gautam.upadhyaya@intel.com) if you have any questions.
 #
+# ARM port provided by Ekarat Tony Mongkolsmai (ekarat.t.mongkolsmai@intel.com)
 *****************************************************************************
 */
 
@@ -101,7 +102,9 @@ struct s_residency_sorter {
 struct d_nc_state_data {
     uint64_t tsc;
     uint32_t states;
-    d_nc_state_data(uint64_t&, uint32_t&);
+    uint32_t apm_sts;
+    uint32_t pm_sss;
+    d_nc_state_data(uint64_t&, uint32_t&, uint32_t&);
 };
 
 struct d_nc_state_sorter {
@@ -213,6 +216,16 @@ struct PerCoreCDumper {
 struct PerCorePDumper {
     FILE *output_fp;
     PerCorePDumper(FILE *);
+    void operator()(const PWCollector_sample_t&);
+};
+
+/*
+ * Helper struct used ONLY to dump out
+ * CPU Hotplug samples.
+ */
+struct CPUHPDumper {
+    FILE *output_fp;
+    CPUHPDumper(FILE *f);
     void operator()(const PWCollector_sample_t&);
 };
 
@@ -338,7 +351,7 @@ HTWudump::HTWudump() : PW_max_num_cpus(-1), m_per_cpu_c_state_samples(NULL), m_p
     m_do_raw_output(true), m_do_dump_tscs(true), m_do_dump_backtraces(false), m_do_check_c1_res(true), m_do_c_res_in_clock_ticks(true),
     m_do_dump_orig_samples(false), m_do_dump_sample_stats(false), m_do_check_c_state_demotions(false),
     /*m_do_delete_driver_files(false),*/ m_was_any_tps_sample_present(false), m_was_any_tpf_sample_present(false),
-    m_wuwatch_file_name(""), m_output_file_name("") {};
+    m_was_any_hotplug_sample_present(false), m_wuwatch_file_name(""), m_output_file_name("") {};
 
 /*
  * The wudump destructor.
@@ -369,6 +382,7 @@ HTWudump::~HTWudump() {
 
     delete []m_per_cpu_c_state_samples;
     delete []m_per_cpu_p_state_samples;
+    delete []m_per_cpu_hotplug_samples;
 };
 
 static void find_frequencies_i(std::vector<std::pair<pw_u64_t, pw_u32_t> >& frequencies, const pw_u64_t& c0_start_tsc, const pw_u64_t& c0_stop_tsc, sample_vec_t::const_iterator& curr_p, const sample_vec_t::const_iterator& last_p)
@@ -419,7 +433,7 @@ void PerCoreCDumper::dump_one_c_sample_i(const PWCollector_sample_t& sample, con
     /*
      * Helper macro: convert an integer to a string.
      */
-#define GET_STRING_FROM_INT(i) (__tmp.seekp(0), __tmp << (i) << std::ends, __tmp.str().c_str())
+#define GET_STRING_FROM_INT(i) (__tmp.seekp(0), __tmp, __tmp << (i) << std::ends, __tmp.str().c_str())
 #define GET_PMC_ID_STR(p, m, c) ((p) + ", " + (m) + ", " + (c))
 #define GET_PACKAGE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), "-", "-")
 #define GET_MODULE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), GET_STRING_FROM_INT(GET_MODULE_GIVEN_CORE(id)), "-")
@@ -489,11 +503,15 @@ void PerCoreCDumper::dump_one_c_sample_i(const PWCollector_sample_t& sample, con
         std::string __freq_str = __freq ? GET_STRING_FROM_INT(__freq / 1000) : DONT_CARE;
         c0_freq_mhz_strs.push_back(std::pair<pw_u64_t, std::string>(frequencies[i].first, __freq_str));
         if (i == 0) {
+#ifdef __arm__
+            cx_freq_mhz_str = __freq_str;
+#else
             if (is_saltwell) {
                 cx_freq_mhz_str = (act_state < C4) ? __freq_str : GET_STRING_FROM_INT(pwr::WuData::instance()->getSystemInfo().m_availableFrequenciesKHz.back() / 1000);
             } else {
                 cx_freq_mhz_str = (act_state > APERF) ? "0" : GET_STRING_FROM_INT(pwr::WuData::instance()->getSystemInfo().m_availableFrequenciesKHz.back() / 1000); 
             }
+#endif // __arm__
         }
         // c0_freq_mhz_strs.push_back(std::pair<pw_u64_t, std::string>(frequencies[i].first, GET_STRING_FROM_INT(frequencies[i].second / 1000))); // convert from KHz to MHz
         pw_u64_t& __c0_res = c0_freq_mhz_strs.back().first;
@@ -724,6 +742,7 @@ void PerCorePDumper::operator()(const PWCollector_sample_t& sample)
     assert(sample.sample_type == P_STATE);
     u64 tsc = sample.tsc;
     int cpu = sample.cpuidx;
+    u32 req_freq = sample.p_sample.prev_req_frequency / 1000; // O/P requires freq in MHz
     u32 act_freq = sample.p_sample.frequency / 1000; // O/P requires freq in MHz
     std::string req_str = "";
 
@@ -731,7 +750,8 @@ void PerCorePDumper::operator()(const PWCollector_sample_t& sample)
         req_str = DONT_CARE;
     } else {
         char tmp[11];
-        snprintf(tmp, sizeof(tmp), "%u", act_freq);
+        // sprintf(tmp, "%u", act_freq);
+        snprintf(tmp, sizeof(tmp), "%u", req_freq);
         req_str = tmp;
     }
 
@@ -739,6 +759,20 @@ void PerCorePDumper::operator()(const PWCollector_sample_t& sample)
 };
 
 
+const char *s_hotplug_sample_states[] = {"", "POWER_UP_START", "POWER_UP_DONE", "POWER_DOWN_START", "POWER_DOWN_DONE"};
+CPUHPDumper::CPUHPDumper(FILE *fp) : output_fp(fp) {};
+/*
+ * Functor to print out a P-state transition.
+ */
+void CPUHPDumper::operator()(const PWCollector_sample_t& sample)
+{
+    assert(sample.sample_type == CPUHOTPLUG_SAMPLE);
+    u64 tsc = sample.tsc;
+    int cpu = sample.cpuidx;
+    std::string state_str = s_hotplug_sample_states[sample.e_sample.data[1]];
+
+    fprintf(output_fp, "\n%16llu\t%8d\t%16s\n", TO_ULL(tsc), cpu, state_str.c_str());
+};
 
 s_residency_data::s_residency_data(uint64_t& t, int& c, uint64_t& s0i0, uint64_t& s0i1, uint64_t& s0i2, uint64_t& s0i3, uint64_t& s3) : tsc(t),cpu(c),S0i0(s0i0),S0i1(s0i1),S0i2(s0i2),S0i3(s0i3),S3(s3) {};
 
@@ -746,7 +780,8 @@ bool s_residency_sorter::operator()(const s_residency_data_t& p1, const s_reside
     return p1.tsc < p2.tsc;
 };
 
-d_nc_state_data::d_nc_state_data(uint64_t& t, uint32_t& s) : tsc(t),states(s) {};
+// d_nc_state_data::d_nc_state_data(uint64_t& t, uint32_t& s) : tsc(t),states(s) {};
+d_nc_state_data::d_nc_state_data(uint64_t& t, uint32_t& s1, uint32_t& s2) : tsc(t),apm_sts(s1),pm_sss(s2) {};
 
 bool d_nc_state_sorter::operator()(const d_nc_state_data_t& p1, const d_nc_state_data_t& p2) {
     return p1.tsc < p2.tsc;
@@ -797,6 +832,7 @@ int HTWudump::do_parse_i(void)
      */
     m_per_cpu_c_state_samples = new sample_vec_t[NUM_ONLINE_CORES()];
     m_per_cpu_p_state_samples = new sample_vec_t[NUM_ONLINE_CORES()];
+    m_per_cpu_hotplug_samples = new sample_vec_t[NUM_ONLINE_CORES()];
     /*
      * Get (parsed) samples from our database.
      */
@@ -902,6 +938,10 @@ int HTWudump::do_parse_i(void)
                 m_was_any_tpf_sample_present = true;
                 m_per_cpu_p_state_samples[core].push_back(*citer);
                 break;
+            case CPUHOTPLUG_SAMPLE:
+                m_was_any_hotplug_sample_present = true;
+                m_per_cpu_hotplug_samples[core].push_back(*citer);
+                break;
             case K_CALL_STACK:
                 {
                     const k_sample_t *ks = &citer->k_sample;
@@ -987,7 +1027,8 @@ int HTWudump::do_parse_i(void)
                         if (citer->d_state_sample.device_type == PW_SOUTH_COMPLEX) {
                             assert(false);
                         } else if (citer->d_state_sample.device_type == PW_NORTH_COMPLEX) {
-                            m_d_nc_state_vec.push_back(d_nc_state_data_t(tsc, states[0]));
+                            // m_d_nc_state_vec.push_back(d_nc_state_data_t(tsc, states[0]));
+                            m_d_nc_state_vec.push_back(d_nc_state_data_t(tsc, states[0], states[1]));
                         }
                     }
                     break;
@@ -1248,6 +1289,20 @@ int HTWudump::do_write_i(void)
         }
     }
     /*
+     * ...and then the hotplug samples (if present)...
+     */
+    if (m_was_any_hotplug_sample_present) {
+            fprintf(output_fp,"%s\n","*************************************************************************************************************************************************************************");
+        fprintf(output_fp, "CPU Hotplug Samples\n");
+            fprintf(output_fp,"%s\n","*************************************************************************************************************************************************************************");
+        fprintf(output_fp, "%16s\t%8s\t%16s\t\n","TSC","Core ID","Event");
+            fprintf(output_fp,"%s\n","*************************************************************************************************************************************************************************");
+        for_each_online_core(core) {
+            const sample_vec_t& samples = m_per_cpu_hotplug_samples[core];
+            std::for_each(samples.begin(), samples.end(), CPUHPDumper(output_fp));
+        }
+    }
+    /*
      * And then the other sample types (if present).
      */
     if (m_s_residency_vec.size() > 0) {
@@ -1311,6 +1366,7 @@ int HTWudump::do_write_i(void)
 
 
     if (m_d_nc_state_vec.size() > 0) {
+        fprintf(stderr, "m_d_nc_state_vec size=%d\n", m_d_nc_state_vec.size());
         /*
          * Dump D-state in North complex samples.
          */
@@ -1331,15 +1387,37 @@ int HTWudump::do_write_i(void)
          */
         for (d_nc_state_vec_t::iterator iter = m_d_nc_state_vec.begin(); iter != m_d_nc_state_vec.end(); ++iter) {
             uint64_t tsc = iter->tsc;
-            uint32_t states = iter->states;
+            uint32_t apm_sts = iter->apm_sts;
+            uint32_t pm_sss = iter->pm_sss;
             for (int i=0; i<getNumberOfDevices(PW_NORTH_COMPLEX); i++) {
                 const char *devname = NULL;
+                int state = 0;
                 if (PW_IS_MFD(pwr::WuData::instance()->getSystemInfo().m_cpuModel)) {
                     devname = mfd_nc_device_names[i][0];
                 } else if (PW_IS_CLV(pwr::WuData::instance()->getSystemInfo().m_cpuModel)) {
                     devname = clv_nc_device_names[i][0];
                 }
-                fprintf(output_fp, "\n%20llu\t%8s\t%8d\n", TO_ULL(tsc), devname, (states >> (i*2)) & 0x3);
+
+                if (!strncmp(devname, "DPA", 3)) {
+                    state = (pm_sss >> 2) & 0x3;
+                } else if (!strncmp(devname, "DPB", 3)) {
+                    state = (pm_sss >> 14) & 0x3;
+                } else if (!strncmp(devname, "DPC", 3)) {
+                    state = (pm_sss >> 16) & 0x3;
+                } else if (!strncmp(devname, "GPS", 3)) {
+                    state = (apm_sts >> 0) & 0x3;
+                } else if (!strncmp(devname, "VDPS", 4)) {
+                    state = (apm_sts >> 2) & 0x3;
+                } else if (!strncmp(devname, "VEPS", 4)) {
+                    state = (apm_sts >> 4) & 0x3;
+                } else if (!strncmp(devname, "GL3", 3)) {
+                    state = (apm_sts >> 6) & 0x3;
+                } else if (!strncmp(devname, "ISP", 3)) {
+                    state = (apm_sts >> 8) & 0x3;
+                } else if (!strncmp(devname, "IPH", 3)) {
+                    state = (apm_sts >> 10) & 0x3;
+                }
+                fprintf(output_fp, "\n%20llu\t%8s\t%8d\n", TO_ULL(tsc), devname, state);
             }
         }
     }

@@ -111,7 +111,11 @@
 #include <asm/unistd.h> // for "__NR_execve"
 #include <asm/delay.h> // for "udelay"
 #include <linux/suspend.h> // for "pm_notifier"
+#include <linux/pci.h>
+
+#ifndef __arm__
 #include <asm/timer.h> // for "CYC2NS_SCALE_FACTOR"
+#endif
 
 #include "pw_lock_defs.h"
 #include "pw_mem.h" // internally includes "pw_lock_defs.h"
@@ -133,6 +137,7 @@ typedef enum {
 static __read_mostly atom_arch_type_t pw_is_atm = NON_ATOM;
 static __read_mostly bool pw_is_any_thread_set = false;
 static __read_mostly bool pw_is_auto_demote_enabled = false;
+static __read_mostly unsigned long pw_msr_fsb_freq_value = false;
 
 /* Controls the amount of printks that happen. Levels are:
  *	- 0: no output save for errors and status at end
@@ -444,6 +449,10 @@ static unsigned long startJIFF, stopJIFF;
 #define BUS_CLOCK_FREQ_KHZ_NHM 133000 /* For NHM/WMR. SNB has 100000 */
 #define BUS_CLOCK_FREQ_KHZ_MFLD 100000 /* For MFLD. SNB has 100000 */
 /*
+ * For core and later, Bus freq is encoded in 'MSR_FSB_FREQ'
+ */
+#define MSR_FSB_FREQ_ADDR 0xCD
+/*
  * Try and determine the bus frequency.
  * Used ONLY if the user-program passed
  * us an invalid clock frequency.
@@ -574,6 +583,15 @@ static unsigned long startJIFF, stopJIFF;
 // Power management base address for read/control subsystem status
 #define PM_BASE_ADDRESS                    0xFF11D000
 #define PM_MAX_ADDR                        0x3F
+
+#if DO_D_NC_STATE_SAMPLE 
+#define NC_APM_STS_ADDR                    0x4
+#define NC_PM_SSS_ADDR                     0x30
+#define NC_APM_STS_REG                     0x10047AF0
+#define NC_PM_SSS_REG                      0x10047800
+static unsigned long pci_apm_sts_mem_addr;
+static unsigned long pci_pm_sss_mem_addr;
+#endif
 
 #if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
 // memory mapped io base address for subsystem power management
@@ -789,7 +807,9 @@ static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma);
 static int pw_register_dev(void);
 static void pw_unregister_dev(void);
 static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val);
+#if DO_WAKELOCK_SAMPLE 
 static unsigned long pw_hash_string(const char *data);
+#endif // DO_WAKELOCK_SAMPLE
 static int pw_init_data_structures(void);
 static void pw_destroy_data_structures(void);
 
@@ -835,6 +855,10 @@ DEFINE_PER_CPU(per_cpu_t, per_cpu_counts);
 DEFINE_PER_CPU(stats_t, per_cpu_stats);
 
 DEFINE_PER_CPU(CTRL_values_t, CTRL_data_values);
+
+#ifdef __arm__
+DEFINE_PER_CPU(u64, trace_power_prev_time) = 0;
+#endif
 
 static DEFINE_PER_CPU(per_cpu_mem_t, per_cpu_mem_vars);
 
@@ -1096,6 +1120,7 @@ struct file_operations Fops = {
 /* Helper function to get TSC */
 static inline void tscval(u64 *v)
 {
+#ifndef __arm__
 #if READ_MSR_FOR_TSC
     u64 res;
     rdmsrl(0x10, res);
@@ -1104,12 +1129,18 @@ static inline void tscval(u64 *v)
     unsigned int aux; 
     rdtscpll(*v, aux);
 #endif // READ_MSR_FOR_TSC
+#else
+    struct timespec ts;
+    ktime_get_ts(&ts);
+    *v = (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+#endif // not def __arm__
 };
 
 /*
  * PCI io communication functions to read D states in north complex
  */
 #if DO_D_NC_STATE_SAMPLE 
+#if 0
 static unsigned int PCI_ReadU32 (unsigned int pci_address)  { 
     outl(pci_address,MTX_PCI_ADDR_IO);
     return inl(MTX_PCI_DATA_IO);
@@ -1133,6 +1164,16 @@ static int get_D_NC_states (unsigned long *states)  {
     }
 
     return -ERROR;
+};
+#endif
+static int get_D_NC_states (unsigned long *states)  {
+    if (states == NULL) {
+        return -ERROR;
+    }
+    states[0] = inl(pci_apm_sts_mem_addr + NC_APM_STS_ADDR);
+    states[1] = inl(pci_pm_sss_mem_addr + NC_PM_SSS_ADDR);
+ 
+    return SUCCESS;
 };
 #endif
 
@@ -2051,6 +2092,7 @@ static int get_num_timers(void)
 
 #if DO_USE_CONSTANT_POOL_FOR_WAKELOCK_NAMES
 
+#if DO_WAKELOCK_SAMPLE 
 static unsigned long pw_hash_string(const char *data)
 {
     unsigned long hash = 0;
@@ -2079,12 +2121,11 @@ static wlock_node_t *get_next_free_wlock_node_i(unsigned long hash, size_t wlock
 	} else {
             node->wakelock_name_len = wlock_name_len;
         }
-	} else {
+    } else {
 	pw_pr_error("ERROR: could NOT allocate new wlock node!\n");
     }
 
     return node;
-
 };
 
 /*
@@ -2178,11 +2219,13 @@ static pw_mapping_type_t wlock_insert(size_t wlock_name_len, const char *wlock_n
 
     return retVal;
 };
+#endif // DO_WAKELOCK_SAMPLE
 
 /*
  * INTERNAL HELPER: retrieve number of
  * mappings in the wlock mappings list.
  */
+#ifndef __arm__
 static int get_num_wlock_mappings(void)
 {
     int retVal = 0;
@@ -2199,6 +2242,7 @@ static int get_num_wlock_mappings(void)
     return retVal;
 
 };
+#endif
 #endif // DO_USE_CONSTANT_POOL_FOR_WAKELOCK_NAMES
 
 /*
@@ -2813,24 +2857,26 @@ static inline void produce_s_state_sample(void)
 /*
  * Insert a north complex D state sample into a (per-cpu) output buffer.
  */
-static inline void produce_d_nc_state_sample(void)
+static inline int produce_d_nc_state_sample(void)
 {
     u64 tsc;
     int cpu = RAW_CPU();
-    unsigned long ncstates = 0;
+    // unsigned long ncstates = 0;
+    unsigned long ncstates[2];
     PWCollector_msg_t sample;
     d_state_sample_t d_sample;
 
     tscval(&tsc);
 
-    if (get_D_NC_states(&ncstates)) {
-        return;
+    if (get_D_NC_states(ncstates)) {
+        return -ERROR;
     }
     
     sample.cpuidx = cpu;
     sample.tsc = tsc;
     d_sample.device_type = PW_NORTH_COMPLEX;
-    d_sample.states[0] = ncstates;
+    // d_sample.states[0] = ncstates;
+    memcpy(d_sample.states, ncstates, sizeof(unsigned long) * 2);
 
     sample.data_type = D_STATE;
     sample.data_len = sizeof(d_sample);
@@ -2841,6 +2887,10 @@ static inline void produce_d_nc_state_sample(void)
      * this sample into an output buffer
      */
     pw_produce_generic_msg(&sample, true); // "true" ==> wakeup sleeping readers, if required 
+
+    pw_pr_debug("OK: produced NC D-state sample at TSC = %llu\n", tsc);
+
+    return SUCCESS;
 };
 #endif
 
@@ -2964,6 +3014,7 @@ static inline void produce_w_sample(int cpu, u64 tsc, w_sample_type_t type, pid_
         pw_kfree(cp_msg);
     }
     //printk(KERN_INFO "OK: sent wakelock msg for wlname = %s\n", wlname);
+    return;
 };
 #endif
 
@@ -3790,25 +3841,6 @@ static void probe_workqueue_execute_start(void *ignore, struct work_struct *work
 };
 #endif // < 2.6.36
 
-void read_all_c_state_msrs_i(PWCollector_sample_t *sample)
-{
-    int i=0;
-    int msr_addr = 0x0;
-    u64 val = 0;
-
-    for (i=MPERF; i<MAX_MSR_ADDRESSES; ++i) {
-        RES_COUNT(sample->c_sample, i) = 0x0;
-        msr_addr = INTERNAL_STATE.coreResidencyMSRAddresses[i];
-        if (msr_addr < 0) {
-            continue;
-        }
-        rdmsrl(msr_addr, val);
-        RES_COUNT(sample->c_sample, i) = val;
-    }
-
-    return;
-};
-
 /*
  * Basically the same as arch/x86/kernel/irq.c --> "arch_irq_stat_cpu(cpu)"
  */
@@ -3817,9 +3849,12 @@ static u64 my_local_arch_irq_stats_cpu(void)
 {
     u64 sum = 0;
     irq_cpustat_t *stats;
-
+#ifdef __arm__
+    int i=0;
+#endif
     BEGIN_LOCAL_IRQ_STATS_READ(stats);
     {
+#ifndef __arm__
 // #ifdef CONFIG_X86_LOCAL_APIC
         sum += stats->apic_timer_irqs;
 // #endif
@@ -3836,6 +3871,14 @@ static u64 my_local_arch_irq_stats_cpu(void)
         sum += stats->irq_thermal_count;
 #endif
         sum += stats->irq_spurious_count; // should NEVER be non-zero!!!
+#else
+        sum += stats->__softirq_pending;
+#ifdef CONFIG_SMP
+        for (i=0; i<NR_IPI; ++i) {
+            sum += stats->ipi_irqs[i];
+        }
+#endif
+#endif
     }
     END_LOCAL_IRQ_STATS_READ(stats);
     return sum;
@@ -3872,9 +3915,10 @@ int read_tps_epoch_i(void)
 
 static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val)
 {
+    int num_res = 0;
+#ifndef __arm__
     int i=0;
     u64 val = 0;
-    int num_res = 0;
     s32 msr_addr = -1;
 
     *which_cx = APERF;
@@ -3895,7 +3939,13 @@ static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val
         }
         msr_set->prev_msr_vals[i] = val;
     }
-
+#else
+    // probe_power_end fills in these statistics when it is called
+    // so we just grab what is set here.  On x86 we grab and set them above
+    *which_cx = msr_set->prev_req_cstate;
+    *cx_val = msr_set->curr_msr_count[msr_set->prev_req_cstate];
+    num_res = 1;
+#endif // ifndef __arm__
     return num_res;
 };
 
@@ -3915,26 +3965,37 @@ static void tps(unsigned int type, unsigned int state)
     u64 msr_set[MAX_MSR_ADDRESSES];
     PWC_tps_msg_t c_msg;
     c_msg_t *cm = &c_msg.data;
-    struct timespec ts;
-    tsc_posix_sync_msg_t tsc_msg;
 
     const char *wakeup_reasons[] = {"IRQ", "TIM", "SCHED", "IPI", "WRQ", "BEGIN", "NOT", "ABRT", "?"};
+#ifdef __arm__
+    u64 *prev_tsc = NULL;
+    u64 c0_time = 0;
+#endif
 
     memset(msr_vals, 0, sizeof(u64) * MAX_MSR_ADDRESSES);
 
     tscval(&tsc);
 
-    trace_printk("APWR: [%d] TPS at %llu\n", cpu, tsc);
+    // trace_printk("APWR: [%d] TPS at %llu\n", cpu, tsc);
 
     /*
      * Read all C-state MSRs.
      */
     set = &get_cpu_var(pw_pcpu_msr_sets);
+#ifdef __arm__
+    ++state;  // on ARM (Nexus 7 at least) states start with LP3 and no C0
+    prev_tsc = &get_cpu_var(trace_power_prev_time);
+    c0_time = tsc - *prev_tsc;
+    *prev_tsc = tsc;
+    put_cpu_var(trace_power_prev_time);
+    set->prev_msr_vals[MPERF] += c0_time;
+    c0_time = set->prev_msr_vals[MPERF];
+#endif // __arm__
     {
         init_msr_set_sent = set->init_msr_set_sent;
         prev_req_cstate = set->prev_req_cstate;
-        set->prev_req_cstate = (u32)state;
         num_cx = pw_read_msr_set_i(set, &which_cx, &cx_val);
+        set->prev_req_cstate = (u32)state; // must be after pw_read_msr_set_i for ARM changes
         if (unlikely(init_msr_set_sent == 0)) {
             memcpy(msr_set, set->prev_msr_vals, sizeof(u64) * MAX_MSR_ADDRESSES);
             set->init_msr_set_sent = 1;
@@ -4008,6 +4069,8 @@ static void tps(unsigned int type, unsigned int state)
              * the "clock_gettime()" used by TPSS.
              */
             {
+                struct timespec ts;
+                tsc_posix_sync_msg_t tsc_msg;
                 u64 tmp_tsc = 0, tmp_nsecs = 0;
                 ktime_get_ts(&ts);
                 tscval(&tmp_tsc);
@@ -4043,11 +4106,15 @@ static void tps(unsigned int type, unsigned int state)
         c_msg.cpuidx = cpu;
         c_msg.tsc = tsc;
 
+#ifndef __arm__
         {
             u64 mperf = 0;
             rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], mperf);
             cm->mperf = mperf;
         }
+#else
+        cm->mperf = c0_time;
+#endif // ifndef __arm__
         // cm->req_state = (u8)prev_req_cstate;
         cm->req_state = (u8)state;
         cm->act_state = (u8)which_cx;
@@ -4060,7 +4127,7 @@ static void tps(unsigned int type, unsigned int state)
 	cm->wakeup_tid = event_tid;
 	cm->wakeup_type = event_type;
 
-        trace_printk("APWR: TPS at %llu has wakeup reason = %s\n", tsc, wakeup_reasons[event_type]);
+        // trace_printk("APWR: TPS at %llu has wakeup reason = %s\n", tsc, wakeup_reasons[event_type]);
 
 
         c_msg.data_type = C_STATE;
@@ -4077,6 +4144,7 @@ static void tps(unsigned int type, unsigned int state)
 
         if (IS_COLLECTING()) {
             DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
+#ifndef __arm__
             if (unlikely(num_cx > 1)) {
                 // pw_pr_warn("WARNING: [%d] has %d cx residencies!\n", cpu, num_cx);
                 // printk(KERN_INFO "WARNING: [%d] has %d cx residencies at TSC = %llu! Prev = %d, val = %llu\n", cpu, num_cx, tsc, which_cx, cx_val);
@@ -4091,13 +4159,13 @@ static void tps(unsigned int type, unsigned int state)
                         if (i == which_cx || msr_vals[i] == 0) {
                             continue;
                         }
-                        // pw_pr_debug("[%d]: cx = %d\n", cpu, i);
-                        printk(KERN_INFO "[%d]: cx = %d, msr_val = %llu\n", cpu, i, msr_vals[i]);
+                        pw_pr_debug("[%d]: cx = %d\n", cpu, i);
                         cm->act_state = i; cm->cx_msr_val = msr_vals[i];
                         DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
                     }
                 }
             }
+#endif // __arm__
         }
 
         /*
@@ -4114,140 +4182,11 @@ static void tps(unsigned int type, unsigned int state)
     }
 
     /* 
-     * Controls the sampling frequency to reduce data collection overheads  
+     * Controls the sampling frequency to reduce data collection overheads
+     * UPDATE: disabled for now. Sampling of NC D-states is now being driven by
+     * a Ring-3 timer.
      */
-    if ((CURRENT_TIME_IN_USEC() - prev_sample_usec) > INTERNAL_STATE.d_state_sample_interval*1000) {
-        prev_sample_usec = CURRENT_TIME_IN_USEC();
-
-#if DO_S_STATE_SAMPLE 
-        if (pw_is_atm && IS_S_STATE_MODE()) {
-            if (INTERNAL_STATE.write_to_buffers) {
-                produce_s_state_sample();
-            }
-        }
-#endif
-
-#if DO_D_NC_STATE_SAMPLE 
-        if (pw_is_atm && IS_D_NC_STATE_MODE()) {
-            if (INTERNAL_STATE.write_to_buffers) {
-                produce_d_nc_state_sample();
-            }
-        }
-#endif
-
-#if DO_D_SC_STATE_SAMPLE 
-        if (pw_is_atm && IS_D_SC_STATE_MODE()) {
-            if (INTERNAL_STATE.write_to_buffers) {
-                produce_d_sc_state_sample();
-            }
-        }
-#endif
-    }
-
-};
 #if 0
-static void old_tps(unsigned int type, unsigned int state)
-{
-    int cpu = CPU(), epoch = 0;
-    u64 tsc = 0;
-    PWCollector_sample_t sample;
-    bool was_c6_transition = false;
-
-    bool local_apic_fired = false;
-    /*
-     * We no longer encode the previous 'hint' param. Instead
-     * we send the state the OS is CURRENTLY requesting.
-     */
-    unsigned int pstate = state;
-
-    tscval(&tsc);
-
-    /*
-     * Read all C-state MSRs.
-     */
-    read_all_c_state_msrs_i(&sample);
-    /*
-     * We need to capture the 'C6' residency value in order to
-     * generate S-state samples (see below).
-     */
-    {
-        u64 *c6_val = &__get_cpu_var(prev_c6_val); // OK if we get interrupted
-        u64 curr_c6_val = RES_COUNT(sample.c_sample, C6);
-        was_c6_transition = (*c6_val > 0) && (curr_c6_val != *c6_val);
-        *c6_val = curr_c6_val;
-    }
-
-
-    /*
-     * Check if the local APIC timer raised interrupts.
-     * Only required if we're capturing C-state samples.
-     */
-    if (IS_C_STATE_MODE()) {
-        {
-            u64 curr_num_local_apic = my_local_arch_irq_stats_cpu();
-            u64 *old_num_local_apic = &__get_cpu_var(num_local_apic_timer_inters);
-            if (*old_num_local_apic && (*old_num_local_apic != curr_num_local_apic)) {
-                local_apic_fired = true;
-            }
-            *old_num_local_apic = curr_num_local_apic;
-        }
-
-        if (local_apic_fired && IS_COLLECTING()) {
-            PWCollector_sample_t apic_sample;
-
-            apic_sample.cpuidx = cpu;
-            apic_sample.sample_type = IPI_SAMPLE;
-            /*
-             * We need a 'TSC' for this IPI sample but we don't know
-             * WHEN the local APIC timer interrupt was raised. Fortunately, it doesn't
-             * matter, because we only need to ensure this sample lies
-             * BEFORE the corresponding 'C_STATE' sample in a sorted timeline.
-             * We therefore simply subtract one from the C_STATE sample TSC to get
-             * the IPI sample TSC.
-             */
-            apic_sample.tsc = tsc - 1;
-            apic_sample.e_sample.data[0] = apic_sample.e_sample.data[1] = apic_sample.e_sample.data[2] = apic_sample.e_sample.data[3] = 0;
-
-            record_hit_sample(cpu, &apic_sample);
-
-        }
-
-        sample.cpuidx = cpu;
-        sample.sample_type = C_STATE;
-        sample.tsc = tsc;
-        sample.c_sample.prev_state = pstate;
-
-#if DO_TPS_EPOCH_COUNTER
-        /*
-         * We're entering a new TPS "epoch".
-         * Increment our counter.
-         */
-        epoch = inc_tps_epoch_i();
-        sample.c_sample.tps_epoch = epoch;
-#endif // DO_TPS_EPOCH_COUNTER
-
-        if (IS_COLLECTING()) {
-            produce_pwr_sample(cpu, &sample);
-            OUTPUT(3, KERN_INFO "[%d] TPS\n", CPU());
-        } else {
-            OUTPUT(3, KERN_INFO "[%d] TPS -- NOT COLLECTING!\n", CPU());
-        }
-        /*
-         * Reset the "first-hit" variable.
-         */
-        local_set(&get_cpu_var(is_first_event), 1);
-        put_cpu_var(is_first_event);
-
-    } // IS_C_STATE_MODE()
-
-    // Collect S and D state / residency counter samples on CPU0
-    if (cpu != 0 || !IS_COLLECTING()) {
-        return;
-    }
-
-    /* 
-     * Controls the sampling frequency to reduce data collection overheads  
-     */
     if ((CURRENT_TIME_IN_USEC() - prev_sample_usec) > INTERNAL_STATE.d_state_sample_interval*1000) {
         prev_sample_usec = CURRENT_TIME_IN_USEC();
 
@@ -4275,8 +4214,9 @@ static void old_tps(unsigned int type, unsigned int state)
         }
 #endif
     }
-};
 #endif // if 0
+
+};
 
 /*
  * C-state break.
@@ -4285,6 +4225,46 @@ static void old_tps(unsigned int type, unsigned int state)
  * If so configured, write C-sample information to (per-cpu)
  * output buffer.
  */
+#ifdef __arm__
+/* 
+ * TODO: we may want to change this to call receive_wakeup_cause()
+ * and put the logic for the ARM stuff in there.  The reason
+ * we don't do it now is we want to make sure this isn't called
+ * before the timer or interrupt trace calls or we will attribute
+ * the cause of the wakeup as this function instead of an interrupt or
+ * timer.  We can probably fix that by cleaning up the logic a bit
+ * but for the merge we ignore that for now
+ */
+static void probe_power_end(void *ignore)
+{
+    u64 tsc = 0;
+    
+    msr_set_t *set = NULL;
+    u64 *prev_tsc = NULL;
+    u64 trace_time = 0;
+
+    tscval(&tsc);
+    prev_tsc = &get_cpu_var(trace_power_prev_time);
+    trace_time = tsc - *prev_tsc;
+
+    *prev_tsc = tsc;
+    put_cpu_var(trace_power_prev_time);
+
+    /*
+     * Set all C-state MSRs.
+     */
+    set = &get_cpu_var(pw_pcpu_msr_sets);
+    {
+        set->prev_msr_vals[set->prev_req_cstate] += trace_time;
+
+        memset(set->curr_msr_count, 0, sizeof(u64) * MAX_MSR_ADDRESSES);
+        set->curr_msr_count[set->prev_req_cstate] =
+            set->prev_msr_vals[set->prev_req_cstate];
+    }
+    put_cpu_var(pw_pcpu_msr_sets);
+}
+#endif // __arm__
+
 #if APWR_RED_HAT
 /*
  * Red Hat back ports SOME changes from 2.6.37 kernel
@@ -4312,6 +4292,9 @@ static void probe_power_start(void *ignore, unsigned int type, unsigned int stat
 static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id)
 {
    if (state == PWR_EVENT_EXIT) {
+#ifdef __arm__
+       probe_power_end(NULL);
+#endif
        return;
    }
 
@@ -4320,6 +4303,31 @@ static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id
 };
 #endif // version
 #endif // APWR_RED_HAT
+#if TRACE_CPU_HOTPLUG
+static void probe_cpu_hotplug(void *ignore, unsigned int state, int cpu_id)
+{
+        PWCollector_msg_t output_sample;
+        event_sample_t event_sample;
+        u64 sample_tsc;
+
+        tscval(&sample_tsc);
+        output_sample.cpuidx = cpu_id;
+        output_sample.tsc = sample_tsc;
+
+        event_sample.data[0] = cpu_id;
+        event_sample.data[1] = state;
+
+#if DO_TPS_EPOCH_COUNTER
+        event_sample.data[2] = read_tps_epoch_i();
+#endif // DO_TPS_EPOCH_COUNTER
+
+        output_sample.data_type = CPUHOTPLUG_SAMPLE;
+        output_sample.data_len = sizeof(event_sample);
+        output_sample.p_data = (u64)((unsigned long)&event_sample);
+
+        pw_produce_generic_msg(&output_sample, false); // "false" ==> don't wake any sleeping readers (required from scheduling context)
+}
+#endif // TRACE_CPU_HOTPLUG
 
 /*
  * Tokenize the Frequency table string
@@ -4476,10 +4484,10 @@ unsigned long get_actual_frequency(unsigned long avg_freq)
  * frequencies. Only calculate TSC values within
  * the 'power_frequency' tracepoint.
  */
+#ifndef __arm__
 static void tpf(int cpu, unsigned int type, u32 req_freq)
 {
     u64 tsc = 0, aperf = 0, mperf = 0;
-    u32 l=0, h=0;
     u32 prev_req_freq = 0;
     u32 perf_status = 0;
 
@@ -4495,6 +4503,7 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
     /*
      * Read TSC value
      */
+    u32 l=0, h=0;
     WARN_ON(rdmsr_safe_on_cpu(cpu, 0x10, &l, &h));
     tsc = (u64)h << 32 | (u64)l;
     /*
@@ -4538,6 +4547,7 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
     }
 #endif // DO_IOCTL_STATS
 };
+#endif // not def __arm__
 
 #if DO_CPUFREQ_NOTIFIER
 /*
@@ -4557,7 +4567,21 @@ static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val
     }
 
     if (val == CPUFREQ_PRECHANGE) {
+#ifndef __arm__
         DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, state);
+#else
+        u64 tsc;
+        u32 prev_req_freq = 0;
+        u32 perf_status = 0;
+        
+        tscval(&tsc);
+
+        prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
+        per_cpu(pcpu_prev_req_freq, cpu) = state;
+
+        perf_status = prev_req_freq / INTERNAL_STATE.bus_clock_freq_khz;
+        produce_p_sample(cpu, tsc, prev_req_freq, perf_status, 0 /* boundary */, 0, 0); // "0" ==> NOT a boundary sample
+#endif // not def __arm__
     }
     return SUCCESS;
 };
@@ -5077,6 +5101,13 @@ static int register_non_pausable_probes(void)
             ret = register_trace_power_start(probe_power_start);
             WARN_ON(ret);
         }
+#ifdef __arm__
+        {
+            OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
+            ret = register_trace_power_end(probe_power_end);
+            WARN_ON(ret);
+        }
+#endif // __arm__
         {
             ret = register_trace_workqueue_execution(probe_workqueue_execution);
             WARN_ON(ret);
@@ -5115,6 +5146,13 @@ static int register_non_pausable_probes(void)
             ret = register_trace_power_start(probe_power_start, NULL);
             WARN_ON(ret);
         }
+#ifdef __arm__
+        {
+            OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
+            ret = register_trace_power_end(probe_power_end, NULL);
+            WARN_ON(ret);
+        }
+#endif // __arm__
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
         {
             ret = register_trace_workqueue_execution(probe_workqueue_execution, NULL);
@@ -5132,6 +5170,13 @@ static int register_non_pausable_probes(void)
             ret = register_trace_cpu_idle(probe_cpu_idle, NULL);
             WARN_ON(ret);
         }
+#if TRACE_CPU_HOTPLUG
+        {
+            OUTPUT(0, KERN_INFO "\tCPU_ON_OFF_EVENTS");
+            ret = register_trace_cpu_hotplug(probe_cpu_hotplug, NULL);
+            WARN_ON(ret);
+        }
+#endif // TRACE_CPU_HOTPLUG
         {
             ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
             WARN_ON(ret);
@@ -5168,7 +5213,9 @@ static void unregister_non_pausable_probes(void)
          */
         {
             unregister_trace_power_start(probe_power_start);
-
+#ifdef __arm__
+            unregister_trace_power_end(probe_power_end);
+#endif // __arm__
             tracepoint_synchronize_unregister();
         }
 
@@ -5203,7 +5250,9 @@ static void unregister_non_pausable_probes(void)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
         {
             unregister_trace_power_start(probe_power_start, NULL);
-
+#ifdef __arm__
+            unregister_trace_power_end(probe_power_end, NULL);
+#endif // __arm__
             tracepoint_synchronize_unregister();
         }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
@@ -5225,6 +5274,13 @@ static void unregister_non_pausable_probes(void)
 
             tracepoint_synchronize_unregister();
         }
+#if TRACE_CPU_HOTPLUG
+        {
+            unregister_trace_cpu_hotplug(probe_cpu_hotplug, NULL);
+
+            tracepoint_synchronize_unregister();
+        }
+#endif // TRACE_CPU_HOTPLUG
         {
             unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
 
@@ -5532,7 +5588,7 @@ static ssize_t pw_device_read(struct file *file, char __user *buffer, size_t len
     if (false && pw_did_mmap) {
         if (put_user(val, (u32 *)buffer)) {
             pw_pr_error("ERROR in put_user\n");
-            return -PW_ERROR;
+            return -ERROR;
         }
         return sizeof(val); // 'read' returns # of bytes actually read
     } else {
@@ -5543,7 +5599,7 @@ static ssize_t pw_device_read(struct file *file, char __user *buffer, size_t len
         unsigned long bytes_not_copied = pw_consume_data(val, buffer, length, &bytes_read); // 'read' returns # of bytes actually read
         pw_pr_debug(KERN_INFO "OK: returning %d\n", bytes_read);
         if (unlikely(bytes_not_copied)) {
-            return -PW_ERROR;
+            return -ERROR;
         }
         return bytes_read;
     }
@@ -5574,7 +5630,7 @@ static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma)
     pw_pr_debug("MMAP received!\n");
 
     if (true) {
-        return -PW_ERROR;
+        return -ERROR;
     }
 
     /*
@@ -5582,12 +5638,12 @@ static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma)
      */
     if (length != pw_buffer_alloc_size) {
         pw_pr_error("ERROR: requested mapping size %ld bytes, MUST be %lu\n", length, pw_buffer_alloc_size);
-        return -PW_ERROR;
+        return -ERROR;
     }
 
     if (pw_map_per_cpu_buffers(vma, &total_size)) {
         pw_pr_error("ERROR mapping per-cpu buffers to userspace!\n");
-        return -PW_ERROR;
+        return -ERROR;
     }
 
     /*
@@ -5601,7 +5657,7 @@ static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma)
 
     pw_did_mmap = true;
 
-    return PW_SUCCESS;
+    return SUCCESS;
 };
 
 
@@ -5694,6 +5750,7 @@ void get_frequency_steps(void)
  */
 static inline void get_base_operating_frequency(void)
 {
+#ifndef __arm__
     u64 res;
     u16 ratio = 0;
 
@@ -5729,6 +5786,12 @@ static inline void get_base_operating_frequency(void)
     // base_operating_freq = ratio * BUS_CLOCK_FREQ_KHZ;
     base_operating_freq_khz = ratio * INTERNAL_STATE.bus_clock_freq_khz;
     OUTPUT(3, KERN_INFO "RATIO = 0x%x, BUS_FREQ = %u, FREQ = %u, (RES = %llu)\n", (u32)ratio, (u32)INTERNAL_STATE.bus_clock_freq_khz, base_operating_freq_khz, res);
+#else
+    struct cpufreq_policy *policy;
+    if( (policy = cpufreq_cpu_get(0)) == NULL){
+        base_operating_freq_khz = policy->max;
+    }
+#endif // ifndef __arm__
 };
 
 /*
@@ -5932,30 +5995,6 @@ int get_micro_patch_ver(int *remote_ver, int size)
     return copy_to_user(remote_ver, &local_ver, size); // returns number of bytes that could NOT be copiled
 };
 
-static inline void read_sample_residencies(int cpu, u64 samples[])
-{
-    u32 h=0, l=0;
-    u64 res=0;
-    int i=0, msr_addr=-1;
-
-    OUTPUT(3, KERN_INFO "Addr = %p\n", samples);
-
-    for(i=0; i<MAX_MSR_ADDRESSES; ++i){
-	if( (msr_addr = INTERNAL_STATE.coreResidencyMSRAddresses[i]) <= 0)
-	    continue;
-	rdmsr_on_cpu(cpu, msr_addr, &l, &h);
-	{
-	    res = h;
-	    res <<= 32;
-	    res += l;
-	}
-	samples[i] = res;
-	OUTPUT(3, KERN_INFO "\t[%d]: MSR=%d, VAL=0x%llx\n", cpu, i, samples[i]);
-    }
-};
-
-
-
 int get_status(struct PWCollector_status *remote_status, int size)
 {
     struct PWCollector_status local_status;
@@ -6126,12 +6165,13 @@ static void reset_trace_sent_fields(void)
  */
 static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
 {
-    u32 l=0, h=0;
     u64 tsc = 0, aperf = 0, mperf = 0;
     u32 perf_status = 0;
     u8 is_boundary = (is_start) ? 1 : 2; // "0" ==> NOT boundary, "1" ==> START boundary, "2" ==> STOP boundary
     u32 prev_req_freq = 0;
 
+#ifndef __arm__
+    u32 l=0, h=0;
     {
         int ret = rdmsr_safe_on_cpu(cpu, 0x10, &l, &h);
         if(ret){
@@ -6178,6 +6218,27 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
     }
 #endif
 
+#else
+    msr_set_t *set = NULL;
+    set = &get_cpu_var(pw_pcpu_msr_sets);
+
+    tscval(&tsc);
+    aperf = set->prev_msr_vals[APERF];
+    mperf = set->prev_msr_vals[MPERF];
+    put_cpu_var(pw_pcpu_msr_sets);
+
+    perf_status = cpufreq_quick_get(cpu) / INTERNAL_STATE.bus_clock_freq_khz;
+
+    /*
+     * Retrieve the previous requested frequency.
+     */
+    // TODO CAN WE MERGE THIS CODE WITH ifndef __arm__ code above and put it
+    // after this code?
+    if (is_start == false) {
+        prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
+    }
+#endif // ifndef __arm__
+
     produce_p_sample(cpu, tsc, prev_req_freq, perf_status, is_boundary, aperf, mperf);
 
 };
@@ -6217,6 +6278,38 @@ static void get_current_cpu_frequency(bool is_start)
         generate_cpu_frequency_per_cpu(cpu, is_start);
     }
 #endif
+};
+
+static void generate_end_tps_sample_per_cpu(void *tsc)
+{
+    int cpu = raw_smp_processor_id();
+    PWC_tps_msg_t c_msg;
+
+    /*
+     * UPDATE: do this ONLY if we've sent at least one tps sample in the past!
+     */
+    if (unlikely(__get_cpu_var(pw_pcpu_msr_sets).init_msr_set_sent == 0x0)) {
+        return;
+    }
+
+    memset(&c_msg, 0, sizeof(c_msg));
+
+    c_msg.cpuidx = cpu;
+    c_msg.tsc = *((u64 *)tsc);
+    c_msg.data_type = C_STATE;
+    c_msg.data_len = sizeof(c_msg.data);
+
+    DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
+};
+
+static void generate_end_tps_samples(void)
+{
+    u64 tsc = 0;
+
+    tscval(&tsc);
+
+    SMP_CALL_FUNCTION(&generate_end_tps_sample_per_cpu, (void *)&tsc, 0, 1);
+    generate_end_tps_sample_per_cpu((void *)&tsc);
 };
 
 /*
@@ -6464,6 +6557,12 @@ int stop_collection(PWCollector_cmd_t cmd)
             get_current_cpu_frequency(false); // "false" ==> collection STOP
         }
         /*
+         * Get STOP C-state samples.
+         */
+        if (likely(IS_C_STATE_MODE())) {
+            generate_end_tps_samples();
+        }
+        /*
          * Gather some stats on # of samples produced and dropped.
          */
         {
@@ -6621,7 +6720,9 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
     u64 suspend_time_usecs = 0;
     u64 base_operating_freq_mhz = base_operating_freq_khz / 1000;
 
-    BUG_ON(!pw_is_atm);
+    if (!pw_is_atm) {
+        return NOTIFY_DONE;
+    }
     switch (state) {
         case PM_SUSPEND_PREPARE:
             /*
@@ -6919,18 +7020,36 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         pw_pr_debug("MMAP_SIZE received!\n");
         if(put_user(pw_buffer_alloc_size, (unsigned long *)remote_args->out_arg)) {
             pw_pr_error("ERROR transfering buffer size!\n");
-            return -PW_ERROR;
+            return -ERROR;
         }
-        return PW_SUCCESS;
+        return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_BUFFER_SIZE)) {
         unsigned long buff_size = pw_get_buffer_size();
         pw_pr_debug("BUFFER_SIZE received!\n");
         if(put_user(buff_size, (unsigned long *)remote_args->out_arg)) {
             pw_pr_error("ERROR transfering buffer size!\n");
-            return -PW_ERROR;
+            return -ERROR;
         }
-        return PW_SUCCESS;
+        return SUCCESS;
+    }
+    else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_DO_D_NC_READ)) {
+        pw_pr_debug("PW_IOCTL_DO_D_NC_READ  received!\n");
+        // printk(KERN_INFO "PW_IOCTL_DO_D_NC_READ  received!\n");
+        if (produce_d_nc_state_sample()) {
+            pw_pr_error("ERROR taking NC D-state sample!\n");
+            return -ERROR;
+        }
+        return SUCCESS;
+    }
+    else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_FSB_FREQ)) {
+        pw_pr_debug("PW_IOCTL_FSB_FREQ  received!\n");
+        // printk(KERN_INFO "PW_IOCTL_FSB_FREQ  received!\n");
+        if (put_user(pw_msr_fsb_freq_value, (unsigned long *)remote_args->out_arg)) {
+            pw_pr_error("ERROR transfering FSB_FREQ MSR value!\n");
+            return -ERROR;
+        }
+        return SUCCESS;
     }
     else{
 	// ERROR!
@@ -7054,6 +7173,7 @@ void pw_unregister_dev(void)
     cdev_del(apwr_cdev);
 };
 
+#ifndef __arm__
 static void disable_auto_demote(void *dummy)
 {
     unsigned long long auto_demote_disable_flags = AUTO_DEMOTE_FLAGS();
@@ -7085,23 +7205,32 @@ static void enable_auto_demote(void *dummy)
         printk(KERN_INFO "[%d]: OLD msr_bits = %llu, NEW msr_bits = %llu\n", raw_smp_processor_id(), old_msr_bits, msr_bits);
     }
 };
+#endif // ifndef __arm__
 
 static bool check_auto_demote_flags(int cpu)
 {
+#ifndef __arm__
     u32 l=0, h=0;
     u64 msr_val = 0;
     WARN_ON(rdmsr_safe_on_cpu(cpu, AUTO_DEMOTE_MSR, &l, &h));
     msr_val = (u64)h << 32 | (u64)l;
     return IS_AUTO_DEMOTE_ENABLED(msr_val);
+#else
+    return false;
+#endif // ifndef __arm__
 };
 
 static bool check_any_thread_flags(int cpu)
 {
+#ifndef __arm__
     u32 l=0, h=0;
     u64 msr_val = 0;
     WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_FIXED_CTR_CTL_ADDR, &l, &h));
     msr_val = (u64)h << 32 | (u64)l;
     return IS_ANY_THREAD_SET(msr_val);
+#else
+    return false;
+#endif // ifndef __arm__
 };
 
 static void check_arch_flags(void)
@@ -7118,6 +7247,7 @@ static void check_arch_flags(void)
     return;
 };
 
+#ifndef __arm__
 /*
  * Enable CPU_CLK_UNHALTED.REF counting
  * by setting bits 8,9 in MSR_PERF_FIXED_CTR_CTRL
@@ -7225,12 +7355,13 @@ static void restore_ref(void)
         }
     }
 };
-
+#endif // ifndef __arm__
 /*
  * Check if we're running on ATM.
  */
 atom_arch_type_t is_atm(void)
 {
+#ifndef __arm__
     unsigned int ecx, edx;
     unsigned int fms, family, model, stepping;
 
@@ -7263,6 +7394,7 @@ atom_arch_type_t is_atm(void)
                 return CLV;
         }
     }
+#endif // ifndef __arm__
     return NON_ATOM;
 };
 
@@ -7280,8 +7412,10 @@ static int __init init_hooks(void)
     int ret = SUCCESS;
 
     if (false) {
+#ifndef __arm__
         printk(KERN_INFO "F.M = %u.%u\n", boot_cpu_data.x86, boot_cpu_data.x86_model);
-        return -PW_ERROR;
+#endif // ifndef __arm__
+        return -ERROR;
     }
 
 
@@ -7326,6 +7460,7 @@ static int __init init_hooks(void)
          * Do check ONLY if we're ATM!
          */
         if(pw_is_atm){
+#ifndef __arm__
             u64 res;
             u32 patch_val;
 
@@ -7337,11 +7472,24 @@ static int __init init_hooks(void)
             }
             micro_patch_ver = patch_val;
             OUTPUT(3, KERN_INFO "patch ver = %u\n", micro_patch_ver);
+#endif // ifndef __arm__
         }else{
             OUTPUT(0, KERN_INFO "DEBUG: SKIPPING MICROCODE PATCH check -- NON ATM DETECTED!\n");
         }
     }
 #endif
+
+    /*
+     * Read the 'FSB_FREQ' MSR to determine bus clock freq multiplier.
+     * Update: ONLY if saltwell!
+     */
+    if (pw_is_atm) {
+        u64 res;
+
+        rdmsrl(MSR_FSB_FREQ_ADDR, res);
+        memcpy(&pw_msr_fsb_freq_value, &res, sizeof(unsigned long));
+        printk(KERN_INFO "MSR_FSB_FREQ value = %lu\n", pw_msr_fsb_freq_value);
+    }
 
     OUTPUT(3, KERN_INFO "Sizeof node = %lu\n", sizeof(tnode_t));
     OUTPUT(3, KERN_INFO "Sizeof per_cpu_t = %lu\n", sizeof(per_cpu_t));
@@ -7391,6 +7539,8 @@ static int __init init_hooks(void)
                 break;
             case CLV:
                 d_sc_device_num = CLV_MAX_LSS_NUM_IN_SC;
+                break;
+            case NON_ATOM:
                 break;
         }
         // Map the bus memory into CPU space for 6 IPC registers
@@ -7449,6 +7599,21 @@ static int __init init_hooks(void)
         }
     }
 #endif
+
+#if DO_D_NC_STATE_SAMPLE
+     {
+        u32 read_value = 0;
+        struct pci_dev *pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
+        pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_APM_STS_REG);
+        pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
+        pci_apm_sts_mem_addr = read_value & 0xFFFF;
+
+        pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_PM_SSS_REG);
+        pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
+        pci_pm_sss_mem_addr = read_value & 0xFFFF;
+    } 
+#endif
+
 
     {
         /*

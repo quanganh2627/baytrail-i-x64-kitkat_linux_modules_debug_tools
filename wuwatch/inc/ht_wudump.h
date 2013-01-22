@@ -182,6 +182,11 @@ class HTWudump {
          */
         sample_vec_t *m_per_cpu_p_state_samples;
         /*
+         * (Per-core) List of CPU hotplug samples to output.
+         */
+        sample_vec_t *m_per_cpu_hotplug_samples;
+
+        /*
          * Where should we read the PRELOAD lib
          * results?
          */
@@ -255,6 +260,10 @@ class HTWudump {
          * Did we detect any TPF samples?
          */
         bool m_was_any_tpf_sample_present;
+        /*
+         * Did we detect any CPU Hotplug samples?
+         */
+        bool m_was_any_hotplug_sample_present;
 
         /*
          * Friends.
