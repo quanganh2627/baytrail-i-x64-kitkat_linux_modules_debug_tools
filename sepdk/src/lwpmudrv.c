@@ -1298,7 +1298,13 @@ lwpmudrv_Read_MSRs (
     // Transfer the data in the PMU registers to the output buffer
     //
     read_counter_info = CONTROL_Allocate_Memory(arg->r_len);
+    if (!read_counter_info) {
+         return OS_NO_MEM;
+    }
     read_unc_ctr_info = CONTROL_Allocate_Memory(arg->r_len);
+     if (!read_unc_ctr_info) {
+         return OS_NO_MEM;
+    }
     CONTROL_Invoke_Parallel(dispatch->read_data, (VOID *)(size_t)0);
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
