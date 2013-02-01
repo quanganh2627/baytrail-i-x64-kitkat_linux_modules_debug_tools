@@ -1,63 +1,29 @@
-# ########################################################
-# WARNING: INTEL-PRIVATE/CONFIDENTIAL ONLY!!!
-# DO NOT DISTRIBUTE TO EXTERNAL CUSTOMERS!!!
-# ########################################################
-# 
-# This is the INTEL-PRIVATE architecture config file for
-# power. 
-
-
 # For NHM/WMR
 ARCH NHM
-
-# MODEL: <Family>.<Model>
 MODEL 0x6.0x1a
 MODEL 0x6.0x1e
 MODEL 0x6.0x1f
 MODEL 0x6.0x25
 MODEL 0x6.0x2c
 MODEL 0x6.0x2e
-#MODEL 0x6.0x17.0x7 -- PENRYN is NOT SUPPORTED!
-
-# 'BUS_FREQ' is the bus clock frequency, in KHz
-BUS_FREQ 133333 # Bus clock is 133.33 MHz
-
-# The 'CX_CLOCK_RATE' is the rate at which the Cx MSRs count.
-# Either the string 'TSC', which means the Cx MSRs count at TSC rate, or a
-# (base 10) integer depicting the frequency, in KHz.
-CX_CLOCK_RATE TSC # Cx MSRs count at TSC frequency
-
-# 'PERF_BITS' encodes the specific within the IA32_PERF_STATUS MSR that encode
-# the bus-frequency multiplier.
-# PERF_BITS <Num>:<Num>
-PERF_BITS 7:0 # Frequency multiplier encoded in bits 7:0 of the IA32_PERF_STATUS register.
-
-# Cx specifiers.
-# FORMAT: <Cx> <Type> <MSR> <T-RES>
-# Where <Cx> is the C-state e.g. C0, C3 etc.
-# <Type> is the MSR type: one of 'Package', 'Core' or 'Thread'
-# <MSR> is the MSR address (see note below)
-# <T-Res> is the target residency, in usecs
-# '0' or '-1' for MSR if not supported
-# Numbers may be in Hex or Decimal but note that
-# hex numbers MUST begin with a '0x' (or '0X').
-# Comments are indicated by the HASH character.
-# Everything AFTER the hash is ignored (upto the next newline)
-C0  Thread  0xe7    0 #C0 has dummy target residency value
+BUS_FREQ 133333
+CX_CLOCK_RATE TSC
+PERF_BITS 7:0
+C0  Thread  0xe7    0
 C1  Core    0       6
 C3  Core    0x3fc   80
 C6  Core    0x3fd   800
 C7  Core    -1      -1
 
-# For SNB
+# For SNB/IVB
 ARCH SNB
 MODEL 0x6.0x2a # SNB
-MODEL 0x6.0x2d # IVB
+MODEL 0x6.0x2d # SNB
 MODEL 0x6.0x3a # IVB
-BUS_FREQ 100000 # Bus clock frequency, in KHz
-CX_CLOCK_RATE TSC # Cx MSRs count at TSC frequency
+BUS_FREQ 100000
+CX_CLOCK_RATE TSC
 PERF_BITS 15:8
-C0  Thread  0xe7    0 #C0 has dummy target residency value
+C0  Thread  0xe7    0
 C1  Core    0       6
 C3  Core    0x3fc   211
 C6  Core    0x3fd   345
@@ -69,17 +35,10 @@ MODEL 0x6.0x27.0x1 # MFD
 MODEL 0x6.0x27.0x2 # LEX
 MODEL 0x6.0x35 # CLV
 BUS_FREQ 100000
-CX_CLOCK_RATE 995 # Rate at which the Cx MSRs count, in KHz
+CX_CLOCK_RATE 995
 PERF_BITS 12:8
 C0  Thread  0xe7    0
 C1  Core    0       4
 C2  Package 0x3f8   80
 C4  Package 0x3f9   400
-C5  Package 0x121   400 #INTERNAL C-state -- no 'target residencies' exist. I've defaulted it to C4 residency.
 C6  Package 0x3fa   560
-
-
-# ########################################################
-# WARNING: INTEL-PRIVATE/CONFIDENTIAL ONLY!!!
-# DO NOT DISTRIBUTE TO EXTERNAL CUSTOMERS!!!
-# ########################################################

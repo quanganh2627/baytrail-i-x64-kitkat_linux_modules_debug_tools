@@ -1366,7 +1366,6 @@ int HTWudump::do_write_i(void)
 
 
     if (m_d_nc_state_vec.size() > 0) {
-        fprintf(stderr, "m_d_nc_state_vec size=%d\n", m_d_nc_state_vec.size());
         /*
          * Dump D-state in North complex samples.
          */

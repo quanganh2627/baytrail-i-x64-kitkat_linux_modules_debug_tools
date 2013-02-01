@@ -3763,7 +3763,7 @@ static void *d_state_sampling_thread(void *args)
 
         if (ioctl(fd, PW_IOCTL_DO_D_NC_READ, &ioctl_arg)) {
             if (errno == EBADF) {
-                fprintf(stderr, "BAD file descriptor in NC D-state sampling IOCTL: assuming collection terminated!\n");
+                db_fprintf(stderr, "BAD file descriptor in NC D-state sampling IOCTL: assuming collection terminated!\n");
             } else {
                 perror("ioctl error in NC D-state sampling thread");
             }

@@ -591,6 +591,7 @@ static unsigned long startJIFF, stopJIFF;
 #define NC_PM_SSS_REG                      0x10047800
 static unsigned long pci_apm_sts_mem_addr;
 static unsigned long pci_pm_sss_mem_addr;
+struct pci_dev *pci_root = NULL;
 #endif
 
 #if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
@@ -1140,34 +1141,8 @@ static inline void tscval(u64 *v)
  * PCI io communication functions to read D states in north complex
  */
 #if DO_D_NC_STATE_SAMPLE 
-#if 0
-static unsigned int PCI_ReadU32 (unsigned int pci_address)  { 
-    outl(pci_address,MTX_PCI_ADDR_IO);
-    return inl(MTX_PCI_DATA_IO);
-};
-
-static void PCI_WriteU32 (unsigned int pci_address, unsigned int data)  {
-    outl(pci_address, MTX_PCI_ADDR_IO);
-    outl(data, MTX_PCI_DATA_IO);
-    return;
-};
-
 static int get_D_NC_states (unsigned long *states)  {
-    unsigned int ncaddr = 0x100461f0;
-    unsigned int pwr_data = 0;
-    PCI_WriteU32(MTX_ENABLE_PCI + MTX_PCI_MSG_CTRL_REG, (ncaddr ));
-    if (states != NULL) {
-        pwr_data = PCI_ReadU32(MTX_ENABLE_PCI + MTX_PCI_MSG_DATA_REG);
-        memcpy(states, &pwr_data, sizeof(unsigned long));
-
-        return SUCCESS;
-    }
-
-    return -ERROR;
-};
-#endif
-static int get_D_NC_states (unsigned long *states)  {
-    if (states == NULL) {
+    if (states == NULL || pci_root == NULL) {
         return -ERROR;
     }
     states[0] = inl(pci_apm_sts_mem_addr + NC_APM_STS_ADDR);
@@ -7603,14 +7578,16 @@ static int __init init_hooks(void)
 #if DO_D_NC_STATE_SAMPLE
      {
         u32 read_value = 0;
-        struct pci_dev *pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
-        pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_APM_STS_REG);
-        pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
-        pci_apm_sts_mem_addr = read_value & 0xFFFF;
+        pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
+        if (pci_root != NULL) {
+            pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_APM_STS_REG);
+            pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
+            pci_apm_sts_mem_addr = read_value & 0xFFFF;
 
-        pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_PM_SSS_REG);
-        pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
-        pci_pm_sss_mem_addr = read_value & 0xFFFF;
+            pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_PM_SSS_REG);
+            pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
+            pci_pm_sss_mem_addr = read_value & 0xFFFF;
+        }
     } 
 #endif
 

@@ -5567,11 +5567,6 @@ std::ostream& operator<<(std::ostream& os, const PWCollector_sample_t& sample)
             }
         }
     }
-    else if (sample.sample_type == D_STATE) {
-        const u32 *states = sample.d_state_sample.states;
-        const char type = sample.d_state_sample.device_type;
-        os << "\t" << (int)type << "\t" << states[0] << "\t" << states[1];
-    }
     os << std::endl;
     os.flush();
     return os;
