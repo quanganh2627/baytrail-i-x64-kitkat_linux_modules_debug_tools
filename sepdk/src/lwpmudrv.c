@@ -496,6 +496,9 @@ lwpmudrv_Initialize (
     if (DRV_CONFIG_counting_mode(pcfg) == FALSE) {
         if (cpu_buf == NULL) {
             cpu_buf = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(BUFFER_DESC_NODE));
+            if (!cpu_buf) {
+               return OS_NO_MEM;
+            }
         }
         /*
          * Program the APIC and set up the interrupt handler
@@ -517,7 +520,10 @@ lwpmudrv_Initialize (
          * Allocate and set up the temp output files for each CPU in the system
          * Allocate and set up the temp outout file for detailing the Modules in the system
          */
-        OUTPUT_Initialize(DRV_CONFIG_seed_name(pcfg), DRV_CONFIG_seed_name_len(pcfg));
+        status = OUTPUT_Initialize(DRV_CONFIG_seed_name(pcfg), DRV_CONFIG_seed_name_len(pcfg));
+        if (status != OS_SUCCESS) {
+            return status;
+        }
         SEP_PRINT_DEBUG("lwpmudrv_Initialize: After OUTPUT_Initialize\n");
         SEP_PRINT_DEBUG("lwpmudrv_Initialize: about to install module notification");
         LINUXOS_Install_Hooks();

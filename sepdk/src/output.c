@@ -446,7 +446,8 @@ output_Initialized_Buffers (
         OUTPUT_buffer_full(outbuf,j) = 0;
         if (!OUTPUT_buffer(outbuf,j)) {
             SEP_PRINT_DEBUG("OUTPUT Initialize_Buffer: Failed Allocation\n");
-            return(desc);
+            /*return NULL to tell the caller that allocation failed*/
+            return NULL;
         }
     }
     /*
@@ -474,7 +475,7 @@ output_Initialized_Buffers (
  *      Initialize the read queues for each sample buffer
  *
  */
-extern VOID
+extern OS_STATUS
 OUTPUT_Initialize (
     char          *buffer, 
     unsigned long  len
@@ -482,12 +483,13 @@ OUTPUT_Initialize (
 {
     BUFFER_DESC    unused;
     int            i;
+    OS_STATUS status = OS_SUCCESS;
 
     flush = 0;
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
         unused = output_Initialized_Buffers(&cpu_buf[i]);
-        if (unused) {
-        // no-op ... eliminates "variable not used" compiler warning
+        if (!unused) {
+            return OS_NO_MEM;
         }
     }
 
@@ -497,9 +499,10 @@ OUTPUT_Initialize (
     module_buf = output_Initialized_Buffers(module_buf);
     if (!module_buf) {
         SEP_PRINT_ERROR("Failed to create module output buffers\n");
+        return OS_NO_MEM;
     }
 
-    return;
+    return status;
 }
 
 
