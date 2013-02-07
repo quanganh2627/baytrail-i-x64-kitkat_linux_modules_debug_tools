@@ -39,7 +39,6 @@ INSTALL = .
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
 # Example flags are "-Werror", "-Wno-error", etc.
-#EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1)
 EXTRA_CFLAGS += -I$(M)/../include -I$(M)/inc
 
 # if ARCH variable is set, unset it to avoid conflicts with kbuild
@@ -100,9 +99,9 @@ endif
 
 ifeq ($(BUILD_CHIPSET),YES)
     EXTRA_CFLAGS += -DBUILD_CHIPSET
-	chipset-objs :=	pci.o     \
-			chap.o            \
-			valleyview_sochap.o            \
+	chipset-objs :=	pci.o               \
+			chap.o                      \
+			valleyview_sochap.o         \
 			gmch.o
 endif
 
@@ -130,7 +129,6 @@ endif
 # Otherwise, we were called directly from the command
 # line, so the kernel build system will be used.
 else
-	#KERNEL_SRC_DIR ?= /lib/modules/$(shell uname -r)/build
 	PWD := $(shell pwd)
 	KERNEL_SRC_DIR := $(PWD)/../../../../../$(KERNEL_SRC_DIR)
 	PATH := $(KERNEL_SRC_DIR)/../../../prebuilt/linux-x86/toolchain/i686-android-linux-4.4.3/bin:$(PATH)

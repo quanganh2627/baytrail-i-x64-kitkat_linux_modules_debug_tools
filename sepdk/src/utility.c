@@ -41,6 +41,7 @@
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #include "core2.h"
 #include "silvermont.h"
+#include "valleyview_sochap.h"
 #if !defined (DRV_ATOM_ONLY)
 #include "core.h"
 #include "corei7_unc.h"
@@ -64,7 +65,6 @@
 #include "ivytown_r3qpi.h"
 #include "ivytown_ubox.h"
 #include "ivytown_r2pcie.h"
-#include "valleyview_sochap.h"
 #endif
 #endif
 #if defined(DRV_IA64)
@@ -337,6 +337,14 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the Core(TM)2 processor dispatch table\n");
             dispatch = &core2_dispatch;
             break;
+        case 6:
+            SEP_PRINT_DEBUG("Set up the Silvermont dispatch table\n");
+            dispatch = &silvermont_dispatch;
+            break;
+        case 700:
+            SEP_PRINT_DEBUG("Set up the Valleyview SA dispatch table\n");
+            dispatch = &valleyview_visa_dispatch;
+            break;
 #if !defined(DRV_ATOM_ONLY)
         case 2:
             dispatch = &corei7_dispatch;
@@ -353,10 +361,6 @@ UTILITY_Configure_CPU (
         case 5:
             SEP_PRINT_DEBUG("Set up the Sandybridge dispatch table\n");
             dispatch = &corei7_dispatch_htoff_mode_2;
-            break;
-        case 6:
-            SEP_PRINT_DEBUG("Set up the Silvermont dispatch table\n");
-            dispatch = &silvermont_dispatch;
             break;
         case 100:
             SEP_PRINT_DEBUG("Set up the Core i7 uncore dispatch table\n");
@@ -441,10 +445,6 @@ UTILITY_Configure_CPU (
         case 670:
             SEP_PRINT("Set up the Ivytown UNC R2PCIe dispatch table\n");
             dispatch = &ivytown_r2pcie_dispatch;
-            break;
-        case 700:
-            SEP_PRINT_DEBUG("Set up the Valleyview SA dispatch table\n");
-            dispatch = &valleyview_visa_dispatch;
             break;
 #endif
 #endif
