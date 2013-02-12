@@ -120,13 +120,13 @@ const char *pw_mfd_nc_device_names[][2] = {
                                 {"DPA", "Display Island A"},
                                 {"DPB", "Display Island B"},
                                 {"DPC", "Display Island C"},
-                                {"GL3", "GL3 Power Island"}, 
+                                {"GL3", "GL3 Power Island"},
                                 {"ISP", "ISP Power Island"},
                                 {"IPH", "IPH Power Island"} };
 /*
  * A list of North complex device names for Clovertrail.
  */
-const char *pw_clv_nc_device_names[][2] = { 
+const char *pw_clv_nc_device_names[][2] = {
                                 {"GPS", "GFX subsystem"},
                                 {"VDPS", "Video Decode subsystem"},
                                 {"VEPS", "Video Encode subsystem"},
@@ -137,7 +137,7 @@ const char *pw_clv_nc_device_names[][2] = {
 /*
  * A list of South complex device names for Medfield.
  */
-const char *pw_mfd_sc_device_names[][2] = { 
+const char *pw_mfd_sc_device_names[][2] = {
                                 {"LSS00", "Storage: SDIO0 (HC2)"},
                                 {"LSS01", "Storage: eMMC0 (HC0a)"},
                                 {"LSS03", "HSI: HSI DMA"},
@@ -172,7 +172,7 @@ const char *pw_mfd_sc_device_names[][2] = {
 /*
  * A list of South complex device names for Clovertrail.
  */
-const char *pw_clv_sc_device_names[][2] = { 
+const char *pw_clv_sc_device_names[][2] = {
                                 {"LSS00", "Storage: SDIO0 (HC2)"},
                                 {"LSS01", "Storage: eMMC0 (HC0a)"},
                                 {"LSS03", "HSI: HSI DMA + MIPI HSI"},
@@ -201,11 +201,11 @@ const char *pw_clv_sc_device_names[][2] = {
 
 /*
  * A list of UID to pkg name mappings predefined on Android.
- * We can get the full list from 
+ * We can get the full list from
  * system/core/include/private/android_filesystem_config.h.
  */
 int android_predefined_uid_pkg_num = 29;
-const char *android_predefined_uid_pkg_mappings[][2] = { 
+const char *android_predefined_uid_pkg_mappings[][2] = {
                                 {"0", "root"},
                                 {"1000", "system server"},
                                 {"1001", "radio"},
@@ -412,7 +412,7 @@ FILE *Wuwatch::popen_ro(const char *command, pid_t& pid) {
         perror("pipe error");
         return NULL;
     }
-    
+
     pid = fork();
     if (pid < 0) {
         perror("fork error");
@@ -522,7 +522,7 @@ int Wuwatch::get_android_version_i(std::string& version)
 /*
  * INTERNAL API:
  * Loads the power driver (basically, replicates 'insmod').
- * 
+ *
  * @returns: 0 on success, -1 on failure
  */
 int Wuwatch::do_insmod_i(void)
@@ -592,7 +592,7 @@ int Wuwatch::do_insmod_i(void)
 /*
  * INTERNAL API:
  * Unloads the power driver (basically, replicates 'rmmod').
- * 
+ *
  * @returns: 0 on success, -1 on failure
  */
 int Wuwatch::do_rmmod_i(void)
@@ -625,7 +625,7 @@ int Wuwatch::do_rmmod_i(void)
  */
 int Wuwatch::open_dd_i()
 {
-    int devfd; 
+    int devfd;
     /*
      * Open connection to device driver.
      */
@@ -722,7 +722,7 @@ void *Wuwatch::do_ioctl_i(int fd, int ioctl_num, void *data, int size, bool is_i
 /*
  * INTERNAL API:
  * Start (or stop) a collection.
- * 
+ *
  * @fd: device driver fd.
  * @enable: true ==> START a collection, false ==> STOP a collection.
  */
@@ -860,9 +860,9 @@ void Wuwatch::retrieve_target_arch_details_i()
             }
         }
     }
-    m_cpuFamily = 0; 
-    m_cpuModel = 0; 
-    m_cpuStepping = 0; 
+    m_cpuFamily = 0;
+    m_cpuModel = 0;
+    m_cpuStepping = 0;
 #else
     unsigned int eax, ebx, ecx, edx, max_level;
     unsigned int fms;
@@ -1276,7 +1276,7 @@ void *Wuwatch::reader_thread_i(args_t *args)
 
         for (bytes_read = read(m_dev_fd, &read_buff[0], m_buff_size); bytes_read > 0; bytes_read = read(m_dev_fd, &read_buff[0], m_buff_size)) {
             db_fprintf(stderr, "OK: client receives %d bytes\n", bytes_read);
-            if (fwrite(&read_buff[0], sizeof(char), bytes_read, fp) != bytes_read) {
+            if (fwrite(&read_buff[0], sizeof(char), bytes_read, fp) != (size_t)bytes_read) {
                 perror("fwrite error");
                 wu_exit(-PW_ERROR);
             }
@@ -1355,7 +1355,7 @@ std::string Wuwatch::get_cpu_topology_i(void)
                 continue;
             }
             //line[read-1] = '\0';
-            const char *line = str_line.c_str(); 
+            const char *line = str_line.c_str();
             /*
              * Format is:
              * proc # <space> physical id <space> siblings <space> core id <space> cores <space>"
@@ -1365,11 +1365,11 @@ std::string Wuwatch::get_cpu_topology_i(void)
                 continue;
             }
             if (sscanf(line, "physical id     : %d", &phys_id)) {
-                topology << phys_id << " "; 
+                topology << phys_id << " ";
                 continue;
             }
             if (sscanf(line, "siblings        : %d", &sibling)) {
-                topology << sibling << " "; 
+                topology << sibling << " ";
                 continue;
             }
             if (sscanf(line, "core id         : %d", &core_id)) {
@@ -1380,7 +1380,7 @@ std::string Wuwatch::get_cpu_topology_i(void)
                 continue;
             }
             if (sscanf(line, "cpu cores       : %d", &core_no)) {
-                topology << core_no << " "; 
+                topology << core_no << " ";
                 continue;
             }
         }
@@ -1402,7 +1402,7 @@ std::string Wuwatch::get_cpu_topology_i(void)
             cpu_map[procs[i]] = core_id;
         }
     }
-    
+
     return topology.str();
 };
 /*
@@ -1461,7 +1461,7 @@ void Wuwatch::start_stop_timer(double *elapsedTime, bool is_start)
 
 /*
  * INTERNAL API:
- * Helper function used by the "get_initial_proc_map_i()" function 
+ * Helper function used by the "get_initial_proc_map_i()" function
  * to troll the "/proc" directory and retrieve PID <-> PROC name mappings
  * at the start of a collection.
  * *********************************************
@@ -1470,7 +1470,7 @@ void Wuwatch::start_stop_timer(double *elapsedTime, bool is_start)
  * *********************************************
  *
  * @dir: pointer to the dir structure initialized by "get_initial_proc_map_i()"
- * @pid_name: (reference to) the Proc name for the next PID in the directory 
+ * @pid_name: (reference to) the Proc name for the next PID in the directory
  * specified by @dir
  *
  * @returns: 0 on success, -1 on error
@@ -1645,7 +1645,7 @@ int Wuwatch::get_all_tasks_for_proc_i(std::string pid_name, str_vec_t& tasks)
 
     return PW_SUCCESS;
 };
-#define GET_CONSTANT_POOL_INDEX(pool, index, str, out) do { pw_u32_t __idx; \
+#define GET_CONSTANT_POOL_INDEX(pool, index, str) ({ pw_u32_t __idx; \
         db_fprintf(stderr, "Retrieving idx for str = %s\n", (str)); \
         if ((pool).find(str) == (pool).end()) { \
             __idx = ++(index); \
@@ -1653,7 +1653,7 @@ int Wuwatch::get_all_tasks_for_proc_i(std::string pid_name, str_vec_t& tasks)
         } else { \
             __idx = (pool)[(str)]; \
         } \
-        out = __idx;} while (0)
+        __idx;})
 
 static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_msg_t *cp_msg, w_wakelock_msg_t *w_msg, u_wakelock_msg_t *u_msg, size_t *msg_len, const PWCollector_sample_t *sample)
 {
@@ -1669,7 +1669,7 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
         case W_STATE:
             ws = &sample->w_sample;
             wl_name = ws->name;
-            GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name, cp_index);
+            cp_index = GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name);
             /*
              * Tell the post-processing algo that this is a "PW_WAKE_LOCK_INITIAL" W_STATE sample.
              */
@@ -1686,7 +1686,7 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
         case U_STATE:
             us = &sample->u_sample;
             wl_name = us->tag;
-            GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name, cp_index);
+            cp_index = GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name);
             u_msg->type = us->type;
             u_msg->flag = us->flag;
             u_msg->pid = us->pid;
@@ -1855,7 +1855,7 @@ int Wuwatch::get_initial_proc_map_i(FILE *fp)
             extract_pid_tid_name_i(pid_name, tasks, pid_map, PROC_DIR_NAME, proc_samples);
         }
         closedir(proc_dir);
-        
+
         /*
          * Dump ALL samples at the same time...
          */
@@ -1983,7 +1983,7 @@ int Wuwatch::get_initial_dev_map_i(FILE *fp)
                 wu_exit(-PW_ERROR);
             }
         } else {
-            if (fwrite(&dev_samples[0], sizeof(PWCollector_sample_t), num_samples, fp) != num_samples) {
+            if (fwrite(&dev_samples[0], sizeof(PWCollector_sample_t), num_samples, fp) != (size_t)num_samples) {
                 perror("fwrite error in get_initial_dev_map_i()");
                 wu_exit(-PW_ERROR);
             }
@@ -2021,12 +2021,12 @@ int Wuwatch::extract_wakelock_name_i(std::vector<PWCollector_sample_t>& wl_sampl
         std::string token;
         while(!sstream.eof()) {
             std::getline(sstream, token, '\t');
-            tokens.push_back(token); 
+            tokens.push_back(token);
         }
-   
+
         // The fifth column (non-zero) indicates whether the lock is active or not.
         if (tokens.size() < 5) {
-            break; 
+            break;
         }
 
         if(tokens[4].compare("active_since") && tokens[4].compare("0")) {
@@ -2140,7 +2140,7 @@ int Wuwatch::get_uid_pkg_map_i(FILE *fp)
         ps->uid = (u32)atoi(android_predefined_uid_pkg_mappings[i][0]);
         memcpy(ps->pkg_name, android_predefined_uid_pkg_mappings[i][1], sizeof(ps->pkg_name));
         pkg_samples.push_back(sample);
-        db_fprintf(stderr, "UID-Package name map: <%s, %s>\n", android_predefined_uid_pkg_mappings[i][0], 
+        db_fprintf(stderr, "UID-Package name map: <%s, %s>\n", android_predefined_uid_pkg_mappings[i][0],
                 android_predefined_uid_pkg_mappings[i][1]);
     }
 
@@ -2162,9 +2162,9 @@ int Wuwatch::get_uid_pkg_map_i(FILE *fp)
         std::string token;
         while(!sstream.eof()) {
             std::getline(sstream, token, ' ');
-            tokens.push_back(token); 
+            tokens.push_back(token);
         }
-   
+
         // The first column should be the package name and the second column should be UID.
         if (tokens.size() > 1) {
             PWCollector_sample_t sample;
@@ -2234,17 +2234,17 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
     str_vec_t aplogs;
     DIR *dir = NULL;
     FILE *fp = NULL;
-    std::string logdirname = "/logs/"; 
+    std::string logdirname = "/logs/";
 
     fp = fopen("/logs/aplog", "r");
     if (!fp) {
         db_fprintf(stderr, "fopen error for %saplog: %s\n", logdirname.c_str(), strerror(errno));
         fp = fopen("/data/logs/aplog", "r");
-        logdirname = "/data/logs/"; 
+        logdirname = "/data/logs/";
         if (!fp) {
             fprintf(stderr, "fopen error for aplog: %s\n", strerror(errno));
             retVal = -PW_ERROR;
-        } 
+        }
     }
 
     dir = opendir(logdirname.c_str());
@@ -2323,14 +2323,14 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
                 }
                 //line[read-1] = '\0';
                 const char *line = str_line.c_str();
-                if (sscanf(line, "%2d-%2d %2d:%2d:%2d.%3d %d %d %c %s", &month, &day, &hour, &minute, &second, &millisec, 
+                if (sscanf(line, "%2d-%2d %2d:%2d:%2d.%3d %d %d %c %s", &month, &day, &hour, &minute, &second, &millisec,
                     &pid, &tid, &flag, str)) {
                     if (!strncmp(str, "WAKELOCK_", 9)) {
                         str_line = str_line.substr(51);
                         std::string tag, flagstr;
                         unsigned long long ts;
-                        u_sample_flag_t flag;
-                        u_sample_type_t type;
+                        u_sample_flag_t flag = PW_WAKE_PARTIAL;
+                        u_sample_type_t type = PW_WAKE_ACQUIRE;
                         int count;
                         int pid;
                         int uid;
@@ -2353,7 +2353,7 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
 
                         if (ts >= m_initialTime && ts <= m_finalTime
                             && strncmp(timestr, m_initialTimeStr, 14) >= 0) {
-                         
+
                             db_fprintf(stderr,"%s, %llu, %s, %s, %d, %d, %d\n", str, ts, tag.c_str(), flagstr.c_str(), count, pid, uid);
                             if (!strncmp(str, "WAKELOCK_ACQUIRE", 16)) {
                                 type = PW_WAKE_ACQUIRE;
@@ -2414,7 +2414,7 @@ void Wuwatch::produce_user_wakelock_samples(FILE *outfp)
                 wu_exit(-PW_ERROR);
             }
         } else {
-            if (fwrite(&userwakelock_samples[0], sizeof(PWCollector_sample_t), num_samples, outfp) != num_samples) {
+            if (fwrite(&userwakelock_samples[0], sizeof(PWCollector_sample_t), num_samples, outfp) != (size_t)num_samples) {
                 perror("fwrite error in produce_user_wakelock_samples()");
                 wu_exit(-PW_ERROR);
             }
@@ -2519,7 +2519,7 @@ void Wuwatch::setup_collection()
         if (false) {
             db_fprintf(stderr, "Doing an MMAP...\n");
             m_mmap_addr = mmap(NULL, m_mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, m_dev_fd, 0);
-            db_fprintf(stderr, "addr = 0x%lx\n", m_mmap_addr);
+            db_fprintf(stderr, "addr = %p\n", m_mmap_addr);
             if (m_mmap_addr == MAP_FAILED) {
                 db_fprintf(stderr, "ERROR mapping driver buffers: %s\n", strerror(errno));
                 wu_exit(-PW_ERROR);
@@ -2608,9 +2608,9 @@ void Wuwatch::setup_collection()
          * South complex D-state sample collection is intentionally disabled
          * because we can obtain the same information from South complex
          * D-state residency counters more accurately.
-         * Therefore, use D-state residency collection which provides 
+         * Therefore, use D-state residency collection which provides
          * more useful information because it counts how much time is spent
-         * for each state. 
+         * for each state.
          */
 #if 0
         if (d_sc_state_collection) {
@@ -2625,7 +2625,7 @@ void Wuwatch::setup_collection()
          * S-state sample collection is intentionally disabled
          * because it will be always S0 state because the collection
          * will always work when CPU is running.
-         * Instead, use S-state residency collection which provides 
+         * Instead, use S-state residency collection which provides
          * more useful information because it counts how much time is spent
          * for each S states.
          */
@@ -2811,7 +2811,7 @@ void Wuwatch::cleanup_collection(bool should_write_results)
      * Read Android system logs to extract user-level wakelock data
      */
     if (u_state_collection) {
-        // produce user wakelock traces 
+        // produce user wakelock traces
         produce_user_wakelock_samples(m_output_fp);
     }
 
@@ -3937,7 +3937,7 @@ int Wuwatch::work(char **argv)
     do_exit();
 
 #if 0
-    /* 
+    /*
      * Read Android system logs to extract user-level wakelock data
      */
     if (u_state_collection) {
@@ -3948,7 +3948,7 @@ int Wuwatch::work(char **argv)
         if(system("setprop wakelock.trace 0") == -1) {
             fprintf(stderr, "ERROR: could NOT disable user wakelock tracing!\n");
             wu_exit(-PW_ERROR);
-        } 
+        }
     }
 #endif
 

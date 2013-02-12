@@ -259,14 +259,14 @@ const char *HTWudump::s_short_sample_names[] = {"FREE_SAMPLE", "C", "NULL", "NUL
 /*
  * North and South complex device names.
  */
-const char *mfd_nc_device_names[][2] = { 
+const char *mfd_nc_device_names[][2] = {
                                 {"GPS", "GFX subsystem"},
                                 {"VDPS", "Video Decode subsystem"},
                                 {"VEPS", "Video Encode subsystem"},
                                 {"DPA", "Display Island A"},
                                 {"DPB", "Display Island B"},
                                 {"DPC", "Display Island C"},
-                                {"GL3", "GL3 Power Island"}, 
+                                {"GL3", "GL3 Power Island"},
                                 {"ISP", "ISP Power Island"},
                                 {"IPH", "IPH Power Island"} };
 
@@ -413,7 +413,7 @@ static void find_frequencies_i(std::vector<std::pair<pw_u64_t, pw_u32_t> >& freq
  * Instance functions for helper
  * structs declared earlier.
  */
-PerCoreCDumper::PerCoreCDumper(FILE *fp, const bool& b, const bool& t, const bool& r, const bool& c, const sample_vec_t& cs, const sample_vec_t& ps, const trace_pair_map_t& t_map, const r_sample_map_t& r_map, const i_sample_map_t& i_map) :  output_fp(fp), m_do_dump_backtraces(b), m_do_dump_tscs(t), m_do_raw_output(r), m_do_c_res_in_clock_ticks(c), c_samples(cs), p_samples(ps), m_trace_pair_map(t_map), m_r_sample_map(r_map), m_i_sample_map(i_map), 
+PerCoreCDumper::PerCoreCDumper(FILE *fp, const bool& b, const bool& t, const bool& r, const bool& c, const sample_vec_t& cs, const sample_vec_t& ps, const trace_pair_map_t& t_map, const r_sample_map_t& r_map, const i_sample_map_t& i_map) :  output_fp(fp), m_do_dump_backtraces(b), m_do_dump_tscs(t), m_do_raw_output(r), m_do_c_res_in_clock_ticks(c), c_samples(cs), p_samples(ps), m_trace_pair_map(t_map), m_r_sample_map(r_map), m_i_sample_map(i_map),
     m_usecs_per_clock_tick(1.0 / (float)pwr::WuData::instance()->getSystemInfo().m_tscFreq) {};
 
 void PerCoreCDumper::dump_c_samples()
@@ -433,13 +433,12 @@ void PerCoreCDumper::dump_one_c_sample_i(const PWCollector_sample_t& sample, con
     /*
      * Helper macro: convert an integer to a string.
      */
-#define GET_STRING_FROM_INT(i) (__tmp.seekp(0), __tmp, __tmp << (i) << std::ends, __tmp.str().c_str())
+#define GET_STRING_FROM_INT(i) ({std::stringstream __tmp; __tmp << (i); __tmp.str();})
 #define GET_PMC_ID_STR(p, m, c) ((p) + ", " + (m) + ", " + (c))
 #define GET_PACKAGE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), "-", "-")
 #define GET_MODULE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), GET_STRING_FROM_INT(GET_MODULE_GIVEN_CORE(id)), "-")
 #define GET_CORE_PMC_ID_STR(id) GET_PMC_ID_STR(GET_STRING_FROM_INT(GET_PACKAGE_GIVEN_CORE(id)), "-", GET_STRING_FROM_INT(id))
 
-    std::stringstream __tmp;
     std::string payload;
     pid_t tid = 0, pid = 0;
     int irq_num = -1;
@@ -630,7 +629,7 @@ void PerCoreCDumper::dump_one_c_sample_i(const PWCollector_sample_t& sample, con
     }
 
     // fprintf(output_fp, "\t%2s", cx_freq_mhz_str.c_str());
-    
+
     if (m_do_dump_backtraces && bt) {
         /*
          * We have backtrace information -- print it out.
@@ -819,7 +818,7 @@ bool userwakelock_sorter::operator()(const userwakelock_data_t& p1, const userwa
 
 /*
  * INTERNAL API:
- * The meat of the algorithm. Sort (previously read) samples, 
+ * The meat of the algorithm. Sort (previously read) samples,
  * create TPS groupings, measure Cx residencies, determine
  * wakeup causes etc.
  *
@@ -947,17 +946,17 @@ int HTWudump::do_parse_i(void)
                     const k_sample_t *ks = &citer->k_sample;
                     pid_t tid = ks->tid;
                     trace_t *trace = new trace_t(0, 0, NULL);
-                    /*   
+                    /*
                      * Extract kernel backtrace symbols from
                      * the '/proc/kallsyms' file and append
                      * to SWAPPERs list of traces.
                      */
-                    {    
+                    {
                         std::vector<std::string> ksym_vec;
                         wuwatch::KernelSymbolExtractor::get_backtrace_symbols((const wuwatch::u64 *)ks->trace, ks->trace_len, ksym_vec);
 
                         trace->num_trace = ks->trace_len; // ksym_vec.size();
-                        trace->bt_symbols = (char **)calloc(trace->num_trace, sizeof(char *)); 
+                        trace->bt_symbols = (char **)calloc(trace->num_trace, sizeof(char *));
                         assert(trace->bt_symbols);
                         for (int i=0; i<trace->num_trace; ++i) {
                             trace->bt_symbols[i] = strdup(ksym_vec[i].c_str());
@@ -982,7 +981,7 @@ int HTWudump::do_parse_i(void)
                     uint64_t tsc = citer->tsc;
 
                     if (citer->s_residency_sample.data[0] + citer->s_residency_sample.data[1] +
-                        citer->s_residency_sample.data[2] + citer->s_residency_sample.data[3] + 
+                        citer->s_residency_sample.data[2] + citer->s_residency_sample.data[3] +
                         citer->s_residency_sample.data[4] > 0) {
                         uint64_t s0i0 = citer->s_residency_sample.data[0];
                         uint64_t s0i1 = citer->s_residency_sample.data[1];
@@ -1163,10 +1162,10 @@ int HTWudump::do_write_i(void)
         timeinfo = localtime(&rawtime);
         std::string currentTime = asctime(timeinfo);
         currentTime.erase(currentTime.find_last_of("\n"));
-        fprintf(output_fp,"Data collected %s (wuwatch v%s, driver v%s, hook lib v%s, wudump v%s ) \n", currentTime.c_str(), 
-                pwr::WuData::instance()->getSystemInfo().m_wuwatchVersion.c_str(), 
-                pwr::WuData::instance()->getSystemInfo().m_driverVersion.c_str(), 
-                pwr::WuData::instance()->getSystemInfo().m_hookLibraryVersion.c_str(), 
+        fprintf(output_fp,"Data collected %s (wuwatch v%s, driver v%s, hook lib v%s, wudump v%s ) \n", currentTime.c_str(),
+                pwr::WuData::instance()->getSystemInfo().m_wuwatchVersion.c_str(),
+                pwr::WuData::instance()->getSystemInfo().m_driverVersion.c_str(),
+                pwr::WuData::instance()->getSystemInfo().m_hookLibraryVersion.c_str(),
                 pwr::WuData::instance()->getSystemInfo().m_wudumpVersion.c_str());
 
         fprintf(output_fp, "Processor C-States Found : ");
@@ -1526,7 +1525,7 @@ int HTWudump::do_write_i(void)
         for (u_sample_vec_t::iterator iter = m_u_sample_vec.begin(); iter != m_u_sample_vec.end(); ++iter) {
             std::string flagname;
             switch(iter->flag) {
-                case PW_WAKE_PARTIAL: 
+                case PW_WAKE_PARTIAL:
                     flagname = "PARTIAL";
                     break;
                 case PW_WAKE_FULL:
@@ -1543,16 +1542,16 @@ int HTWudump::do_write_i(void)
                     break;
             }
             if (m_pkgmap_sample_map.find(iter->uid) == m_pkgmap_sample_map.end()) {
-                char val[10]; 
+                char val[10];
                 snprintf(val, sizeof(val), "%u", iter->uid);
                 m_pkgmap_sample_map[iter->uid] = val;
-            } 
+            }
             if (iter->type) {
                 fprintf(output_fp, "\n%20llu\t%8s\t%16s\t%8d\t%8d\t%8d\t%32s\t%32s\n", iter->tsc, "RELEASE", flagname.c_str(), iter->count, iter->pid, iter->uid, iter->tag.c_str(), m_pkgmap_sample_map[iter->uid].c_str());
             }
             else {
                 fprintf(output_fp, "\n%20llu\t%8s\t%16s\t%8d\t%8d\t%8d\t%32s\t%32s\n", iter->tsc, "ACQUIRE", flagname.c_str(), iter->count, iter->pid, iter->uid, iter->tag.c_str(), m_pkgmap_sample_map[iter->uid].c_str());
-            } 
+            }
         }
         fprintf(output_fp, "\n************************************************************************************************************************************************************\n");
     }
@@ -1570,18 +1569,18 @@ int HTWudump::do_write_i(void)
  */
 uint32_t HTWudump::getNumberOfDevices(device_type_t ctype)
 {
-    uint32_t max_lss_num = 0; 
+    uint32_t max_lss_num = 0;
     if (PW_IS_MFD(pwr::WuData::instance()->getSystemInfo().m_cpuModel)) {
         if (ctype == PW_NORTH_COMPLEX) {
-            max_lss_num = MFD_MAX_LSS_NUM_IN_NC; 
+            max_lss_num = MFD_MAX_LSS_NUM_IN_NC;
         } else if (ctype == PW_SOUTH_COMPLEX) {
-            max_lss_num = MFD_MAX_LSS_NUM_IN_SC; 
+            max_lss_num = MFD_MAX_LSS_NUM_IN_SC;
         }
     } else if (PW_IS_CLV(pwr::WuData::instance()->getSystemInfo().m_cpuModel)) {
         if (ctype == PW_NORTH_COMPLEX) {
-            max_lss_num = CLV_MAX_LSS_NUM_IN_NC; 
+            max_lss_num = CLV_MAX_LSS_NUM_IN_NC;
         } else if (ctype == PW_SOUTH_COMPLEX) {
-            max_lss_num = CLV_MAX_LSS_NUM_IN_SC; 
+            max_lss_num = CLV_MAX_LSS_NUM_IN_SC;
         }
     }
     return max_lss_num;
@@ -1665,7 +1664,7 @@ const std::string& HTWudump::get_proc_name_given_tid(pid_t tid) const {
     return unknown_proc_name;
 };
 /*
- * INTERNAL API: 
+ * INTERNAL API:
  * Helper function to retrieve the device name corresponding to an IRQ.
  *
  * @irq: the irq number.
