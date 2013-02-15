@@ -1645,7 +1645,7 @@ int Wuwatch::get_all_tasks_for_proc_i(std::string pid_name, str_vec_t& tasks)
 
     return PW_SUCCESS;
 };
-#define GET_CONSTANT_POOL_INDEX(pool, index, str) ({ pw_u32_t __idx; \
+#define GET_CONSTANT_POOL_INDEX(pool, index, str, out) do { pw_u32_t __idx; \
         db_fprintf(stderr, "Retrieving idx for str = %s\n", (str)); \
         if ((pool).find(str) == (pool).end()) { \
             __idx = ++(index); \
@@ -1653,7 +1653,7 @@ int Wuwatch::get_all_tasks_for_proc_i(std::string pid_name, str_vec_t& tasks)
         } else { \
             __idx = (pool)[(str)]; \
         } \
-        __idx;})
+        out = __idx;} while(0)
 
 static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_msg_t *cp_msg, w_wakelock_msg_t *w_msg, u_wakelock_msg_t *u_msg, size_t *msg_len, const PWCollector_sample_t *sample)
 {
@@ -1669,7 +1669,7 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
         case W_STATE:
             ws = &sample->w_sample;
             wl_name = ws->name;
-            cp_index = GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name);
+            GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name, cp_index);
             /*
              * Tell the post-processing algo that this is a "PW_WAKE_LOCK_INITIAL" W_STATE sample.
              */
@@ -1686,7 +1686,7 @@ static constant_pool_msg_t *convert_wakelock_to_constant_pool_i(constant_pool_ms
         case U_STATE:
             us = &sample->u_sample;
             wl_name = us->tag;
-            cp_index = GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name);
+            GET_CONSTANT_POOL_INDEX(constantPool, constant_pool_index, wl_name, cp_index);
             u_msg->type = us->type;
             u_msg->flag = us->flag;
             u_msg->pid = us->pid;
