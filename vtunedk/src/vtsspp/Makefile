@@ -103,6 +103,7 @@ CHECK_BUILD    := $(CC) $(KBUILD_CPPFLAGS) $(CPPFLAGS) $(LINUXINCLUDE) \
                   $(_KBUILD_CFLAGS) $(CFLAGS_KERNEL) $(EXTRA_CFLAGS) $(CFLAGS) \
                   -DKBUILD_BASENAME=\"$(DRIVER_NAME)\" -Werror -S -o /dev/null -xc > /dev/null 2>&1
 autoconf-srcs := $(sort $(wildcard $(obj)/autoconf/*.c))
+.PHONY: $(obj)/vtss_autoconf.h
 $(addprefix $(obj)/,$($(DRIVER_NAME)-objs)): $(obj)/vtss_autoconf.h
 $(obj)/vtss_autoconf.h:
 ifeq ($(VERSION).$(PATCHLEVEL),2.6)
