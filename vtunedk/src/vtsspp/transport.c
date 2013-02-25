@@ -687,13 +687,13 @@ static int vtss_transport_close(struct inode *inode, struct file *file)
     struct vtss_transport_data *trnd = (struct vtss_transport_data*)PDE(inode)->data;
 
     file->private_data = NULL;
-    trnd->file = NULL;
     /* Restore default priority for trace reader */
     set_user_nice(current, 0);
     TRACE("inode=0x%p, file=0x%p, trnd=0x%p", inode, file, trnd);
     if (trnd == NULL)
         return -ENOENT;
 
+    trnd->file = NULL;
     if (!atomic_dec_and_test(&trnd->is_attached)) {
         ERROR("Wrong state in close");
         atomic_set(&trnd->is_attached, 0);
