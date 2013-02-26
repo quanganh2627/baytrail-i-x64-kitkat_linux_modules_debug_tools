@@ -56,7 +56,7 @@ int mode = 0;
 module_param(mode, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mode, "A mode for files in procfs");
 
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
 static char debug_trace_name[64] = "";
 static int  debug_trace_size     = 0;
 module_param_string(trace, debug_trace_name, sizeof(debug_trace_name), S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -547,7 +547,7 @@ int init_module(void)
 {
     int rc = 0;
 
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
     if (*debug_trace_name != '\0')
         debug_trace_size = strlen(debug_trace_name);
 #endif

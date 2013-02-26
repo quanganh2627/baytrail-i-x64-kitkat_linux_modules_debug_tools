@@ -610,6 +610,7 @@ int vtss_record_configs(struct vtss_transport_data* trnd, int m32, int is_safe)
         hcfrec.flagword = UEC_LEAF1 | UECL1_SYSTRACE;
         hcfrec.size     = size + sizeof(hcfrec.size) + sizeof(hcfrec.type);
         hcfrec.type     = UECSYSTRACE_HWCFG;
+        hardcfg.timer_freq = vtss_freq_real(); /* update real timer freq */
         rc |= vtss_transport_record_write(trnd, &hcfrec, sizeof(hcfrec), (void*)&hardcfg, size, is_safe);
     }
 

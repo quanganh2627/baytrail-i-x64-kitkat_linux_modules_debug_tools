@@ -44,7 +44,7 @@ static int put_record_stub(uec_t* uec, void *part0, size_t size0, void *part1, s
 
 int init_uec(uec_t* uec, size_t size, char *name, int instance)
 {
-    int pg;
+    int order;
     /// initialize methods
     uec->put_record = put_record_async;
     uec->init = init_uec;
@@ -55,12 +55,12 @@ int init_uec(uec_t* uec, size_t size, char *name, int instance)
         ERROR("UEC size is 0");
         return VTSS_ERR_INTERNAL;
     }
-    pg = get_order(size);
-    if (!(uec->buffer = (char*)__get_free_pages((GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN), pg))) {
+    order = get_order(size);
+    if (!(uec->buffer = (char*)__get_free_pages((GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN), order))) {
         return VTSS_ERR_NOMEMORY;
     }
     uec->last_rec_ptr = uec->head = uec->head_ = uec->tail = uec->tail_ = uec->buffer;
-    uec->hsize = uec->tsize = (PAGE_SIZE<<pg);
+    uec->hsize = uec->tsize = (PAGE_SIZE << order);
     uec->ovfl = 0;
     uec->spill_active = 0;
     uec->writer_count = 0;

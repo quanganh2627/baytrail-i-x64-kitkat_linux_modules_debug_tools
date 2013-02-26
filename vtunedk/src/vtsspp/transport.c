@@ -47,8 +47,12 @@
 
 #include "vtsstrace.h"
 
+#ifndef VTSS_MERGE_MEM_LIMIT
+#define VTSS_MERGE_MEM_LIMIT 160 /* max pages allowed */
+#endif
+
 /* Define this to wake up transport by timeout */
-/* transprot timer interval in jiffies (default 10ms) */
+/* transprot timer interval in jiffies  (default 10ms) */
 #define VTSS_TRANSPORT_TIMER_INTERVAL   (10 * HZ / 1000)
 #define VTSS_TRANSPORT_COMPLETE_TIMEOUT 500 /*< wait count about 50sec */
 
@@ -65,19 +69,20 @@ struct vtss_transport_temp
 {
     struct vtss_transport_temp* prev;
     struct vtss_transport_temp* next;
-    unsigned long  seq_begin;
-    unsigned long  seq_end;
-    unsigned short size;
-    char           data[0];
+    unsigned long seq_begin;
+    unsigned long seq_end;
+    size_t        size;
+    unsigned int  order;
+    char          data[0];
 };
 
 /* The value was gotten from the kernel's ring_buffer code. */
-#define VTSS_RING_BUFFER_PAGE_SIZE 4080
+#define VTSS_RING_BUFFER_PAGE_SIZE      4080
 #define VTSS_TRANSPORT_MAX_RESERVE_SIZE (VTSS_RING_BUFFER_PAGE_SIZE - \
                                         sizeof(struct ring_buffer_event) - \
-                                        sizeof(struct vtss_transport_entry))
-#define VTSS_TRANSPORT_MAX_TEMP_SIZE (PAGE_SIZE - sizeof(struct vtss_transport_temp))
-#define VTSS_TRANSPORT_IS_EMPTY(trnd) ring_buffer_empty(trnd->buffer)
+                                        sizeof(struct vtss_transport_entry) - 64)
+#define VTSS_TRANSPORT_IS_EMPTY(trnd)   (1 + (atomic_read(&trnd->seqnum) - trnd->seqdone) == 0)
+#define VTSS_TRANSPORT_DATA_READY(trnd) (1 + (atomic_read(&trnd->seqnum) - trnd->seqdone) > VTSS_MERGE_MEM_LIMIT/4)
 
 struct rb_page
 {
@@ -101,6 +106,8 @@ static DEFINE_SPINLOCK(vtss_transport_list_lock);
 #endif
 static LIST_HEAD(vtss_transport_list);
 
+static atomic_t vtss_transport_npages = ATOMIC_INIT(0);
+
 struct vtss_transport_data
 {
     struct list_head    list;
@@ -117,10 +124,12 @@ struct vtss_transport_data
 #ifdef VTSS_USE_UEC
     uec_t*              uec;
 #else
-    struct ring_buffer* buffer;
-    atomic_t            seqnum;
-    unsigned long       seqdone;
     struct vtss_transport_temp* head;
+    struct ring_buffer* buffer;
+    unsigned long       seqdone;
+    unsigned long       seqcpu[NR_CPUS];
+    atomic_t            seqnum;
+    int                 is_abort;
 #endif
 };
 
@@ -168,7 +177,8 @@ void vtss_transport_callback(uec_t* uec, int reason, void *context)
     tsize; \
 })
 
-#define VTSS_TRANSPORT_IS_EMPTY(trnd) (UEC_FILLED_SIZE(trnd->uec) == 0)
+#define VTSS_TRANSPORT_IS_EMPTY(trnd)   (UEC_FILLED_SIZE(trnd->uec) == 0)
+#define VTSS_TRANSPORT_DATA_READY(trnd) (UEC_FILLED_SIZE(trnd->uec) != 0)
 
 int vtss_transport_record_write(struct vtss_transport_data* trnd, void* part0, size_t size0, void* part1, size_t size1, int is_safe)
 {
@@ -180,7 +190,7 @@ int vtss_transport_record_write(struct vtss_transport_data* trnd, void* part0, s
     }
 
     if (atomic_read(&trnd->is_complete)) {
-        ERROR("Transport is COMPLETED");
+        TRACE("Transport is COMPLETED");
         return -EINVAL;
     }
 
@@ -206,46 +216,28 @@ void* vtss_transport_record_reserve(struct vtss_transport_data* trnd, void** ent
     struct vtss_transport_entry* data;
 
     if (unlikely(trnd == NULL || entry == NULL)) {
-        ERROR("Transport or entry is NULL");
+        ERROR("Transport or Entry is NULL");
         return NULL;
     }
 
     if (unlikely(atomic_read(&trnd->is_complete))) {
-        ERROR("Transport is COMPLETED");
+        TRACE("'%s' is COMPLETED", trnd->name);
         return NULL;
     }
 
-    if (unlikely(size > 0xffff)) {
-        ERROR("Too big size (%zu bytes)", size);
+    if (unlikely(size == 0 || size > 0xffff /* max short */)) {
+        TRACE("'%s' incorrect size (%zu bytes)", trnd->name, size);
         return NULL;
     }
 
-    if (unlikely(size > VTSS_TRANSPORT_MAX_RESERVE_SIZE)) {
-        struct vtss_transport_temp* blob = (struct vtss_transport_temp*)__get_free_pages((GFP_NOWAIT | __GFP_RECLAIMABLE | __GFP_NORETRY | __GFP_NOWARN), get_order(size+sizeof(struct vtss_transport_temp)));
-        if (unlikely(blob == NULL)) {
-            ERROR("No memory for blob %zu bytes", size);
+    if (likely(size < VTSS_TRANSPORT_MAX_RESERVE_SIZE)) {
+#if 0
+        if (atomic_read(&vtss_transport_npages) > VTSS_MERGE_MEM_LIMIT/2) {
+            TRACE("'%s' memory limit for data %zu bytes", trnd->name, size);
             atomic_inc(&trnd->loscount);
             return NULL;
         }
-        blob->size = size;
-#ifdef VTSS_AUTOCONF_RING_BUFFER_FLAGS
-        event = ring_buffer_lock_reserve(trnd->buffer, sizeof(void*) + sizeof(struct vtss_transport_entry), 0);
-#else
-        event = ring_buffer_lock_reserve(trnd->buffer, sizeof(void*) + sizeof(struct vtss_transport_entry));
 #endif
-        if (unlikely(event == NULL)) {
-            free_pages((unsigned long)blob, get_order(size+sizeof(struct vtss_transport_temp)));
-            atomic_inc(&trnd->loscount);
-            atomic_inc(&trnd->is_overflow);
-            return NULL;
-        }
-        *entry = (void*)event;
-        data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
-        data->seqnum = atomic_inc_return(&trnd->seqnum);
-        data->size   = 0;
-        *((void**)&(data->data)) = (void*)blob;
-        return (void*)blob->data;
-    } else {
 #ifdef VTSS_AUTOCONF_RING_BUFFER_FLAGS
         event = ring_buffer_lock_reserve(trnd->buffer, size + sizeof(struct vtss_transport_entry), 0);
 #else
@@ -254,6 +246,7 @@ void* vtss_transport_record_reserve(struct vtss_transport_data* trnd, void** ent
         if (unlikely(event == NULL)) {
             atomic_inc(&trnd->loscount);
             atomic_inc(&trnd->is_overflow);
+            TRACE("'%s' ring_buffer_lock_reserve failed", trnd->name);
             return NULL;
         }
         *entry = (void*)event;
@@ -261,6 +254,43 @@ void* vtss_transport_record_reserve(struct vtss_transport_data* trnd, void** ent
         data->seqnum = atomic_inc_return(&trnd->seqnum);
         data->size   = size;
         return (void*)data->data;
+    } else { /* blob */
+        unsigned int order = get_order(size + sizeof(struct vtss_transport_temp));
+        struct vtss_transport_temp* blob;
+
+        if (atomic_read(&vtss_transport_npages) > VTSS_MERGE_MEM_LIMIT/2) {
+            TRACE("'%s' memory limit for blob %zu bytes", trnd->name, size);
+            atomic_inc(&trnd->loscount);
+            return NULL;
+        }
+        blob = (struct vtss_transport_temp*)__get_free_pages((GFP_NOWAIT | __GFP_NORETRY | __GFP_NOWARN), order);
+        if (unlikely(blob == NULL)) {
+            TRACE("'%s' no memory for blob %zu bytes", trnd->name, size);
+            atomic_inc(&trnd->loscount);
+            return NULL;
+        }
+        atomic_add(1<<order, &vtss_transport_npages);
+        blob->size  = size;
+        blob->order = order;
+#ifdef VTSS_AUTOCONF_RING_BUFFER_FLAGS
+        event = ring_buffer_lock_reserve(trnd->buffer, sizeof(void*) + sizeof(struct vtss_transport_entry), 0);
+#else
+        event = ring_buffer_lock_reserve(trnd->buffer, sizeof(void*) + sizeof(struct vtss_transport_entry));
+#endif
+        if (unlikely(event == NULL)) {
+            free_pages((unsigned long)blob, order);
+            atomic_sub(1<<order, &vtss_transport_npages);
+            atomic_inc(&trnd->loscount);
+            atomic_inc(&trnd->is_overflow);
+            TRACE("'%s' ring_buffer_lock_reserve failed", trnd->name);
+            return NULL;
+        }
+        *entry = (void*)event;
+        data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
+        data->seqnum = atomic_inc_return(&trnd->seqnum);
+        data->size   = 0;
+        *((void**)&(data->data)) = (void*)blob;
+        return (void*)blob->data;
     }
 }
 
@@ -270,7 +300,7 @@ int vtss_transport_record_commit(struct vtss_transport_data* trnd, void* entry, 
     struct ring_buffer_event* event = (struct ring_buffer_event*)entry;
 
     if (unlikely(trnd == NULL || entry == NULL)) {
-        ERROR("Transport or entry is NULL");
+        ERROR("Transport or Entry is NULL");
         return -EINVAL;
     }
 #ifdef VTSS_AUTOCONF_RING_BUFFER_FLAGS
@@ -278,7 +308,11 @@ int vtss_transport_record_commit(struct vtss_transport_data* trnd, void* entry, 
 #else
     rc = ring_buffer_unlock_commit(trnd->buffer, event);
 #endif
-    if (unlikely(is_safe)) {
+    if (rc) {
+        struct vtss_transport_entry* data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
+        ERROR("'%s' commit error: seq=%lu, size=%u", trnd->name, data->seqnum, data->size);
+    }
+    if (unlikely(is_safe && VTSS_TRANSPORT_DATA_READY(trnd))) {
         TRACE("WAKE UP");
         if (waitqueue_active(&trnd->waitq))
             wake_up_interruptible(&trnd->waitq);
@@ -321,7 +355,7 @@ int vtss_transport_record_write_all(void* part0, size_t size0, void* part1, size
                 atomic_inc(&trnd->loscount);
                 rc = -EFAULT;
             }
-            if (is_safe) {
+            if (unlikely(is_safe && VTSS_TRANSPORT_DATA_READY(trnd))) {
                 TRACE("WAKE UP");
                 if (waitqueue_active(&trnd->waitq))
                     wake_up_interruptible(&trnd->waitq);
@@ -346,140 +380,369 @@ int vtss_transport_record_write_all(void* part0, size_t size0, void* part1, size
 
 #ifndef VTSS_USE_UEC
 
-static int vtss_transport_temp_store(struct vtss_transport_temp** pstore, unsigned long seqnum, void* data, unsigned short size)
+static void vtss_transport_temp_free_all(struct vtss_transport_data* trnd, struct vtss_transport_temp** head)
 {
     struct vtss_transport_temp* temp;
+    struct vtss_transport_temp** pstore = head;
 
-    while (((temp = *pstore) != NULL) && (seqnum != temp->seq_end)) {
+    while ((temp = *pstore) != NULL) {
+        if (temp->prev) {
+            pstore = &(temp->prev);
+            continue;
+        }
+        if (temp->next) {
+            pstore = &(temp->next);
+            continue;
+        }
+        TRACE("'%s' [%lu, %lu), size=%zu of %zu",
+                trnd->name, temp->seq_begin, temp->seq_end,
+                temp->size, (PAGE_SIZE << temp->order));
+        free_pages((unsigned long)temp, temp->order);
+        atomic_sub(1<<temp->order, &vtss_transport_npages);
+        *pstore = NULL;
+        pstore = head; /* restart from head */
+    }
+}
+
+static struct vtss_transport_temp* vtss_transport_temp_merge(struct vtss_transport_data* trnd, struct vtss_transport_temp** pstore)
+{
+    struct vtss_transport_temp* temp = *pstore;
+
+    if (temp != NULL) {
+        struct vtss_transport_temp* prev = temp->prev;
+        struct vtss_transport_temp* next = temp->next;
+
+        /* try to merge with prev element... */
+        if (prev != NULL && (prev->seq_end == temp->seq_begin) &&
+            /* check for enough space in buffer */
+            ((prev->size + temp->size + sizeof(struct vtss_transport_temp)) < (PAGE_SIZE << prev->order)))
+        {
+            TRACE("'%s' [%lu - %lu), size=%zu <+ [%lu - %lu), size=%zu", trnd->name,
+                prev->seq_begin, prev->seq_end, prev->size,
+                temp->seq_begin, temp->seq_end, temp->size);
+            memcpy(&(prev->data[prev->size]), temp->data, temp->size);
+            prev->size += temp->size;
+            prev->seq_end = temp->seq_end;
+            if (prev->next) {
+                ERROR("'%s' [%lu, %lu) incorrect next link", trnd->name,
+                        prev->seq_begin, prev->seq_end);
+                vtss_transport_temp_free_all(trnd, &(prev->next));
+            }
+            prev->next = temp->next;
+            *pstore = prev;
+            free_pages((unsigned long)temp, temp->order);
+            atomic_sub(1<<temp->order, &vtss_transport_npages);
+            return prev;
+        }
+        /* try to merge with next element... */
+        if (next != NULL && (next->seq_begin == temp->seq_end) &&
+            /* check for enough space in buffer */
+            ((next->size + temp->size + sizeof(struct vtss_transport_temp)) < (PAGE_SIZE << temp->order)))
+        {
+            TRACE("'%s' [%lu - %lu), size=%zu +> [%lu - %lu), size=%zu", trnd->name,
+                temp->seq_begin, temp->seq_end, temp->size,
+                next->seq_begin, next->seq_end, next->size);
+            memcpy(&(temp->data[temp->size]), next->data, next->size);
+            temp->size += next->size;
+            temp->seq_end = next->seq_end;
+            temp->next = next->next;
+            if (next->prev) {
+                ERROR("'%s' [%lu, %lu) incorrect prev link", trnd->name,
+                        next->seq_begin, next->seq_end);
+                vtss_transport_temp_free_all(trnd, &(next->prev));
+            }
+            free_pages((unsigned long)next, next->order);
+            atomic_sub(1<<next->order, &vtss_transport_npages);
+            return temp;
+        }
+    }
+    return temp;
+}
+
+static int vtss_transport_temp_store_data(struct vtss_transport_data* trnd, unsigned long seqnum, void* data, unsigned short size)
+{
+    struct vtss_transport_temp* temp;
+    struct vtss_transport_temp** pstore = &(trnd->head);
+    unsigned int order = get_order(size + sizeof(struct vtss_transport_temp));
+
+    while (((temp = vtss_transport_temp_merge(trnd, pstore)) != NULL) && (seqnum != temp->seq_end)) {
         pstore = (seqnum < temp->seq_begin) ? &(temp->prev) : &(temp->next);
     }
     if (temp == NULL) {
-        TRACE("new [%lu - %lu), size=%u", seqnum, seqnum + 1, size);
-        temp = (struct vtss_transport_temp*)__get_free_page(GFP_TEMPORARY);
+        struct vtss_transport_temp* temp1;
+        struct vtss_transport_temp** pstore1 = &(trnd->head);
+        while (((temp1 = *pstore1) != NULL) && ((seqnum + 1) != temp1->seq_begin)) {
+            pstore1 = (seqnum < temp1->seq_begin) ? &(temp1->prev) : &(temp1->next);
+        }
+        if (temp1 != NULL) { /* try to prepend */
+            /* check for enough space in buffer */
+            if ((temp1->size + size + sizeof(struct vtss_transport_temp)) < (PAGE_SIZE << temp1->order)) {
+                TRACE("'%s' [%lu - %lu), size=%u +> [%lu - %lu), size=%zu",
+                        trnd->name, seqnum, seqnum + 1, size,
+                        temp1->seq_begin, temp1->seq_end, temp1->size);
+                memmove(&(temp1->data[size]), temp1->data, temp1->size);
+                memcpy(temp1->data, data, size);
+                temp1->seq_begin = seqnum;
+                temp1->size += size;
+                vtss_transport_temp_merge(trnd, pstore1);
+                return 0;
+            }
+        }
+        TRACE("'%s' new [%lu - %lu), size=%u", trnd->name, seqnum, seqnum + 1, size);
+        temp = (struct vtss_transport_temp*)__get_free_pages((GFP_NOWAIT | __GFP_NORETRY | __GFP_NOWARN), order);
         if (temp == NULL) {
-            ERROR("Not enought memory");
             return -ENOMEM;
         }
-        temp->prev = NULL;
-        temp->next = NULL;
-        temp->size = 0;
+        atomic_add(1<<order, &vtss_transport_npages);
+        temp->prev  = NULL;
+        temp->next  = NULL;
         temp->seq_begin = seqnum;
+        temp->size  = 0;
+        temp->order = order;
+        if (*pstore) {
+            ERROR("'%s' new [%lu - %lu), size=%u ==> [%lu - %lu)", trnd->name,
+                    seqnum, seqnum + 1, size, (*pstore)->seq_begin, (*pstore)->seq_end);
+        }
         *pstore = temp;
     } else {
         /* check for enough space in buffer */
-        if ((temp->size + size) > VTSS_TRANSPORT_MAX_TEMP_SIZE) {
+        if ((temp->size + size + sizeof(struct vtss_transport_temp)) >= (PAGE_SIZE << temp->order)) {
             struct vtss_transport_temp* next;
-            TRACE("new [%lu - %lu), size=%u, temp->size=%u", seqnum, seqnum + 1, size, temp->size);
-            next = (struct vtss_transport_temp*)__get_free_page(GFP_TEMPORARY);
+            TRACE("'%s' new [%lu - %lu), size=%u, temp->size=%zu", trnd->name,
+                    seqnum, seqnum + 1, size, temp->size);
+            next = (struct vtss_transport_temp*)__get_free_pages((GFP_NOWAIT | __GFP_NORETRY | __GFP_NOWARN), order);
             if (next == NULL) {
-                ERROR("Not enought memory");
                 return -ENOMEM;
             }
-            next->size = 0;
+            atomic_add(1<<order, &vtss_transport_npages);
+            next->prev  = NULL;
+            next->next  = temp->next;
             next->seq_begin = seqnum;
-            next->prev = NULL;
-            next->next = temp->next;
-            temp->next = next;
+            next->size  = 0;
+            next->order = order;
+            temp->next  = next;
+            pstore = &(temp->next);
             temp = next;
+        } else {
+            TRACE("'%s' [%lu - %lu), size=%zu <+ [%lu - %lu), size=%u", trnd->name,
+                    temp->seq_begin, temp->seq_end, temp->size,
+                    seqnum, seqnum + 1, size);
         }
     }
     memcpy(&(temp->data[temp->size]), data, size);
-    temp->size += size;
     temp->seq_end = seqnum + 1;
+    temp->size += size;
+    vtss_transport_temp_merge(trnd, pstore);
     return 0;
 }
 
-static int vtss_transport_temp_store_blob(struct vtss_transport_temp** pstore, unsigned long seqnum, struct vtss_transport_temp* blob)
+static int vtss_transport_temp_store_blob(struct vtss_transport_data* trnd, unsigned long seqnum, struct vtss_transport_temp* blob)
 {
     struct vtss_transport_temp* temp;
+    struct vtss_transport_temp** pstore = &(trnd->head);
 
-    TRACE("blob [%lu - %lu), size=%u", seqnum, seqnum + 1, blob->size);
-    while (((temp = *pstore) != NULL) && (seqnum != temp->seq_end)) {
+    TRACE("'%s' blob [%lu - %lu), size=%zu", trnd->name, seqnum, seqnum + 1, blob->size);
+    while (((temp = vtss_transport_temp_merge(trnd, pstore)) != NULL) && (seqnum != temp->seq_end)) {
         pstore = (seqnum < temp->seq_begin) ? &(temp->prev) : &(temp->next);
-    }
-    if (temp == NULL) {
-        blob->next = NULL;
-        *pstore    = blob;
-    } else {
-        blob->next = temp->next;
-        temp->next = blob;
     }
     blob->prev      = NULL;
     blob->seq_begin = seqnum;
     blob->seq_end   = seqnum + 1;
-    return 0;
-}
-
-static int vtss_transport_temp_merge(struct vtss_transport_temp** pstore, struct vtss_transport_temp* temp)
-{
-    /* try to merge with prev element... */
-    if (temp->prev && (temp->seq_begin == temp->prev->seq_end) &&
-        /* check for enough space in buffer */
-        ((temp->prev->size + temp->size) <= VTSS_TRANSPORT_MAX_TEMP_SIZE))
-    {
-        struct vtss_transport_temp* prev = temp->prev;
-        TRACE("[%lu - %lu) + [%lu - %lu), size=%u",
-            prev->seq_begin, prev->seq_end,
-            temp->seq_begin, temp->seq_end, prev->size + temp->size);
-        memcpy(&(prev->data[prev->size]), temp->data, temp->size);
-        prev->size += temp->size;
-        prev->seq_end = temp->seq_end;
-        prev->next = temp->next;
-        *pstore = prev;
-        free_page((unsigned long)temp);
-        return 0;
+    if (temp == NULL) {
+        blob->next = NULL;
+        if (*pstore) {
+            ERROR("'%s' blob [%lu - %lu), size=%zu ==> [%lu - %lu)", trnd->name,
+                    seqnum, seqnum + 1, blob->size, (*pstore)->seq_begin, (*pstore)->seq_end);
+        }
+        *pstore = blob;
+    } else {
+        blob->next = temp->next;
+        temp->next = blob;
     }
-    return 1;
+    return 0;
 }
 
 #define VTSS_TRANSPORT_COPY_TO_USER(src, len) do { \
     if (copy_to_user(buf, (void*)(src), (len))) { \
-        ERROR("copy_to_user(0x%p, 0x%p, %u): error", buf, (src), (len)); \
+        ERROR("copy_to_user(0x%p, 0x%p, %zu): error", buf, (src), (len)); \
     } \
     size -= (len); \
     buf += (len); \
     rc += (len); \
 } while (0)
 
+static size_t vtss_transport_temp_flush(struct vtss_transport_data* trnd, char __user* buf, size_t size)
+{
+    size_t rc = 0;
+
+    if (!trnd->is_abort) {
+        struct vtss_transport_temp* temp;
+        struct vtss_transport_temp** pstore = &(trnd->head);
+
+        TRACE("'%s' -== flush begin ==- :: %u (%lu bytes) at seq=%lu", trnd->name,
+                atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE, trnd->seqdone);
+        /* Look for output seq with merge on the way */
+        while ((temp = vtss_transport_temp_merge(trnd, pstore)) != NULL) {
+            if (trnd->seqdone == temp->seq_begin) {
+                if (size < temp->size)
+                    break;
+                TRACE("'%s' output [%lu, %lu), size=%zu", trnd->name,
+                        temp->seq_begin, temp->seq_end, temp->size);
+                VTSS_TRANSPORT_COPY_TO_USER(temp->data, temp->size);
+                trnd->seqdone = temp->seq_end;
+                *pstore = temp->next;
+                if (temp->prev) {
+                    ERROR("'%s' [%lu, %lu) incorrect prev link", trnd->name, temp->seq_begin, temp->seq_end);
+                    vtss_transport_temp_free_all(trnd, &(temp->prev));
+                }
+                free_pages((unsigned long)temp, temp->order);
+                atomic_sub(1<<temp->order, &vtss_transport_npages);
+                pstore = &(trnd->head); /* restart from head */
+            } else {
+                pstore = (trnd->seqdone < temp->seq_begin) ? &(temp->prev) : &(temp->next);
+            }
+        }
+        TRACE("'%s' -== flush  end  ==- :: %u (%lu bytes) at seq=%lu", trnd->name,
+                atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE, trnd->seqdone);
+    }
+    return rc;
+}
+
+static size_t vtss_transport_temp_parse_event(struct vtss_transport_data* trnd, struct ring_buffer_event* event, char __user* buf, size_t size, int cpu)
+{
+    size_t rc = 0;
+    struct vtss_transport_entry* data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
+    unsigned long seqnum = data->seqnum;
+
+    trnd->seqcpu[cpu] = seqnum;
+    if (trnd->is_abort || trnd->seqdone > seqnum) {
+        if (data->size) {
+            TRACE("DROP seq=%lu, size=%u, from cpu%d", seqnum, data->size, cpu);
+        } else { /* blob */
+            struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
+            TRACE("DROP seq=%lu, size=%zu, from cpu%d", seqnum, blob->size, cpu);
+            free_pages((unsigned long)blob, blob->order);
+            atomic_sub(1<<blob->order, &vtss_transport_npages);
+        }
+#ifndef VTSS_NO_MERGE
+    } else if (trnd->seqdone != seqnum) { /* disordered event */
+        if (data->size) {
+            if (vtss_transport_temp_store_data(trnd, seqnum, data->data, data->size)) {
+                ERROR("'%s' seq=%lu => store data seq=%lu error", trnd->name, trnd->seqdone, seqnum);
+            }
+        } else { /* blob */
+            struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
+            if (vtss_transport_temp_store_blob(trnd, seqnum, blob)) {
+                ERROR("'%s' seq=%lu => store blob seq=%lu error", trnd->name, trnd->seqdone, seqnum);
+            }
+        }
+#endif
+    } else { /* ordered event */
+        if (data->size) {
+            TRACE("'%s' output [%lu - %lu), size=%u from cpu%d", trnd->name, seqnum, seqnum+1, data->size, cpu);
+#ifndef VTSS_NO_MERGE
+            if (size < data->size) {
+                if (vtss_transport_temp_store_data(trnd, seqnum, data->data, data->size)) {
+                    ERROR("'%s' seq=%lu => store data seq=%lu error", trnd->name, trnd->seqdone, seqnum);
+                }
+            } else
+#endif
+            {
+                VTSS_TRANSPORT_COPY_TO_USER(data->data, (size_t)data->size);
+                trnd->seqdone++;
+            }
+        } else { /* blob */
+            struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
+            TRACE("'%s' output [%lu - %lu), size=%zu from cpu%d", trnd->name, seqnum, seqnum+1, blob->size, cpu);
+#ifndef VTSS_NO_MERGE
+            if (size < blob->size) {
+                if (vtss_transport_temp_store_blob(trnd, seqnum, blob)) {
+                    ERROR("'%s' seq=%lu => store blob seq=%lu error", trnd->name, trnd->seqdone, seqnum);
+                }
+            } else
+#endif
+            {
+                VTSS_TRANSPORT_COPY_TO_USER(blob->data,
+#ifndef VTSS_NO_MERGE
+                    blob->size
+#else
+                    (size_t)8UL /* FIXME: just something is not overflowed output buffer */
+#endif
+                );
+                free_pages((unsigned long)blob, blob->order);
+                atomic_sub(1<<blob->order, &vtss_transport_npages);
+                trnd->seqdone++;
+            }
+        }
+    }
+    return rc;
+}
+
 #endif /* VTSS_USE_UEC */
 
 static ssize_t vtss_transport_read(struct file *file, char __user* buf, size_t size, loff_t* ppos)
 {
+    int i, cpu;
+    size_t len;
     ssize_t rc;
     struct vtss_transport_data* trnd = (struct vtss_transport_data*)file->private_data;
 
-    TRACE("file=0x%p, trnd=0x%p", file, trnd);
     if (unlikely(trnd == NULL || buf == NULL))
         return -EINVAL;
 
-    while (!atomic_read(&trnd->is_complete) && VTSS_TRANSPORT_IS_EMPTY(trnd)) {
+    while (!atomic_read(&trnd->is_complete) && !VTSS_TRANSPORT_DATA_READY(trnd)) {
         if (file->f_flags & O_NONBLOCK)
             return -EAGAIN;
         rc = wait_event_interruptible(trnd->waitq,
-             (atomic_read(&trnd->is_complete) || !VTSS_TRANSPORT_IS_EMPTY(trnd)));
+             (atomic_read(&trnd->is_complete) || VTSS_TRANSPORT_DATA_READY(trnd)));
         if (rc < 0)
             return -ERESTARTSYS;
     }
 #ifdef VTSS_USE_UEC
     rc = trnd->uec->pull(trnd->uec, buf, size);
 #else
-    for (rc = 0; !ring_buffer_empty(trnd->buffer);) {
-        int cpu;
+    rc = 0;
+    preempt_disable();
+#ifndef VTSS_NO_MERGE
+    /* Flush buffers if possible first of all */
+    len = vtss_transport_temp_flush(trnd, buf, size);
+    size -= len;
+    buf += len;
+    rc += len;
+#endif
+    for (i = 0;
+        (i < 30*num_online_cpus()) && /* no more 30 loops on each online cpu */
+        (size >= VTSS_RING_BUFFER_PAGE_SIZE) && /* while buffer size is enough */
+        !VTSS_TRANSPORT_IS_EMPTY(trnd) /* have something to output */
+        ; i++)
+    {
+        int fast = 1;
         void* bpage;
-        unsigned long seqnum;
-        struct vtss_transport_entry* data;
         struct ring_buffer_event *event;
 
         for_each_online_cpu(cpu) {
-            if (size < VTSS_TRANSPORT_MAX_RESERVE_SIZE) {
-                unsigned long evtnum = ring_buffer_entries(trnd->buffer)/num_active_cpus();
-                if (evtnum > 50) {
-                    atomic_inc(&trnd->is_overflow);
-                } else if (evtnum < 20) {
-                    atomic_set(&trnd->is_overflow, 0);
-                }
-                TRACE("read %zd bytes...", rc);
-                return rc;
+            if (ring_buffer_entries_cpu(trnd->buffer, cpu) == 0)
+                continue; /* nothing to read on this cpu */
+            if  (trnd->seqcpu[cpu] > trnd->seqdone &&
+                (1 + trnd->seqcpu[cpu] - trnd->seqdone) > VTSS_MERGE_MEM_LIMIT/3 &&
+                !trnd->is_abort && !atomic_read(&trnd->is_complete))
+            {
+                TRACE("'%s' cpu%d=%lu :: %u (%lu bytes) at seq=%lu", trnd->name,
+                        cpu, trnd->seqcpu[cpu], atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE, trnd->seqdone);
+                continue; /* skip it for a while */
+            }
+            if (atomic_read(&vtss_transport_npages) > VTSS_MERGE_MEM_LIMIT) {
+                atomic_inc(&trnd->is_overflow);
+                ring_buffer_record_disable(trnd->buffer);
+                ERROR("'%s' abort. Buffers %u (%lu bytes) at seq=%lu",
+                        trnd->name, atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE, trnd->seqdone);
+                vtss_transport_temp_free_all(trnd, &(trnd->head));
+                trnd->is_abort = 1;
+            } else if (atomic_read(&vtss_transport_npages) > VTSS_MERGE_MEM_LIMIT/2) {
+                atomic_inc(&trnd->is_overflow);
+                TRACE("'%s' cpu%d=%lu :: %u (%lu bytes) at seq=%lu", trnd->name,
+                        cpu, trnd->seqcpu[cpu], atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE, trnd->seqdone);
+                fast = 0; /* Carefully get events to avoid memory overflow */
             }
 #ifdef VTSS_AUTOCONF_RING_BUFFER_ALLOC_READ_PAGE
             bpage = ring_buffer_alloc_read_page(trnd->buffer, cpu);
@@ -487,11 +750,11 @@ static ssize_t vtss_transport_read(struct file *file, char __user* buf, size_t s
             bpage = ring_buffer_alloc_read_page(trnd->buffer);
 #endif
             if (bpage == NULL) {
-                ERROR("Cannot allocate free page");
+                preempt_enable_no_resched();
+                ERROR("'%s' cannot allocate free rb read page", trnd->name);
                 return -EFAULT;
             }
-
-            if (ring_buffer_read_page(trnd->buffer, &bpage, PAGE_SIZE, cpu, 0) >= 0) {
+            if (fast && ring_buffer_read_page(trnd->buffer, &bpage, PAGE_SIZE, cpu, (!trnd->is_abort && !atomic_read(&trnd->is_complete))) >= 0) {
                 int i, inc;
                 struct rb_page* rpage = (struct rb_page*)bpage;
                 /* The commit may have missed event flags set, clear them */
@@ -500,11 +763,10 @@ static ssize_t vtss_transport_read(struct file *file, char __user* buf, size_t s
                 TRACE("page[%d]=[0 - %4lu) :: rc=%zd, size=%zu", cpu, commit, rc, size);
                 for (i = 0; i < commit; i += inc) {
                     if (i >= (PAGE_SIZE - offsetof(struct rb_page, data))) {
-                        ERROR("incorrect data index");
+                        ERROR("'%s' incorrect data index", trnd->name);
                         break;
                     }
                     inc = -1;
-                    seqnum = 0;
                     event = (void*)&rpage->data[i];
                     switch (event->type_len) {
                     case RINGBUF_TYPE_PADDING:
@@ -515,121 +777,100 @@ static ssize_t vtss_transport_read(struct file *file, char __user* buf, size_t s
                         inc = 8;
                         break;
                     case 0:
-                        data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
-                        seqnum = data->seqnum;
-                        TRACE("seq=%lu => event(%lu), size=%u", trnd->seqdone, seqnum, data->size);
-                        if (trnd->seqdone != seqnum) {
-                            if (data->size) {
-                                if (vtss_transport_temp_store(&(trnd->head), seqnum, data->data, data->size))
-                                    break;
-                            } else { /* big block */
-                                struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
-                                TRACE("store blob(%lu): 0x%p, size=%u", data->seqnum, blob, blob->size);
-                                if (vtss_transport_temp_store_blob(&(trnd->head), seqnum, blob))
-                                    break;
-                            }
-                        } else {
-                            if (data->size) {
-                                if (size < data->size) {
-                                    if (vtss_transport_temp_store(&(trnd->head), seqnum, data->data, data->size))
-                                        break;
-                                } else {
-                                    VTSS_TRANSPORT_COPY_TO_USER(data->data, data->size);
-                                    trnd->seqdone++;
-                                }
-                            } else { /* big block */
-                                struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
-                                TRACE("output blob(%lu): 0x%p (%u bytes)", data->seqnum, blob, blob->size);
-                                if (size < blob->size) {
-                                    if (vtss_transport_temp_store_blob(&(trnd->head), seqnum, blob))
-                                        break;
-                                } else {
-                                    VTSS_TRANSPORT_COPY_TO_USER(blob->data, blob->size);
-                                    free_pages((unsigned long)blob, get_order(blob->size+sizeof(struct vtss_transport_temp)));
-                                    trnd->seqdone++;
-                                }
-                            }
-                        }
+                        len = vtss_transport_temp_parse_event(trnd, event, buf, size, cpu);
+                        size -= len;
+                        buf += len;
+                        rc += len;
                         if (!event->array[0]) {
-                            ERROR("incorrect event data");
+                            ERROR("'%s' incorrect event data", trnd->name);
                             break;
                         }
                         inc = event->array[0] + 4;
                         break;
                     default:
-                        data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
-                        seqnum = data->seqnum;
-                        TRACE("seq=%lu => event(%lu), size=%u", trnd->seqdone, seqnum, data->size);
-                        if (trnd->seqdone != seqnum) {
-                            if (data->size) {
-                                if (vtss_transport_temp_store(&(trnd->head), seqnum, data->data, data->size))
-                                    break;
-                            } else { /* big block */
-                                struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
-                                TRACE("store blob(%lu): 0x%p, size=%u", data->seqnum, blob, blob->size);
-                                if (vtss_transport_temp_store_blob(&(trnd->head), seqnum, blob))
-                                    break;
-                            }
-                        } else {
-                            if (data->size) {
-                                if (size < data->size) {
-                                    if (vtss_transport_temp_store(&(trnd->head), seqnum, data->data, data->size))
-                                        break;
-                                } else {
-                                    VTSS_TRANSPORT_COPY_TO_USER(data->data, data->size);
-                                    trnd->seqdone++;
-                                }
-                            } else { /* big block */
-                                struct vtss_transport_temp* blob = *((struct vtss_transport_temp**)(data->data));
-                                TRACE("output blob(%lu): 0x%p (%u bytes)", data->seqnum, blob, blob->size);
-                                if (size < blob->size) {
-                                    if (vtss_transport_temp_store_blob(&(trnd->head), seqnum, blob))
-                                        break;
-                                } else {
-                                    VTSS_TRANSPORT_COPY_TO_USER(blob->data, blob->size);
-                                    free_pages((unsigned long)blob, get_order(blob->size+sizeof(struct vtss_transport_temp)));
-                                    trnd->seqdone++;
-                                }
-                            }
-                        }
+                        len = vtss_transport_temp_parse_event(trnd, event, buf, size, cpu);
+                        size -= len;
+                        buf += len;
+                        rc += len;
                         inc = ((event->type_len + 1) * 4);
                     }
                     if (inc <= 0) {
-                        ERROR("incorrect next data index");
+                        ERROR("'%s' incorrect next data index", trnd->name);
                         break;
                     }
-                    if (seqnum) { /* If event was processed */
-                        struct vtss_transport_temp* temp;
-                        struct vtss_transport_temp** pstore = &(trnd->head);
-
-                        while ((temp = *pstore) != NULL) {
-                            if (trnd->seqdone == temp->seq_begin) {
-                                if (size < temp->size) {
-                                    break;
-                                }
-                                VTSS_TRANSPORT_COPY_TO_USER(temp->data, temp->size);
-                                trnd->seqdone = temp->seq_end;
-                                *pstore = temp->next;
-                                if (unlikely(temp->size > VTSS_TRANSPORT_MAX_TEMP_SIZE))
-                                    free_pages((unsigned long)temp, get_order(temp->size+sizeof(struct vtss_transport_temp)));
-                                else
-                                    free_page((unsigned long)temp);
-                                pstore = &(trnd->head); /* restart from head */
-                            } else {
-                                if (vtss_transport_temp_merge(pstore, temp))
-                                    pstore = (trnd->seqdone < temp->seq_begin) ? &(temp->prev) : &(temp->next);
-                            }
-                        }
-                    }
-                }
+                } /* for each event in page */
                 TRACE("page[%d] -==end==-  :: rc=%zd, size=%zu", cpu, rc, size);
+            } else { /* reader page is not full of careful, so read one by one */
+                u64 ts;
+                int count;
+
+                for (count = 0; count < 10 && NULL !=
+#ifdef VTSS_AUTOCONF_RING_BUFFER_LOST_EVENTS
+                    (event = ring_buffer_peek(trnd->buffer, cpu, &ts, NULL))
+#else
+                    (event = ring_buffer_peek(trnd->buffer, cpu, &ts))
+#endif
+                    ; count++)
+                {
+                    struct vtss_transport_entry* data = (struct vtss_transport_entry*)ring_buffer_event_data(event);
+
+                    trnd->seqcpu[cpu] = data->seqnum;
+                    if ((1 + trnd->seqcpu[cpu] - trnd->seqdone) > VTSS_MERGE_MEM_LIMIT/4 &&
+                        !trnd->is_abort && !atomic_read(&trnd->is_complete))
+                    {
+                        break; /* will not read this event */
+                    }
+#ifdef VTSS_AUTOCONF_RING_BUFFER_LOST_EVENTS
+                    event = ring_buffer_consume(trnd->buffer, cpu, &ts, NULL);
+#else
+                    event = ring_buffer_consume(trnd->buffer, cpu, &ts);
+#endif
+                    if (event != NULL) {
+                        len = vtss_transport_temp_parse_event(trnd, event, buf, size, cpu);
+                        size -= len;
+                        buf += len;
+                        rc += len;
+                    }
+                } /* for */
             }
             ring_buffer_free_read_page(trnd->buffer, bpage);
+#ifndef VTSS_NO_MERGE
+            /* Flush buffers if possible */
+            len = vtss_transport_temp_flush(trnd, buf, size);
+            size -= len;
+            buf += len;
+            rc += len;
+#endif
+            if (size < VTSS_RING_BUFFER_PAGE_SIZE) {
+                preempt_enable_no_resched();
+                TRACE("'%s' read %zd bytes [%d]...", trnd->name, rc, i);
+                return rc;
+            }
+        } /* for each online cpu */
+    } /* while have something to output */
+    preempt_enable_no_resched();
+    if (rc == 0 && !trnd->is_abort && !atomic_read(&trnd->is_complete)) { /* !!! something wrong !!! */
+        ERROR("'%s' [%d] rb=%lu :: %u (%lu bytes) evtstore=%lu of %d", trnd->name, i,
+                ring_buffer_entries(trnd->buffer), atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE,
+                trnd->seqdone-1, atomic_read(&trnd->seqnum));
+        if (!ring_buffer_empty(trnd->buffer)) {
+            for_each_online_cpu(cpu) {
+                unsigned long count = ring_buffer_entries_cpu(trnd->buffer, cpu);
+                if (count)
+                    ERROR("'%s' evtcount[%03d]=%lu", trnd->name, cpu, count);
+            }
         }
+        /* We cannot return 0 if transport is not complete, so write the magic */
+        *((unsigned int*)buf) = UEC_MAGIC;
+        buf += sizeof(unsigned int);
+        *((unsigned int*)buf) = UEC_MAGICVALUE;
+        buf += sizeof(unsigned int);
+        size -= 2*sizeof(unsigned int);
+        rc += 2*sizeof(unsigned int);
     }
     atomic_set(&trnd->is_overflow, 0);
 #endif /* VTSS_USE_UEC */
-    TRACE("read %zd bytes", rc);
+    TRACE("'%s' read %zd bytes [%d]", trnd->name, rc, i);
     return rc;
 }
 
@@ -647,7 +888,7 @@ static unsigned int vtss_transport_poll(struct file *file, poll_table* poll_tabl
     if (trnd == NULL)
         return (POLLERR | POLLNVAL);
     poll_wait(file, &trnd->waitq, poll_table);
-    if (atomic_read(&trnd->is_complete) || !VTSS_TRANSPORT_IS_EMPTY(trnd))
+    if (atomic_read(&trnd->is_complete) || VTSS_TRANSPORT_DATA_READY(trnd))
         rc = (POLLIN | POLLRDNORM);
     else
         atomic_set(&trnd->is_overflow, 0);
@@ -695,7 +936,7 @@ static int vtss_transport_close(struct inode *inode, struct file *file)
 
     trnd->file = NULL;
     if (!atomic_dec_and_test(&trnd->is_attached)) {
-        ERROR("Wrong state in close");
+        ERROR("'%s' wrong state", trnd->name);
         atomic_set(&trnd->is_attached, 0);
         return -EFAULT;
     }
@@ -723,7 +964,7 @@ static void vtss_transport_remove(struct vtss_transport_data* trnd)
 struct vtss_transport_data* vtss_transport_create(pid_t ppid, pid_t pid, uid_t cuid, gid_t cgid)
 {
     int seq = -1;
-    int rb_size = (num_present_cpus() > 16) ? 16 : 64;
+    int rb_size = (num_present_cpus() > 32) ? 16 : 32;
     unsigned long flags;
     struct proc_dir_entry* pde;
     struct proc_dir_entry* procfs_root = vtss_procfs_get_root();
@@ -770,7 +1011,9 @@ struct vtss_transport_data* vtss_transport_create(pid_t ppid, pid_t pid, uid_t c
         return NULL;
     }
 #else
-    trnd->seqdone = 1;
+    trnd->is_abort = 0;
+    trnd->seqdone  = 1;
+    trnd->head     = NULL;
     atomic_set(&trnd->seqnum, 0);
     trnd->buffer = ring_buffer_alloc(rb_size*PAGE_SIZE, 0);
     if (trnd->buffer == NULL) {
@@ -816,9 +1059,8 @@ int vtss_transport_complete(struct vtss_transport_data* trnd)
 {
     if (trnd == NULL)
         return -ENOENT;
-    TRACE("trnd=0x%p => '%s'", trnd, trnd->name);
     if (atomic_read(&trnd->refcount)) {
-        ERROR("refcount=%d != 0", atomic_read(&trnd->refcount));
+        ERROR("'%s' refcount=%d != 0", trnd->name, atomic_read(&trnd->refcount));
     }
     atomic_inc(&trnd->is_complete);
     if (waitqueue_active(&trnd->waitq)) {
@@ -856,6 +1098,7 @@ int vtss_transport_debug_info(struct seq_file *s)
     struct list_head *p;
     struct vtss_transport_data *trnd = NULL;
 
+    seq_printf(s, "\n[transport]\nnbuffers=%u (%lu bytes)\n", atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE);
     spin_lock_irqsave(&vtss_transport_list_lock, flags);
     list_for_each(p, &vtss_transport_list) {
         trnd = list_entry(p, struct vtss_transport_data, list);
@@ -872,10 +1115,13 @@ int vtss_transport_debug_info(struct seq_file *s)
                     ring_buffer_entries(trnd->buffer));
         if (!ring_buffer_empty(trnd->buffer)) {
             for_each_online_cpu(cpu) {
-                seq_printf(s, "evtcount[%03d]=%lu\n", cpu, ring_buffer_entries_cpu(trnd->buffer, cpu));
+                unsigned long count = ring_buffer_entries_cpu(trnd->buffer, cpu);
+                if (count)
+                    seq_printf(s, "evtcount[%03d]=%lu\n", cpu, count);
             }
         }
         seq_printf(s, "evtstore=%lu of %d\n", trnd->seqdone-1, atomic_read(&trnd->seqnum));
+        seq_printf(s, "is_abort=%s\n", trnd->is_abort ? "true" : "false");
 #endif /* VTSS_USE_UEC */
     }
     spin_unlock_irqrestore(&vtss_transport_list_lock, flags);
@@ -886,6 +1132,7 @@ int vtss_transport_init(void)
 {
     unsigned long flags;
 
+    atomic_set(&vtss_transport_npages, 0);
     spin_lock_irqsave(&vtss_transport_list_lock, flags);
     INIT_LIST_HEAD(&vtss_transport_list);
     spin_unlock_irqrestore(&vtss_transport_list_lock, flags);
@@ -902,7 +1149,7 @@ int vtss_transport_init(void)
 void vtss_transport_fini(void)
 {
     int wait_count = VTSS_TRANSPORT_COMPLETE_TIMEOUT;
-    unsigned long flags;
+    unsigned long flags, count;
     struct list_head *p, *tmp;
     struct vtss_transport_data *trnd = NULL;
 
@@ -915,9 +1162,8 @@ again:
     list_for_each_safe(p, tmp, &vtss_transport_list) {
         trnd = list_entry(p, struct vtss_transport_data, list);
         TRACE("trnd=0x%p => '%s'", trnd, trnd->name);
+        atomic_inc(&trnd->is_complete);
         if (atomic_read(&trnd->is_attached)) {
-            if (!atomic_read(&trnd->is_complete))
-                atomic_inc(&trnd->is_complete);
             if (waitqueue_active(&trnd->waitq)) {
                 wake_up_interruptible(&trnd->waitq);
             }
@@ -929,16 +1175,22 @@ again:
             ERROR("'%s' complete timeout", trnd->name);
             if (trnd->file)
                 trnd->file->private_data = NULL;
+            trnd->file = NULL;
         }
         list_del(p);
+        vtss_transport_remove(trnd);
         if (atomic_read(&trnd->loscount)) {
             ERROR("'%s' lost %d events", trnd->name, atomic_read(&trnd->loscount));
         }
-        vtss_transport_remove(trnd);
 #ifdef VTSS_USE_UEC
         destroy_uec(trnd->uec);
         kfree(trnd->uec);
 #else
+        count = atomic_read(&trnd->seqnum);
+        if ((trnd->seqdone - 1) != count) {
+            ERROR("'%s' drop %lu events", trnd->name, (count - trnd->seqdone - 1));
+        }
+        vtss_transport_temp_free_all(trnd, &(trnd->head));
         ring_buffer_free(trnd->buffer);
 #endif
         kfree(trnd);
@@ -946,4 +1198,8 @@ again:
     }
     INIT_LIST_HEAD(&vtss_transport_list);
     spin_unlock_irqrestore(&vtss_transport_list_lock, flags);
+    if (atomic_read(&vtss_transport_npages)) {
+        ERROR("lost %u (%lu bytes) buffers", atomic_read(&vtss_transport_npages), atomic_read(&vtss_transport_npages)*PAGE_SIZE);
+    }
+    atomic_set(&vtss_transport_npages, 0);
 }

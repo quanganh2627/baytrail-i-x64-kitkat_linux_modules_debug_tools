@@ -64,7 +64,7 @@ int vtss_init_stack(stack_control_t * stk)
 /// grow the stack map
 static int realloc_stack(stack_control_t* stk)
 {
-    int pg;
+    int order;
     unsigned int len = VTSS_DYNSIZE_STACKS;
     char* buf;
 
@@ -72,12 +72,13 @@ static int realloc_stack(stack_control_t* stk)
     {
         len = stk->size;
     }
-    if(len > 0x20000)
+    if(len > 16*VTSS_DYNSIZE_STACKS)
     {
+        TRACE("limit of allocation stack buffer");
         return VTSS_ERR_NOMEMORY;
     }
-    pg = get_order(len + len);
-    if(!(buf = (char*)__get_free_pages((GFP_NOWAIT | __GFP_NORETRY | __GFP_NOWARN), pg)))
+    order = get_order(len + len);
+    if(!(buf = (char*)__get_free_pages((GFP_NOWAIT | __GFP_NORETRY | __GFP_NOWARN), order)))
     {
         return VTSS_ERR_NOMEMORY;
     }
@@ -86,7 +87,7 @@ static int realloc_stack(stack_control_t* stk)
         free_pages((unsigned long)stk->buffer, get_order(stk->size));
     }
     stk->buffer = buf;
-    stk->size = (PAGE_SIZE<<pg);
+    stk->size = (PAGE_SIZE << order);
     stk->compressed = stk->buffer + stk->size / 2;
     stk->stkmap_end = stk->stkmap_start = stk->stkmap_common = (stkmap_t*)stk->compressed;
     return 0;
@@ -344,12 +345,18 @@ end_of_search:
             value.szt = 0;
             if (stk->acc->read(stk->acc, search_sp.szp, &value.szt, stride) != stride) {
                 TRACE("SP=0x%p: skip page, [0x%p - 0x%p], ip=0x%p", search_sp.szp, stk->sp.vdp, stk->bp.vdp, stk->ip.vdp);
-                if ((search_border.szt - search_sp.szt) > PAGE_SIZE) {
-                    search_sp.chp += PAGE_SIZE - stride;
+#ifdef VTSS_MEM_FAULT_BREAK
+                break;
+#else
+                if ((search_border.szt - (search_sp.szt & PAGE_MASK)) > PAGE_SIZE) {
+                    search_sp.chp += PAGE_SIZE;
+                    search_sp.szt &= PAGE_MASK;
+                    search_sp.chp -= stride;
                     continue;
                 } else {
                     break;
                 }
+#endif
             }
             /// validate the value
             if(value.chp < search_sp.chp || value.chp >= bp)

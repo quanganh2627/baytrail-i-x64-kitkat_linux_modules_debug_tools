@@ -26,6 +26,11 @@
   the GNU General Public License.
 */
 #include "vtss_config.h"
+
+#ifndef VTSS_VMA_TIME_LIMIT
+#define VTSS_VMA_TIME_LIMIT (tsc_khz * 30ULL)
+#endif
+
 #include "user_vm.h"
 
 #include <linux/slab.h>
@@ -193,6 +198,31 @@ static inline int in_nmi(void)
 #endif /* in_nmi */
 #endif /* VTSS_AUTOCONF_KMAP_ATOMIC_ONE_ARG */
 
+static int vtss_user_vm_page_unpin(struct user_vm_accessor* this)
+{
+    if (this->m_irq) {
+        if (this->m_maddr != NULL)
+#ifdef VTSS_AUTOCONF_KMAP_ATOMIC_ONE_ARG
+            kunmap_atomic(this->m_maddr);
+#else
+            kunmap_atomic(this->m_maddr, in_nmi() ? KM_NMI : KM_IRQ0);
+#endif
+        this->m_maddr = NULL;
+        if (this->m_page != NULL)
+            put_page(this->m_page);
+        this->m_page = NULL;
+    } else {
+        if (this->m_maddr != NULL)
+            kunmap(this->m_maddr);
+        this->m_maddr = NULL;
+        if (this->m_page != NULL)
+            page_cache_release(this->m_page); /* put_page(this->m_page); */
+        this->m_page = NULL;
+    }
+    this->m_page_id = (unsigned long)-1;
+    return 0;
+}
+
 static int vtss_user_vm_page_pin(struct user_vm_accessor* this, unsigned long addr)
 {
     int rc;
@@ -220,7 +250,6 @@ static int vtss_user_vm_page_pin(struct user_vm_accessor* this, unsigned long ad
         }
         this->m_maddr = kmap(this->m_page);
     }
-    this->m_page_id = (addr & PAGE_MASK) >> PAGE_SHIFT;
     rc = (this->m_maddr != NULL) ? 0 : 2;
 #ifdef VTSS_VMA_CACHE
     if (!rc) {
@@ -234,35 +263,27 @@ static int vtss_user_vm_page_pin(struct user_vm_accessor* this, unsigned long ad
         } else {
             VTSS_PROFILE(cpy, copy_from_user_page(this->m_vma, this->m_page, addr & PAGE_MASK, this->m_buffer, this->m_maddr, PAGE_SIZE));
         }
-    } else {
-        memset(this->m_buffer, 0, PAGE_SIZE);
+        vtss_user_vm_page_unpin(this);
     }
 #endif
+    this->m_page_id = rc ? (unsigned long)-1 : ((addr & PAGE_MASK) >> PAGE_SHIFT);
     return rc;
 }
 
-static int vtss_user_vm_page_unpin(struct user_vm_accessor* this)
+static int vtss_user_vm_unlock(struct user_vm_accessor* this)
 {
-    if (this->m_irq) {
-        if (this->m_maddr != NULL)
-#ifdef VTSS_AUTOCONF_KMAP_ATOMIC_ONE_ARG
-            kunmap_atomic(this->m_maddr);
-#else
-            kunmap_atomic(this->m_maddr, in_nmi() ? KM_NMI : KM_IRQ0);
-#endif
-        this->m_maddr = NULL;
-        if (this->m_page != NULL)
-            put_page(this->m_page);
-        this->m_page = NULL;
-    } else {
-        if (this->m_maddr != NULL)
-            kunmap(this->m_maddr);
-        this->m_maddr = NULL;
-        if (this->m_page != NULL)
-            page_cache_release(this->m_page); /* put_page(this->m_page); */
-        this->m_page = NULL;
+    vtss_user_vm_page_unpin(this);
+    if (this->m_mm != NULL) {
+        if (!this->m_irq) {
+            up_read(&this->m_mm->mmap_sem);
+            mmput(this->m_mm);
+        }
+        this->m_mm = NULL;
     }
-    this->m_page_id = (unsigned long)-1;
+    this->m_task = NULL;
+#ifdef VTSS_VMA_TIME_LIMIT
+    this->m_time = 0;
+#endif
     return 0;
 }
 
@@ -285,20 +306,9 @@ static int vtss_user_vm_trylock(struct user_vm_accessor* this, struct task_struc
         this->m_mm = task->mm;
     }
     this->m_task = task;
-    return 0;
-}
-
-static int vtss_user_vm_unlock(struct user_vm_accessor* this)
-{
-    vtss_user_vm_page_unpin(this);
-    if (this->m_mm != NULL) {
-        if (!this->m_irq) {
-            up_read(&this->m_mm->mmap_sem);
-            mmput(this->m_mm);
-        }
-        this->m_mm = NULL;
-    }
-    this->m_task = NULL;
+#ifdef VTSS_VMA_TIME_LIMIT
+    this->m_time = get_cycles();
+#endif
     return 0;
 }
 
@@ -306,7 +316,7 @@ static size_t vtss_user_vm_read(struct user_vm_accessor* this, void* from, void*
 {
     size_t i, cpsize, bytes = 0;
     unsigned long offset, addr = (unsigned long)from;
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
     cycles_t start_vma_time = get_cycles();
 #endif
 #ifndef VTSS_VMA_CACHE
@@ -319,29 +329,40 @@ static size_t vtss_user_vm_read(struct user_vm_accessor* this, void* from, void*
 #endif
 
     do {
+#ifdef VTSS_VMA_TIME_LIMIT
+        cycles_t access_time = get_cycles();
+#endif
         unsigned long page_id = (addr & PAGE_MASK) >> PAGE_SHIFT;
 
         offset = addr & (PAGE_SIZE - 1);
         cpsize = min((size_t)(PAGE_SIZE - offset), size - bytes);
-        TRACE("addr=0x%p(0x%lx) size=%zu (page=0x%lx, offset=0x%lx)", from, addr, cpsize, page_id, offset);
+        TRACE("addr=0x%p(0x%lx) size=%zu (page=0x%lx, offset=0x%lx)",
+                from, addr, cpsize, page_id, offset);
+#ifdef VTSS_VMA_TIME_LIMIT
+        if ((access_time - this->m_time) > this->m_limit) {
+            TRACE("addr=0x%p(0x%lx) size=%zu (page=0x%lx, offset=0x%lx), time=%llu",
+                    from, addr, cpsize, page_id, offset, (access_time - this->m_time));
+            break; /* Time is over */
+        }
+#endif
         if (!access_ok(VERIFY_READ, addr, cpsize))
             break; /* Don't have a read access */
         if (page_id != this->m_page_id) {
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
             cycles_t start_pgp_time = get_cycles();
 #endif
             TRACE("not in cache 0x%lx", this->m_page_id);
             vtss_user_vm_page_unpin(this);
             if (vtss_user_vm_page_pin(this, addr)) {
                 vtss_user_vm_page_unpin(this);
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
                 vtss_profile_cnt_pgp++;
                 vtss_profile_clk_pgp += get_cycles() - start_pgp_time;
 #endif
                 TRACE("page lock FAIL");
                 break; /* Cannot get a page for an access */
             }
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
             vtss_profile_cnt_pgp++;
             vtss_profile_clk_pgp += get_cycles() - start_pgp_time;
 #endif
@@ -358,7 +379,7 @@ static size_t vtss_user_vm_read(struct user_vm_accessor* this, void* from, void*
             VTSS_PROFILE(cpy, copy_from_user_page(this->m_vma, this->m_page, addr, to, this->m_maddr + offset, cpsize));
         }
 #endif
-#ifdef DEBUG_VMA
+#ifdef VTSS_DEBUG_VMA
         printk("vtss_user_vm_read: [");
         for (i = 0; i < cpsize; i++) {
             printk("%02x", ((unsigned char*)to)[i]);
@@ -376,7 +397,7 @@ static size_t vtss_user_vm_read(struct user_vm_accessor* this, void* from, void*
         set_fs(old_fs);
     }
 #endif
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
     vtss_profile_cnt_vma++;
     vtss_profile_clk_vma += get_cycles() - start_vma_time;
 #endif
@@ -404,7 +425,7 @@ static int vtss_user_vm_validate(struct user_vm_accessor* this, unsigned long ip
         return (ip < PAGE_OFFSET) ? 1 : 0; /* in kernel? */
 }
 
-user_vm_accessor_t* vtss_user_vm_accessor_init(int in_irq)
+user_vm_accessor_t* vtss_user_vm_accessor_init(int in_irq, cycles_t limit)
 {
     user_vm_accessor_t* acc;
 
@@ -419,6 +440,11 @@ user_vm_accessor_t* vtss_user_vm_accessor_init(int in_irq)
     if (acc != NULL) {
         acc->m_page_id = (unsigned long)-1;
         acc->m_irq     = in_irq;
+#ifdef VTSS_VMA_TIME_LIMIT
+        acc->m_limit   = limit ? limit : VTSS_VMA_TIME_LIMIT;
+#else
+        acc->m_limit   = limit;
+#endif
         acc->trylock   = vtss_user_vm_trylock;
         acc->unlock    = vtss_user_vm_unlock;
         acc->read      = vtss_user_vm_read;

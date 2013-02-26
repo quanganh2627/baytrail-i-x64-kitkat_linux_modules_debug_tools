@@ -41,12 +41,13 @@
 #include <linux/seq_file.h>
 #include <asm/uaccess.h>
 
-#define VTSS_PROCFS_CTRL_NAME    ".control"
-#define VTSS_PROCFS_DEBUG_NAME   ".debug"
-#define VTSS_PROCFS_CPUMASK_NAME ".cpu_mask"
-#define VTSS_PROCFS_DEFSAV_NAME  ".def_sav"
-#define VTSS_PROCFS_TARGETS_NAME ".targets"
-#define VTSS_PROCFS_TIMESRC_NAME ".time_source"
+#define VTSS_PROCFS_CTRL_NAME      ".control"
+#define VTSS_PROCFS_DEBUG_NAME     ".debug"
+#define VTSS_PROCFS_CPUMASK_NAME   ".cpu_mask"
+#define VTSS_PROCFS_DEFSAV_NAME    ".def_sav"
+#define VTSS_PROCFS_TARGETS_NAME   ".targets"
+#define VTSS_PROCFS_TIMESRC_NAME   ".time_source"
+#define VTSS_PROCFS_TIMELIMIT_NAME ".time_limit"
 
 #ifdef VTSS_AUTOCONF_USER_COPY_WITHOUT_CHECK
 #define vtss_copy_from_user _copy_from_user
@@ -322,7 +323,7 @@ static LIST_HEAD(vtss_procfs_ctrl_list);
 int vtss_procfs_ctrl_wake_up(void *msg, size_t size)
 {
     unsigned long flags;
-    struct vtss_procfs_ctrl_data *ctld = (struct vtss_procfs_ctrl_data*)kmalloc(sizeof(struct vtss_procfs_ctrl_data)+size, (GFP_ATOMIC | __GFP_RECLAIMABLE));
+    struct vtss_procfs_ctrl_data *ctld = (struct vtss_procfs_ctrl_data*)kmalloc(sizeof(struct vtss_procfs_ctrl_data)+size, GFP_ATOMIC);
 
     if (ctld == NULL) {
         ERROR("Unable to allocate memory for message");
@@ -424,6 +425,8 @@ static atomic_t vtss_procfs_attached = ATOMIC_INIT(0);
 
 static int vtss_procfs_ctrl_open(struct inode *inode, struct file *file)
 {
+    /* Increase the priority for trace reader to avoid lost events */
+    set_user_nice(current, -19);
     atomic_inc(&vtss_procfs_attached);
     vtss_cmd_open();
     return 0;
@@ -440,6 +443,8 @@ static int vtss_procfs_ctrl_close(struct inode *inode, struct file *file)
         vtss_procfs_defsav_ = 0;
     }
     vtss_cmd_close();
+    /* Restore default priority for trace reader */
+    set_user_nice(current, 0);
     return 0;
 }
 
@@ -740,6 +745,69 @@ static const struct file_operations vtss_procfs_timesrc_fops = {
 
 /* ************************************************************************* */
 
+static ssize_t vtss_procfs_timelimit_read(struct file* file, char __user* buf, size_t size, loff_t* ppos)
+{
+    ssize_t rc = 0;
+
+    if (*ppos == 0) {
+        char buff[32]; /* enough for <unsigned long long> */
+        rc = snprintf(buff, sizeof(buff)-2, "%llu", vtss_time_limit);
+        rc = (rc < 0) ? 0 : rc;
+        buff[rc++] = '\n';
+        buff[rc]   = '\0';
+        *ppos += rc;
+        if (rc <= size) {
+            if (copy_to_user(buf, buff, rc)) {
+                rc = -EFAULT;
+            }
+        } else {
+            rc = -EINVAL;
+        }
+    }
+    return rc;
+}
+
+static ssize_t vtss_procfs_timelimit_write(struct file *file, const char __user * buf, size_t count, loff_t * ppos)
+{
+    char chr;
+    size_t i;
+    unsigned long long val = 0;
+
+    for (i = 0; i < count; i++, buf += sizeof(char)) {
+        if (get_user(chr, buf))
+            return -EFAULT;
+        if (chr >= '0' && chr <= '9') {
+            val = val * 10ULL + (chr - '0');
+        } else
+            break;
+    }
+    vtss_time_limit = (cycles_t)val;
+    TRACE("vtss_time_limit=%llu", vtss_time_limit);
+    return count;
+}
+
+static int vtss_procfs_timelimit_open(struct inode *inode, struct file *file)
+{
+    /* TODO: ... */
+    return 0;
+}
+
+static int vtss_procfs_timelimit_close(struct inode *inode, struct file *file)
+{
+    /* TODO: ... */
+    return 0;
+}
+
+static const struct file_operations vtss_procfs_timelimit_fops = {
+    .owner   = THIS_MODULE,
+    .read    = vtss_procfs_timelimit_read,
+    .write   = vtss_procfs_timelimit_write,
+    .open    = vtss_procfs_timelimit_open,
+    .release = vtss_procfs_timelimit_close,
+};
+
+/* ************************************************************************* */
+
 static void vtss_procfs_rmdir(void)
 {
     if (vtss_procfs_root != NULL) {
@@ -784,12 +852,13 @@ void vtss_procfs_fini(void)
     }
     vtss_procfs_ctrl_flush();
     if (vtss_procfs_root != NULL) {
-        remove_proc_entry(VTSS_PROCFS_CTRL_NAME,    vtss_procfs_root);
-        remove_proc_entry(VTSS_PROCFS_DEBUG_NAME,   vtss_procfs_root);
-        remove_proc_entry(VTSS_PROCFS_CPUMASK_NAME, vtss_procfs_root);
-        remove_proc_entry(VTSS_PROCFS_DEFSAV_NAME,  vtss_procfs_root);
-        remove_proc_entry(VTSS_PROCFS_TARGETS_NAME, vtss_procfs_root);
-        remove_proc_entry(VTSS_PROCFS_TIMESRC_NAME, vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_CTRL_NAME,      vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_DEBUG_NAME,     vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_CPUMASK_NAME,   vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_DEFSAV_NAME,    vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_TARGETS_NAME,   vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_TIMESRC_NAME,   vtss_procfs_root);
+        remove_proc_entry(VTSS_PROCFS_TIMELIMIT_NAME, vtss_procfs_root);
         vtss_procfs_rmdir();
     }
 }
@@ -828,11 +897,12 @@ int vtss_procfs_init(void)
         ERROR("Could not create or find root directory '%s'", vtss_procfs_path());
         return -ENOENT;
     }
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_CTRL_NAME,    &vtss_procfs_ctrl_fops);
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_DEBUG_NAME,   &vtss_procfs_debug_fops);
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_CPUMASK_NAME, &vtss_procfs_cpumask_fops);
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_DEFSAV_NAME,  &vtss_procfs_defsav_fops);
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_TARGETS_NAME, &vtss_procfs_targets_fops);
-    rc |= vtss_procfs_create_entry(VTSS_PROCFS_TIMESRC_NAME, &vtss_procfs_timesrc_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_CTRL_NAME,      &vtss_procfs_ctrl_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_DEBUG_NAME,     &vtss_procfs_debug_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_CPUMASK_NAME,   &vtss_procfs_cpumask_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_DEFSAV_NAME,    &vtss_procfs_defsav_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_TARGETS_NAME,   &vtss_procfs_targets_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_TIMESRC_NAME,   &vtss_procfs_timesrc_fops);
+    rc |= vtss_procfs_create_entry(VTSS_PROCFS_TIMELIMIT_NAME, &vtss_procfs_timelimit_fops);
     return rc;
 }

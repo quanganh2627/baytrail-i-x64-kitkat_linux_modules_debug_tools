@@ -49,12 +49,16 @@ typedef struct user_vm_accessor
     void*                  m_maddr;
     unsigned long          m_page_id;
     int                    m_irq;
+    cycles_t               m_limit;
+#ifdef VTSS_VMA_TIME_LIMIT
+    cycles_t               m_time;
+#endif
 #ifdef VTSS_VMA_CACHE
     char                   m_buffer[PAGE_SIZE];
 #endif
 } user_vm_accessor_t;
 
-user_vm_accessor_t* vtss_user_vm_accessor_init(int in_irq);
+user_vm_accessor_t* vtss_user_vm_accessor_init(int in_irq, cycles_t limit);
 void vtss_user_vm_accessor_fini(user_vm_accessor_t* acc);
 
 int  vtss_user_vm_init(void);
