@@ -7,7 +7,7 @@ swdrv: build_kernel
 	TARGET_BOARD_PLATFORM="$(TARGET_BOARD_PLATFORM)" \
 	KERNEL_SRC_DIR="$(KERNEL_SRC_DIR)" \
 	vendor/intel/support/kernel-build.sh \
-	-M device/intel/debug_tools/socwatchdk/src
+	-M linux/modules/debug_tools/socwatchdk/src
 
 $(PRODUCT_OUT)/ramdisk.img : swdrv
 endif

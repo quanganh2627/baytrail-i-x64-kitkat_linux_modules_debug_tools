@@ -8,7 +8,8 @@ apwr: build_kernel
 	KERNEL_SRC_DIR="$(KERNEL_SRC_DIR)" \
 	PRODUCT_OUT="`pwd`/$(PRODUCT_OUT)" \
 	vendor/intel/support/kernel-build.sh \
-	-M device/intel/debug_tools/powerdk/src
+	-M linux/modules/debug_tools/powerdk/src
 
 $(PRODUCT_OUT)/ramdisk.img : apwr
 endif
+

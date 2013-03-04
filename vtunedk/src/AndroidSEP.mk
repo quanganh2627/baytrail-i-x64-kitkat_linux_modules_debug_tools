@@ -9,4 +9,4 @@ sep3_10: build_kernel
 	KERNEL_SRC_DIR="$(KERNEL_SRC_DIR)" \
 	PRODUCT_OUT="`pwd`/$(PRODUCT_OUT)" \
 	vendor/intel/support/kernel-build.sh \
-	-M device/intel/debug_tools/vtunedk/src -f "BOARD_HAVE_SMALL_RAM=$(BOARD_HAVE_SMALL_RAM)"
+	-M linux/modules/debug_tools/vtunedk/src -f "BOARD_HAVE_SMALL_RAM=$(BOARD_HAVE_SMALL_RAM)"
