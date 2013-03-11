@@ -115,7 +115,7 @@ extern void vtss_perfvec_handler(void);
 void vtss_cpuevents_enable(void)
 {
     vtss_pmi_enable();
-    /// enable counters globally (required for some Core2 & Core i7 systems)
+    /* enable counters globally (required for some Core2 & Core i7 systems) */
     if (hardcfg.family == 0x06 && hardcfg.model >= 0x0f) {
         unsigned long long mask = (((1ULL << pmu_fixed_counter_no) - 1) << 32) | ((1ULL << pmu_counter_no) - 1);
 
@@ -580,22 +580,40 @@ static void vtss_cpuevents_save(void *ctx)
 
     local_irq_save(flags);
     if (hardcfg.family == 0x06 && hardcfg.model >= 0x0f) {
-        rdmsrl(MSR_PERF_GLOBAL_OVF_CTRL,  pcb_cpu.saved_msr_ovf);
-        wrmsrl(MSR_PERF_GLOBAL_OVF_CTRL,  0ULL);
-        rdmsrl(MSR_PERF_GLOBAL_CTRL,      pcb_cpu.saved_msr_perf);
-        wrmsrl(MSR_PERF_GLOBAL_CTRL,      0ULL);
-        rdmsrl(DEBUGCTL_MSR,              pcb_cpu.saved_msr_debug);
-        wrmsrl(DEBUGCTL_MSR,              0ULL);
+        rdmsrl(MSR_PERF_GLOBAL_OVF_CTRL, pcb_cpu.saved_msr_ovf);
+        wrmsrl(MSR_PERF_GLOBAL_OVF_CTRL, 0ULL);
+        rdmsrl(MSR_PERF_GLOBAL_CTRL,     pcb_cpu.saved_msr_perf);
+        wrmsrl(MSR_PERF_GLOBAL_CTRL,     0ULL);
+        rdmsrl(DEBUGCTL_MSR,             pcb_cpu.saved_msr_debug);
+        wrmsrl(DEBUGCTL_MSR,             0ULL);
     } else if (hardcfg.family == 0x0b) { // KNX_CORE_FAMILY
         rdmsrl(KNX_CORE_PERF_GLOBAL_OVF_CTRL, pcb_cpu.saved_msr_ovf);
         wrmsrl(KNX_CORE_PERF_GLOBAL_OVF_CTRL, 0ULL);
-        rdmsrl(KNX_CORE_PERF_GLOBAL_CTRL, pcb_cpu.saved_msr_perf);
-        wrmsrl(KNX_CORE_PERF_GLOBAL_CTRL, 0ULL);
+        rdmsrl(KNX_CORE_PERF_GLOBAL_CTRL,     pcb_cpu.saved_msr_perf);
+        wrmsrl(KNX_CORE_PERF_GLOBAL_CTRL,     0ULL);
     }
     store_idt(&idt_ptr);
     idt_base = (gate_desc*)idt_ptr.address;
     pcb_cpu.idt_base = idt_base;
     memcpy(&pcb_cpu.saved_perfvector, &idt_base[CPU_PERF_VECTOR], sizeof(gate_desc));
+    local_irq_restore(flags);
+}
+
+static void vtss_cpuevents_stop_all(void *ctx)
+{
+    unsigned long flags;
+
+    local_irq_save(flags);
+    vtss_cpuevents_stop();
+    if (hardcfg.family == 0x06 && hardcfg.model >= 0x0f) {
+        wrmsrl(MSR_PERF_GLOBAL_OVF_CTRL, 0ULL);
+        wrmsrl(MSR_PERF_GLOBAL_CTRL,     0ULL);
+        wrmsrl(DEBUGCTL_MSR,             0ULL);
+    } else if (hardcfg.family == 0x0b) { // KNX_CORE_FAMILY
+        wrmsrl(KNX_CORE_PERF_GLOBAL_OVF_CTRL, 0ULL);
+        wrmsrl(KNX_CORE_PERF_GLOBAL_CTRL,     0ULL);
+    }
+    vtss_pmi_disable();
     local_irq_restore(flags);
 }
 
@@ -605,16 +623,14 @@ static void vtss_cpuevents_restore(void *ctx)
     gate_desc *idt_base;
 
     local_irq_save(flags);
-    vtss_cpuevents_stop();
     if (hardcfg.family == 0x06 && hardcfg.model >= 0x0f) {
-        wrmsrl(MSR_PERF_GLOBAL_OVF_CTRL,  pcb_cpu.saved_msr_ovf);
-        wrmsrl(MSR_PERF_GLOBAL_CTRL,      pcb_cpu.saved_msr_perf);
-        wrmsrl(DEBUGCTL_MSR,              pcb_cpu.saved_msr_debug);
+        wrmsrl(MSR_PERF_GLOBAL_OVF_CTRL, pcb_cpu.saved_msr_ovf);
+        wrmsrl(MSR_PERF_GLOBAL_CTRL,     pcb_cpu.saved_msr_perf);
+        wrmsrl(DEBUGCTL_MSR,             pcb_cpu.saved_msr_debug);
     } else if (hardcfg.family == 0x0b) { // KNX_CORE_FAMILY
         wrmsrl(KNX_CORE_PERF_GLOBAL_OVF_CTRL, pcb_cpu.saved_msr_ovf);
-        wrmsrl(KNX_CORE_PERF_GLOBAL_CTRL, pcb_cpu.saved_msr_perf);
+        wrmsrl(KNX_CORE_PERF_GLOBAL_CTRL,     pcb_cpu.saved_msr_perf);
     }
-    vtss_pmi_disable();
     idt_base = pcb_cpu.idt_base;
     memcpy(&idt_base[CPU_PERF_VECTOR], &pcb_cpu.saved_perfvector, sizeof(gate_desc));
     local_irq_restore(flags);
@@ -646,7 +662,8 @@ int vtss_cpuevents_init_pmu(int defsav)
 
 void vtss_cpuevents_fini_pmu(void)
 {
-    on_each_cpu(vtss_cpuevents_restore, NULL, SMP_CALL_FUNCTION_ARGS);
+    on_each_cpu(vtss_cpuevents_stop_all, NULL, SMP_CALL_FUNCTION_ARGS);
+    on_each_cpu(vtss_cpuevents_restore,  NULL, SMP_CALL_FUNCTION_ARGS);
 }
 
 union cpuid_0AH_eax

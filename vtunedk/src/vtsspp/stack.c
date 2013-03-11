@@ -42,6 +42,10 @@
 
 #include "unwind.c"
 
+#ifndef VTSS_STACK_LIMIT
+#define VTSS_STACK_LIMIT 0x200000 /* 2Mb */
+#endif
+
 #if defined(CONFIG_X86_64) && defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
 #include <asm/stacktrace.h>
 
@@ -62,10 +66,10 @@ static int vtss_stack_stack(void *data, char *name)
 
 static void vtss_stack_address(void *data, unsigned long addr, int reliable)
 {
-    TRACE("%s0x%p", reliable ? "" : "? ", (void*)addr);
+    TRACE("%s%pB", reliable ? "" : "? ", (void*)addr);
 }
 
-static unsigned long vtss_walk_stack(
+static unsigned long vtss_stack_walk(
     struct thread_info *tinfo,
     unsigned long *stack,
     unsigned long bp,
@@ -93,7 +97,7 @@ static const struct stacktrace_ops vtss_stack_ops = {
 #endif
     .stack          = vtss_stack_stack,
     .address        = vtss_stack_address,
-    .walk_stack     = vtss_walk_stack,
+    .walk_stack     = vtss_stack_walk,
 };
 
 #endif /* CONFIG_X86_64 && VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK */
@@ -132,7 +136,7 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
 #endif
 //        TRACE("bp=0x%p <=> fp=0x%p", (void*)bp, reg_fp);
         reg_fp = bp ? (void*)bp : reg_fp;
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
         if (reg_fp > (void*)kstart) {
             printk("Warning: bp=0x%p in kernel\n", reg_fp);
             dump_stack();
@@ -149,12 +153,12 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
 
     if (unlikely(!user_mode_vm(regs))) {
         /* kernel mode regs, so get a user mode regs */
-//#if defined(CONFIG_X86_64) || LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38)
+#if defined(CONFIG_X86_64) || LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38)
         regs = task_pt_regs(task); /*< get user mode regs */
         if (regs == NULL || !user_mode_vm(regs))
-//#endif
+#endif
         {
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
             strcat(stk->dbgmsg, "Cannot get user mode regs");
             vtss_record_debug_info(trnd, stk->dbgmsg, 0);
             printk("Warning: %s\n", stk->dbgmsg);
@@ -179,11 +183,11 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
             unsigned long vm_end   = vma->vm_end;
 
             if ((unsigned long)reg_ip < vm_start ||
-                (!((vma->vm_flags & VM_EXEC) && !(vma->vm_flags & VM_WRITE) &&
+                (!((vma->vm_flags & (VM_EXEC | VM_WRITE)) == VM_EXEC &&
                     vma->vm_file && vma->vm_file->f_dentry) &&
                  !(vma->vm_mm && vma->vm_start == (long)vma->vm_mm->context.vdso)))
             {
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
                 rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p, found_vma=[0x%lx,0x%lx]: Unable to find executable module",
                                 task->pid, smp_processor_id(), reg_ip, reg_sp, stack_base, reg_fp, vm_start, vm_end);
                 if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
@@ -194,7 +198,7 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
                 return -EFAULT;
             }
         } else {
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
             rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p: Unable to find executable region",
                             task->pid, smp_processor_id(), reg_ip, reg_sp, stack_base, reg_fp);
             if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
@@ -209,17 +213,14 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
         /* Check SP in module map */
         vma = find_vma(task->mm, (unsigned long)reg_sp);
         if (likely(vma != NULL)) {
-            unsigned long vm_start = vma->vm_start;
+            unsigned long vm_start = vma->vm_start + ((vma->vm_flags & VM_GROWSDOWN) ? PAGE_SIZE : 0UL);
             unsigned long vm_end   = vma->vm_end;
 
-            if (vma->vm_flags & VM_GROWSDOWN) {
-                vm_start += PAGE_SIZE;
-                if (vma->vm_next && (vma->vm_next->vm_start == vma->vm_end)) {
-                    vm_end = vma->vm_next->vm_end;
-                }
-            }
-            if ((unsigned long)reg_sp < vm_start || !(vma->vm_flags & VM_READ)) {
-#ifdef DEBUG_TRACE
+//            TRACE("vma=[0x%lx - 0x%lx], flags=0x%lx", vma->vm_start, vma->vm_end, vma->vm_flags);
+            if ((unsigned long)reg_sp < vm_start ||
+                (vma->vm_flags & (VM_READ | VM_WRITE)) != (VM_READ | VM_WRITE))
+            {
+#ifdef VTSS_DEBUG_TRACE
                 rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p, found_vma=[0x%lx,0x%lx]: Unable to find user stack boundaries",
                                 task->pid, smp_processor_id(), reg_ip, reg_sp, stack_base, reg_fp, vm_start, vm_end);
                 if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
@@ -239,17 +240,21 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
                 stack_base = (void*)vm_end;
                 stk->clear(stk);
 #ifdef VTSS_STACK_LIMIT
+                stack_base = (void*)min((unsigned long)reg_sp + VTSS_STACK_LIMIT, vm_end);
+                if ((unsigned long)stack_base != vm_end) {
+                    TRACE("Limiting stack base to 0x%lx instead of 0x%lx, drop 0x%lx bytes", (unsigned long)stack_base, vm_end, (vm_end - (unsigned long)stack_base));
+                }
             } else {
                 stack_base = (void*)min((unsigned long)reg_sp + VTSS_STACK_LIMIT, vm_end);
                 if ((unsigned long)stack_base != vm_end) {
-                    TRACE("Limiting stack base to 0x%lx instead of 0x%lx", (unsigned long)stack_base, vm_end);
+                    TRACE("Limiting stack base to 0x%lx instead of 0x%lx, drop 0x%lx bytes", (unsigned long)stack_base, vm_end, (vm_end - (unsigned long)stack_base));
                 }
 #endif /* VTSS_STACK_LIMIT */
             }
         }
     }
 
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
     /* Create a common header for debug message */
     rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p: USER STACK: ",
                     task->pid, smp_processor_id(), reg_ip, reg_sp, stack_base, reg_fp);
@@ -260,8 +265,18 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
     stk->dbgmsg[0] = '\0';
 #endif
 
+    if (stk->ip.vdp == reg_ip &&
+        stk->sp.vdp == reg_sp &&
+        stk->bp.vdp == stack_base &&
+        stk->fp.vdp == reg_fp)
+    {
+        strcat(stk->dbgmsg, "The same context");
+        vtss_record_debug_info(trnd, stk->dbgmsg, 0);
+        return 0; /* Assume that nothing was changed */
+    }
+
     /* Try to lock vm accessor */
-    acc = vtss_user_vm_accessor_init(in_irq);
+    acc = vtss_user_vm_accessor_init(in_irq, vtss_time_limit);
     if (unlikely((acc == NULL) || acc->trylock(acc, task))) {
         vtss_user_vm_accessor_fini(acc);
         strcat(stk->dbgmsg, "Unable to lock vm accessor");

@@ -49,22 +49,23 @@
 #endif /* VTSS_AUTOCONF_SMP_CALL_FUNCTION_RETRY */
 
 /* Macro for printk */
-#ifdef DEBUG_TRACE
+#ifdef VTSS_DEBUG_TRACE
 extern int vtss_check_trace(const char* func_name, int* flag);
 #define TRACE(FMT, ...) do {   \
     static int trace_flag = 0; \
     if (unlikely(!trace_flag))  trace_flag = vtss_check_trace(__FUNCTION__, &trace_flag); \
     if (unlikely(trace_flag>0)) printk(KERN_DEBUG "%s[cpu%d]: "FMT"\n", __FUNCTION__, smp_processor_id(), ##__VA_ARGS__); \
   } while(0)
-#else  /* DEBUG_TRACE */
+#else  /* VTSS_DEBUG_TRACE */
 #define TRACE(FMT, ...) /* empty */
-#endif /* DEBUG_TRACE */
+#endif /* VTSS_DEBUG_TRACE */
 #define ERROR(FMT, ...) do { printk(KERN_ERR  "%s[cpu%d]: "FMT"\n", __FUNCTION__, smp_processor_id(), ##__VA_ARGS__); } while(0)
 #define INFO(FMT, ...)  do { printk(KERN_INFO "%s[cpu%d]: "FMT"\n", __FUNCTION__, smp_processor_id(), ##__VA_ARGS__); } while(0)
 
 extern int vtss_time_source; /* 0 - raw clock monotinic (default), 1 - TSC */
+extern cycles_t vtss_time_limit;
 
-#ifdef DEBUG_PROFILE
+#ifdef VTSS_DEBUG_PROFILE
 extern cycles_t vtss_profile_cnt_stk;
 extern cycles_t vtss_profile_clk_stk;
 extern cycles_t vtss_profile_cnt_ctx;
@@ -138,10 +139,10 @@ extern cycles_t vtss_profile_clk_unw;
         (vtss_profile_clk_pgp*10000/(vtss_profile_clk_vma+1))%100); \
   } while(0)
 
-#else  /* DEBUG_PROFILE */
+#else  /* VTSS_DEBUG_PROFILE */
 #define VTSS_PROFILE(name, expr) (expr)
 #define VTSS_PROFILE_PRINT(func, ...)
-#endif /* DEBUG_PROFILE */
+#endif /* VTSS_DEBUG_PROFILE */
 
 #if defined(CONFIG_PREEMPT_NOTIFIERS) && !defined(CONFIG_TRACEPOINTS)
 #define VTSS_USE_PREEMPT_NOTIFIERS 1 /* Use backup scheme */

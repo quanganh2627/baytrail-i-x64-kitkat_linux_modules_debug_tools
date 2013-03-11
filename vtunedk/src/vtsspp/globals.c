@@ -60,6 +60,9 @@ process_cfg_t reqcfg;
 /* time source for collection */
 int vtss_time_source = 0;
 
+/* time limit for collection */
+cycles_t vtss_time_limit = 0ULL;
+
 static void vtss_fmtcfg_init(void)
 {
     /*
@@ -252,14 +255,15 @@ static void vtss_hardcfg_init(void)
     int ht_supported = 0;
     const ktime_t ktime_res = KTIME_MONOTONIC_RES;
 
-    hardcfg.timer_freq = vtss_freq_real();
-    hardcfg.cpu_freq   = vtss_freq_cpu();
-    TRACE("timer_freq=%lldHz, cpu_freq=%lldHz, ktime_res=%lld", hardcfg.timer_freq, hardcfg.cpu_freq, ktime_res.tv64);
+    /* Global variable vtss_time_source affects result of vtss_*_real() */
     vtss_time_source = 0;
     if (ktime_equal(KTIME_MONOTONIC_RES, KTIME_LOW_RES)) {
         INFO("An accuracy of kernel timer is not enough. Switch to TSC.");
         vtss_time_source = 1;
     }
+    hardcfg.timer_freq = vtss_freq_real(); /* should be after change vtss_time_source */
+    hardcfg.cpu_freq   = vtss_freq_cpu();
+    TRACE("timer_freq=%lldHz, cpu_freq=%lldHz, ktime_res=%lld", hardcfg.timer_freq, hardcfg.cpu_freq, ktime_res.tv64);
     hardcfg.version = 0x0002;
     // for 32 bits is like 0xC0000000
     // for 64 bits is like 0xffff880000000000
