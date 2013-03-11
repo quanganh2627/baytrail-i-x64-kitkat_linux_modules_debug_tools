@@ -7126,10 +7126,6 @@ int pw_register_dev(void)
 
     device_create(apwr_class, NULL, apwr_dev, NULL, PW_DEVICE_NAME);
     apwr_cdev = cdev_alloc();
-    if (apwr_cdev == NULL) {
-        printk("Error allocating character device\n");
-        return ret;
-    }
     apwr_cdev->owner = THIS_MODULE;
     apwr_cdev->ops = &Fops;
     if( cdev_add(apwr_cdev, apwr_dev, 1) < 0 )  {
