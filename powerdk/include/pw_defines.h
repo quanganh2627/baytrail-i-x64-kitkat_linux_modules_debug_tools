@@ -89,7 +89,7 @@
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 1
-#define PW_VERSION_OTHER 1
+#define PW_VERSION_OTHER 4
 #define PW_DRV_NAME "apwr3_1"
 
 /*
@@ -97,7 +97,7 @@
  */
 #define WUWATCH_VERSION_VERSION 3
 #define WUWATCH_VERSION_INTERFACE 1
-#define WUWATCH_VERSION_OTHER 1
+#define WUWATCH_VERSION_OTHER 4
 
 /*
  * Power interface version

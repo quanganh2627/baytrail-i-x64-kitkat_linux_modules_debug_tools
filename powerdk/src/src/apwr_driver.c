@@ -70,13 +70,6 @@
 #define MOD_AUTHOR "Gautam Upadhyaya <gautam.upadhyaya@intel.com>"
 #define MOD_DESC "Power driver for Piersol power tool. Adapted from Romain Cledat's codebase."
 
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)
-#define DO_WAKELOCK_SAMPLE 0
-#else
-#define DO_WAKELOCK_SAMPLE 1
-#endif
-
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -93,9 +86,6 @@
 #include <trace/events/sched.h>
 #include <trace/events/syscalls.h>
 #include <trace/events/workqueue.h>
-#if DO_WAKELOCK_SAMPLE 
-#include <trace/events/wakelock.h> // Works for the custom kernel enabling wakelock tracepoint event
-#endif
 
 #include <linux/hardirq.h> // for "in_interrupt"
 #include <linux/interrupt.h> // for "TIMER_SOFTIRQ, HRTIMER_SOFTIRQ"
@@ -108,10 +98,17 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/cpufreq.h>
+#include <linux/version.h> // for "LINUX_VERSION_CODE"
 #include <asm/unistd.h> // for "__NR_execve"
 #include <asm/delay.h> // for "udelay"
 #include <linux/suspend.h> // for "pm_notifier"
 #include <linux/pci.h>
+
+#if DO_WAKELOCK_SAMPLE
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
+#include <trace/events/wakelock.h> // Works for the custom kernel enabling wakelock tracepoint event
+#endif
+#endif
 
 #ifndef __arm__
 #include <asm/timer.h> // for "CYC2NS_SCALE_FACTOR"
@@ -808,7 +805,7 @@ static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma);
 static int pw_register_dev(void);
 static void pw_unregister_dev(void);
 static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val);
-#if DO_WAKELOCK_SAMPLE 
+#if DO_WAKELOCK_SAMPLE
 static unsigned long pw_hash_string(const char *data);
 #endif // DO_WAKELOCK_SAMPLE
 static int pw_init_data_structures(void);
@@ -4278,6 +4275,7 @@ static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id
 };
 #endif // version
 #endif // APWR_RED_HAT
+#ifdef __arm__
 #if TRACE_CPU_HOTPLUG
 static void probe_cpu_hotplug(void *ignore, unsigned int state, int cpu_id)
 {
@@ -4303,6 +4301,7 @@ static void probe_cpu_hotplug(void *ignore, unsigned int state, int cpu_id)
         pw_produce_generic_msg(&output_sample, false); // "false" ==> don't wake any sleeping readers (required from scheduling context)
 }
 #endif // TRACE_CPU_HOTPLUG
+#endif // __arm__
 
 /*
  * Tokenize the Frequency table string
@@ -4811,6 +4810,7 @@ static struct notifier_block apwr_mod_notifier_block = {
 /*
  * Wakelock hooks
  */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 static void probe_wake_lock(struct wake_lock *lock)
 #else
@@ -4864,8 +4864,60 @@ static void probe_wake_unlock(void *ignore, struct wake_lock *lock)
 
     OUTPUT(0, "wake_unlock: name=%s, CPU=%d, PID=%d, TSC=%llu\n", lock->name, CPU(), PID(), tsc);
 };
-#endif
 
+#else
+static void probe_wakeup_source_activate(void *ignore, const char *name, unsigned int state)
+{
+    u64 tsc;
+    u64 timeout = 0;
+    w_sample_type_t wtype;
+
+    if (name == NULL) {
+        printk("wake_lock: name=UNKNOWNs, state=%u\n", name, state);
+        return;
+    }
+
+    /*
+     * Track task exits ONLY IF COLLECTION
+     * ONGOING OR IF IN PAUSED STATE!
+     */
+    if(!IS_COLLECTING() && !IS_SLEEPING()){
+	return;
+    }
+
+    tscval(&tsc);
+    wtype = PW_WAKE_LOCK;
+
+    produce_w_sample(CPU(), tsc, wtype , TID(), PID(), name, NAME(), timeout);
+
+    OUTPUT(0, "wake_lock: type=%d, name=%s, timeout=%llu (msec), CPU=%d, PID=%d, TSC=%llu\n", wtype, name, timeout, CPU(), PID(), tsc);
+};
+
+static void probe_wakeup_source_deactivate(void *ignore, const char *name, unsigned int state)
+{
+    u64 tsc;
+
+    if (name == NULL) {
+        printk("wake_unlock: name=UNKNOWNs, state=%u\n", name, state);
+        return;
+    }
+
+    /*
+     * Track task exits ONLY IF COLLECTION
+     * ONGOING OR IF IN PAUSED STATE!
+     */
+    if(!IS_COLLECTING() && !IS_SLEEPING()){
+        return;
+    }
+
+    tscval(&tsc);
+
+    produce_w_sample(CPU(), tsc, PW_WAKE_UNLOCK, TID(), PID(), name, NAME(), 0);
+
+    OUTPUT(0, "wake_unlock: name=%s, CPU=%d, PID=%d, TSC=%llu\n", name, CPU(), PID(), tsc);
+};
+#endif
+#endif
 
 static int register_timer_callstack_probes(void)
 {
@@ -5145,6 +5197,7 @@ static int register_non_pausable_probes(void)
             ret = register_trace_cpu_idle(probe_cpu_idle, NULL);
             WARN_ON(ret);
         }
+#ifdef __arm__
 #if TRACE_CPU_HOTPLUG
         {
             OUTPUT(0, KERN_INFO "\tCPU_ON_OFF_EVENTS");
@@ -5152,6 +5205,7 @@ static int register_non_pausable_probes(void)
             WARN_ON(ret);
         }
 #endif // TRACE_CPU_HOTPLUG
+#endif // __arm__
         {
             ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
             WARN_ON(ret);
@@ -5249,6 +5303,7 @@ static void unregister_non_pausable_probes(void)
 
             tracepoint_synchronize_unregister();
         }
+#ifdef __arm__
 #if TRACE_CPU_HOTPLUG
         {
             unregister_trace_cpu_hotplug(probe_cpu_hotplug, NULL);
@@ -5256,6 +5311,7 @@ static void unregister_non_pausable_probes(void)
             tracepoint_synchronize_unregister();
         }
 #endif // TRACE_CPU_HOTPLUG
+#endif // __arm__
         {
             unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
 
@@ -5322,12 +5378,20 @@ static int register_pausable_probes(void)
 
     if(IS_WAKELOCK_MODE()){
 #if DO_WAKELOCK_SAMPLE
-        OUTPUT(0, KERN_INFO "\tWAKELOCK_EVENTS\n");
+        OUTPUT(0, KERN_INFO "\tWAKELOCK_EVENTS");
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         ret = register_trace_wake_lock(probe_wake_lock);
+#else
+        ret = register_trace_wakeup_source_activate(probe_wakeup_source_activate);
+#endif
         WARN_ON(ret);
 
-        OUTPUT(0, KERN_INFO "\tWAKEUNLOCK_EVENTS\n");
+        OUTPUT(0, KERN_INFO "\tWAKEUNLOCK_EVENTS");
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         ret = register_trace_wake_unlock(probe_wake_unlock);
+#else
+        ret = register_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate);
+#endif
         WARN_ON(ret);
 #endif
     }
@@ -5380,11 +5444,19 @@ static int register_pausable_probes(void)
     if(IS_WAKELOCK_MODE()){
 #if DO_WAKELOCK_SAMPLE
         OUTPUT(0, KERN_INFO "\tWAKELOCK_EVENTS");
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         ret = register_trace_wake_lock(probe_wake_lock, NULL);
+#else
+        ret = register_trace_wakeup_source_activate(probe_wakeup_source_activate, NULL);
+#endif
         WARN_ON(ret);
 
         OUTPUT(0, KERN_INFO "\tWAKEUNLOCK_EVENTS");
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         ret = register_trace_wake_unlock(probe_wake_unlock, NULL);
+#else
+        ret = register_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate, NULL);
+#endif
         WARN_ON(ret);
 #endif
     }
@@ -5438,8 +5510,13 @@ static void unregister_pausable_probes(void)
 
     if(IS_WAKELOCK_MODE()){
 #if DO_WAKELOCK_SAMPLE
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         unregister_trace_wake_lock(probe_wake_lock);
         unregister_trace_wake_unlock(probe_wake_unlock);
+#else
+        unregister_trace_wakeup_source_activate(probe_wakeup_source_activate);
+        unregister_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate);
+#endif
 
         tracepoint_synchronize_unregister();
 #endif
@@ -5488,8 +5565,13 @@ static void unregister_pausable_probes(void)
 
     if(IS_WAKELOCK_MODE()){
 #if DO_WAKELOCK_SAMPLE
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
         unregister_trace_wake_lock(probe_wake_lock, NULL);
         unregister_trace_wake_unlock(probe_wake_unlock, NULL);
+#else
+        unregister_trace_wakeup_source_activate(probe_wakeup_source_activate, NULL);
+        unregister_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate, NULL);
+#endif
 
         tracepoint_synchronize_unregister();
 #endif
