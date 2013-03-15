@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-
-/*
- * cvs_id = "$Id$"
- */
 
 #include "lwpmudrv_defines.h"
 #include "lwpmudrv_version.h"
@@ -56,6 +52,7 @@
 #include "lwpmudrv_ecb.h"
 #include "lwpmudrv_ioctl.h"
 #include "lwpmudrv_struct.h"
+#include "inc/ecb_iterators.h"
 
 
 
@@ -104,6 +101,7 @@ struct LWPMU_DEV_NODE_S {
 /* Global variables of the driver */
 SEP_VERSION_NODE        drv_version;
 U64                    *read_counter_info     = NULL;
+U64                    *read_unc_ctr_info     = NULL;
 VOID                  **PMU_register_data     = NULL;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #endif
@@ -138,8 +136,10 @@ U32                     cur_device             = 0;
 LWPMU_DEVICE            devices                = NULL;
 U32                     invoking_processor_id  = 0;
 
+#if defined(DRV_USE_UNLOCKED_IOCTL)
 static   struct mutex   ioctl_lock;
-volatile int            in_finish_code;
+#endif
+volatile int            in_finish_code         = 0;
 
 #define  PMU_DEVICES            2   // pmu, mod
 #define  OTHER_PMU_DEVICES      1   // mod
@@ -169,28 +169,32 @@ U32                num_packages        = 0;
 U64               *pmu_state           = NULL;
 U64               *tsc_info            = NULL;
 
+#if defined EMON
+static U64              cpu0_TSC       = 0;
+#endif
 
 #if !defined(DRV_USE_UNLOCKED_IOCTL)
+#define MUTEX_INIT(lock)
 #define MUTEX_LOCK(lock)
 #define MUTEX_UNLOCK(lock)
 #else
+#define MUTEX_INIT(lock)     mutex_init(&(lock));
 #define MUTEX_LOCK(lock)     mutex_lock(&(lock))
 #define MUTEX_UNLOCK(lock)   mutex_unlock(&(lock))
 #endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * lwpmudrv_PWR_Info
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  void lwpmudrv_PWR_Info(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: in_buf        - pointer to the input buffer
- *         IN: in_buf_len    - length of the input buffer
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Make a copy of the PWR information that is passed in.
+ * @brief Make a copy of the Power control information that has been passed in.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_PWR_Info (
@@ -203,7 +207,7 @@ lwpmudrv_PWR_Info (
     }
 
     // make sure size of incoming arg is correct
-    if ((arg->w_len != sizeof(PWR_NODE)) || (arg->w_buf == NULL)) {
+    if ((arg->w_len != sizeof(PWR_NODE))  || (arg->w_buf == NULL)) {
         SEP_PRINT_ERROR("lwpmudrv_PWR_Info: PWR capture has not been configured\n");
         return OS_FAULT;
     }
@@ -220,18 +224,18 @@ lwpmudrv_PWR_Info (
 }
 #endif
 
-/*
- * lwpmudrv_Initialize_State
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Initialize_State(void)
  *
- *     Parameters
- *         NONE
+ * @param none
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Allocates the memory needed at load time.  Initializes all the
- *         necessary state variables with the default values.
+ * @brief  Allocates the memory needed at load time.  Initializes all the
+ * @brief  necessary state variables with the default values.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Initialize_State (
@@ -260,17 +264,17 @@ lwpmudrv_Initialize_State (
 }
 
 
-/*
- * lwpmudrv_Fill_TSC_Info
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static void lwpmudrv_Fill_TSC_Info (PVOID param)
  *
- *     Parameters
- *         IN array of U64
+ * @param param - pointer the buffer to fill in.
  *
- *     Returns
- *         NONE
+ * @return none
  *
- *     Description
- *         Read the TSC and write into the correct array slot.
+ * @brief  Read the TSC and write into the correct array slot.
+ *
+ * <I>Special Notes</I>
  */
 atomic_t read_now;
 static wait_queue_head_t read_tsc_now;
@@ -310,19 +314,18 @@ lwpmudrv_Fill_TSC_Info (
  *     Should be called only from the lwpmudrv_DeviceControl routine
  *********************************************************************/
 
-/*
- * lwpmudrv_Version
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Version(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: out_buf       - pointer to the output buffer
- *         IN: out_buf_len   - size of the output buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_VERSION call.
- *         Returns the version number of the kernel mode sampling.
+ * @brief  Local function that handles the LWPMU_IOCTL_VERSION call.
+ * @brief  Returns the version number of the kernel mode sampling.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Version (
@@ -332,7 +335,7 @@ lwpmudrv_Version (
     OS_STATUS status;
 
     // Check if enough space is provided for collecting the data
-    if ((arg->r_len != sizeof(U32)) || (arg->r_buf == NULL)) {
+    if ((arg->r_len != sizeof(U32))  || (arg->r_buf == NULL)) {
         return OS_FAULT;
     }
 
@@ -341,20 +344,20 @@ lwpmudrv_Version (
     return status;
 }
 
-/*
- * lwpmudrv_Reserve
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Reserve(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: out_buf       - pointer to the output buffer
- *         IN: out_buf_len   - size of the output buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_RESERVE call.
- *         Sets the state to RESERVED if possible.  Returns BUSY if unable
- *         to reserve the PMU.
+ * @brief
+ * @brief  Local function that handles the LWPMU_IOCTL_RESERVE call.
+ * @brief  Sets the state to RESERVED if possible.  Returns BUSY if unable
+ * @brief  to reserve the PMU.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Reserve (
@@ -365,7 +368,7 @@ lwpmudrv_Reserve (
     S32        prev_phase;
 
     // Check if enough space is provided for collecting the data
-    if ((arg->r_len != sizeof(S32)) || (arg->r_buf == NULL)) {
+    if ((arg->r_len != sizeof(S32))  || (arg->r_buf == NULL)) {
         return OS_FAULT;
     }
 
@@ -381,21 +384,113 @@ lwpmudrv_Reserve (
     return status;
 }
 
-/*
- * lwpmudrv_Initialize
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static VOID lwpmudrv_Clean_Up(DRV_BOOL)
  *
- *     Parameters
- *         IN: in_buf       - pointer to the input buffer
- *         IN: in_buf_len   - size of the input buffer
+ * @param  DRV_BOOL finish - Flag to call finish
  *
- *     Returns
- *         OS_STATUS
+ * @return VOID
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_INIT call.
- *         Sets up the interrupt handler.
- *         Set up the output buffers/files needed to make the driver
- *         operational.
+ * @brief  Cleans up the memory allocation.
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Clean_Up (
+    DRV_BOOL finish
+)
+{
+    U32  i;
+
+    if (DRV_CONFIG_use_pcl(pcfg) == TRUE) {
+        pcfg = CONTROL_Free_Memory(pcfg);
+        goto signal_end;
+    }
+
+    if (PMU_register_data) {
+        for (i = 0; i < GLOBAL_STATE_num_em_groups(driver_state); i++) {
+            CONTROL_Free_Memory(PMU_register_data[i]);
+        }
+    }
+
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    if (devices) {
+        U32 id;
+        for (id = 0; id < num_devices; id++) {
+            if (LWPMU_DEVICE_PMU_register_data(&devices[id])) {
+                for (i = 0; i < EVENT_CONFIG_num_groups_unc(global_ec); i++) {
+                    CONTROL_Free_Memory(LWPMU_DEVICE_PMU_register_data(&devices[id])[i]);
+                }
+                LWPMU_DEVICE_PMU_register_data(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_PMU_register_data(&devices[id]));
+            }
+            LWPMU_DEVICE_pcfg(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_pcfg(&devices[id]));
+
+            if (LWPMU_DEVICE_acc_per_thread(&devices[id])) {
+                for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+                    LWPMU_DEVICE_acc_per_thread(&devices[id])[i] = CONTROL_Free_Memory(LWPMU_DEVICE_acc_per_thread(&devices[id])[i]);
+                }
+                LWPMU_DEVICE_acc_per_thread(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_acc_per_thread(&devices[id]));
+            }
+            if (LWPMU_DEVICE_prev_val_per_thread(&devices[id])) {
+                for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+                    LWPMU_DEVICE_prev_val_per_thread(&devices[id])[i] = CONTROL_Free_Memory(LWPMU_DEVICE_prev_val_per_thread(&devices[id])[i]);
+                }
+                LWPMU_DEVICE_prev_val_per_thread(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_prev_val_per_thread(&devices[id]));
+            }
+        }
+        devices = CONTROL_Free_Memory(devices);
+    }
+
+#endif
+
+    if (desc_data) {
+        for (i = 0; i < GLOBAL_STATE_num_descriptors(driver_state); i++) {
+            CONTROL_Free_Memory(desc_data[i]);
+        }
+    }
+    PMU_register_data       = CONTROL_Free_Memory(PMU_register_data);
+    desc_data               = CONTROL_Free_Memory(desc_data);
+    global_ec               = CONTROL_Free_Memory(global_ec);
+    pcfg                    = CONTROL_Free_Memory(pcfg);
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    lbr                     = CONTROL_Free_Memory(lbr);
+#else
+    ro                      = CONTROL_Free_Memory(ro);
+#endif
+    if (finish) {
+        CONTROL_Invoke_Parallel(dispatch->fini, NULL); // must be done before pcb is freed
+    }
+    pcb                     = CONTROL_Free_Memory(pcb);
+    pcb_size                = 0;
+    pmu_state               = CONTROL_Free_Memory(pmu_state);
+    cpu_mask_bits           = CONTROL_Free_Memory(cpu_mask_bits);
+
+signal_end:
+    GLOBAL_STATE_num_em_groups(driver_state)   = 0;
+    GLOBAL_STATE_num_descriptors(driver_state) = 0;
+    num_devices                                = 0;
+    abnormal_terminate                         = 0;
+    control_pid                                = 0;
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Initialize (PVOID in_buf, size_t in_buf_len)
+ *
+ * @param  in_buf       - pointer to the input buffer
+ * @param  in_buf_len   - size of the input buffer
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Local function that handles the LWPMU_IOCTL_INIT call.
+ * @brief  Sets up the interrupt handler.
+ * @brief  Set up the output buffers/files needed to make the driver
+ * @brief  operational.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Initialize (
@@ -478,7 +573,23 @@ lwpmudrv_Initialize (
     if (DRV_CONFIG_counting_mode(pcfg) == FALSE) {
         if (cpu_buf == NULL) {
             cpu_buf = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(BUFFER_DESC_NODE));
+            if (!cpu_buf) {
+                return OS_NO_MEM;
+            }
         }
+        /*
+         * Allocate the output and control buffers for each CPU in the system
+         * Allocate and set up the temp output files for each CPU in the system
+         * Allocate and set up the temp outout file for detailing the Modules in the system
+         */
+        status = OUTPUT_Initialize(DRV_CONFIG_seed_name(pcfg), DRV_CONFIG_seed_name_len(pcfg));
+        if (status != OS_SUCCESS) {
+            GLOBAL_STATE_current_phase(driver_state) = DRV_STATE_UNINITIALIZED;
+            lwpmudrv_Clean_Up(FALSE);
+            return status;
+        }
+        SEP_PRINT_DEBUG("lwpmudrv_Initialize: After OUTPUT_Initialize\n");
+
         /*
          * Program the APIC and set up the interrupt handler
          */
@@ -494,34 +605,27 @@ lwpmudrv_Initialize (
 #if defined(DRV_EM64T)
         SYS_Get_GDT_Base((PVOID*)&gdt_desc);
 #endif
-        /*
-         * Allocate the output and control buffers for each CPU in the system
-         * Allocate and set up the temp output files for each CPU in the system
-         * Allocate and set up the temp outout file for detailing the Modules in the system
-         */
-        OUTPUT_Initialize(DRV_CONFIG_seed_name(pcfg), DRV_CONFIG_seed_name_len(pcfg));
-        SEP_PRINT_DEBUG("lwpmudrv_Initialize: After OUTPUT_Initialize\n");
         SEP_PRINT_DEBUG("lwpmudrv_Initialize: about to install module notification");
-        status = LINUXOS_Install_Hooks();
+        LINUXOS_Install_Hooks();
     }
 
     return status;
 }
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * lwpmudrv_Initialize_Num_Devices
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Initialize_Num_Devices(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: in_buf       - pointer to the input buffer
- *         IN: in_buf_len   - size of the input buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_INIT_NUM_DEV call.
- *         Init # uncore devices.
+ * @brief
+ * @brief  Local function that handles the LWPMU_IOCTL_INIT_NUM_DEV call.
+ * @brief  Init # uncore devices.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Initialize_Num_Devices (
@@ -529,7 +633,7 @@ lwpmudrv_Initialize_Num_Devices (
 )
 {
     // Check if enough space is provided for collecting the data
-    if ((arg->w_len != sizeof(U32)) || (arg->w_buf == NULL)) {
+    if ((arg->w_len != sizeof(U32))  || (arg->w_buf == NULL)) {
         return OS_FAULT;
     }
 
@@ -549,21 +653,21 @@ lwpmudrv_Initialize_Num_Devices (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Initialize_UNC
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Initialize_UNC(PVOID in_buf, U32 in_buf_len)
  *
- *     Parameters
- *         IN: in_buf       - pointer to the input buffer
- *         IN: in_buf_len   - size of the input buffer
+ * @param  in_buf       - pointer to the input buffer
+ * @param  in_buf_len   - size of the input buffer
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_INIT call.
- *         Sets up the interrupt handler.
- *         Set up the output buffers/files needed to make the driver
- *         operational.
+ * @brief  Local function that handles the LWPMU_IOCTL_INIT call.
+ * @brief  Sets up the interrupt handler.
+ * @brief  Set up the output buffers/files needed to make the driver
+ * @brief  operational.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Initialize_UNC (
@@ -615,19 +719,19 @@ lwpmudrv_Initialize_UNC (
 }
 #endif
 
-/*
- * lwpmudrv_Terminate
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Terminate(void)
  *
- *     Parameters
- *         NONE
+ * @param  none
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMUDRV_IOCTL_TERMINATE call.
- *         Cleans up the interrupt handler and resets the PMU state.
+ * @brief  Local function that handles the LWPMUDRV_IOCTL_TERMINATE call.
+ * @brief  Cleans up the interrupt handler and resets the PMU state.
  *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Terminate (
@@ -635,7 +739,6 @@ lwpmudrv_Terminate (
 )
 {
     U32  previous_state;
-    U32  i;
 
     if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_UNINITIALIZED) {
         return OS_SUCCESS;
@@ -650,89 +753,59 @@ lwpmudrv_Terminate (
     }
 
     GLOBAL_STATE_current_phase(driver_state) = DRV_STATE_UNINITIALIZED;
-    if (DRV_CONFIG_use_pcl(pcfg) == TRUE) {
-        pcfg = CONTROL_Free_Memory(pcfg);
-        goto signal_end;
-    }
-
-    if (PMU_register_data) {
-        for (i = 0; i < GLOBAL_STATE_num_em_groups(driver_state); i++) {
-            CONTROL_Free_Memory(PMU_register_data[i]);
-        }
-    }
-
-#if defined(DRV_IA32) || defined(DRV_EM64T)
-    if (devices) {
-        U32 id;
-        for (id = 0; id < num_devices; id++) {
-            if (LWPMU_DEVICE_PMU_register_data(&devices[id])) {
-                for (i = 0; i < EVENT_CONFIG_num_groups_unc(global_ec); i++) {
-                    CONTROL_Free_Memory(LWPMU_DEVICE_PMU_register_data(&devices[id])[i]);
-                }
-                LWPMU_DEVICE_PMU_register_data(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_PMU_register_data(&devices[id]));
-            }
-            LWPMU_DEVICE_pcfg(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_pcfg(&devices[id]));
-
-            if (LWPMU_DEVICE_acc_per_thread(&devices[id])) {
-                for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-                    LWPMU_DEVICE_acc_per_thread(&devices[id])[i] = CONTROL_Free_Memory(LWPMU_DEVICE_acc_per_thread(&devices[id])[i]);
-                }
-                LWPMU_DEVICE_acc_per_thread(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_acc_per_thread(&devices[id]));
-            }
-            if (LWPMU_DEVICE_prev_val_per_thread(&devices[id])) {
-                for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-                    LWPMU_DEVICE_prev_val_per_thread(&devices[id])[i] = CONTROL_Free_Memory(LWPMU_DEVICE_prev_val_per_thread(&devices[id])[i]);
-                }
-                LWPMU_DEVICE_prev_val_per_thread(&devices[id]) = CONTROL_Free_Memory(LWPMU_DEVICE_prev_val_per_thread(&devices[id]));
-            }
-        }
-        devices = CONTROL_Free_Memory(devices);
-    }
-#endif
-
-    if (desc_data) {
-        for (i = 0; i < GLOBAL_STATE_num_descriptors(driver_state); i++) {
-            CONTROL_Free_Memory(desc_data[i]);
-        }
-    }
-    PMU_register_data       = CONTROL_Free_Memory(PMU_register_data);
-    desc_data               = CONTROL_Free_Memory(desc_data);
-    global_ec               = CONTROL_Free_Memory(global_ec);
-    pcfg                    = CONTROL_Free_Memory(pcfg);
-#if defined(DRV_IA32) || defined(DRV_EM64T)
-    lbr                     = CONTROL_Free_Memory(lbr);
-#else
-    ro                      = CONTROL_Free_Memory(ro);
-#endif
-    CONTROL_Invoke_Parallel(dispatch->fini, NULL); // must be done before pcb is freed
-    pcb                     = CONTROL_Free_Memory(pcb);
-    pcb_size                = 0;
-    pmu_state               = CONTROL_Free_Memory(pmu_state);
-    cpu_mask_bits           = CONTROL_Free_Memory(cpu_mask_bits);
-
-signal_end:
-    GLOBAL_STATE_num_em_groups(driver_state)   = 0;
-    GLOBAL_STATE_num_descriptors(driver_state) = 0;
-    num_devices                                = 0;
-    abnormal_terminate                         = 0;
-    control_pid                                = 0;
+    lwpmudrv_Clean_Up(TRUE);
 
     return OS_SUCCESS;
 }
 
+#ifdef EMON
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwpmudrv_Switch_To_Next_Group(param)
+ *
+ * @param   param - unused dummy
+ *
+ * @return none
+ *
+ * @brief  Switch to the next event group.
+ * @brief  This function assumes an active collection is frozen
+ * @brief  or no collection is active.
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Switch_To_Next_Group (
+    PVOID  param
+)
+{
+    U32            this_cpu;
+    CPU_STATE      pcpu;
 
-/*
- * lwpmudrv_Get_Driver_State
+    preempt_disable();
+    this_cpu = CONTROL_THIS_CPU();
+    pcpu     = &pcb[this_cpu];
+    preempt_enable();
+
+    CPU_STATE_current_group(pcpu)++;
+    // make the event group list circular
+    CPU_STATE_current_group(pcpu) %= EVENT_CONFIG_num_groups(global_ec);
+
+    return;
+}
+#endif // EMON
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwmpudrv_Get_Driver_State(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: arg       - Output buffer args
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_GET_Driver_State call.
- *         Returns the current driver state.
+ * @brief  Local function that handles the LWPMU_IOCTL_GET_Driver_State call.
+ * @brief  Returns the current driver state.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_Driver_State (
@@ -751,17 +824,17 @@ lwpmudrv_Get_Driver_State (
     return status;
 }
 
-/*
- * lwpmudrv_Pause
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Pause(void)
  *
- *     Parameters
- *         NONE
+ * @param - none
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Pause the collection.
+ * @brief Pause the collection
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Pause (
@@ -822,25 +895,25 @@ lwpmudrv_Pause (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Resume
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Resume(void)
  *
- *     Parameters
- *         NONE
+ * @param - none
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Resume the collection.
+ * @brief Resume the collection
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Resume (
     VOID
 )
 {
-    U32  previous_state;
-    int  i;
+    U32        previous_state;
+    int        i;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     DRV_CONFIG pcfg_unc = NULL;
     DISPATCH   dispatch_unc = NULL;
@@ -898,22 +971,23 @@ lwpmudrv_Resume (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Switch_Group
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Switch_Group(void)
  *
- * Abstract
+ * @param none
+ *
+ * @return OS_STATUS
+ *
+ * @brief Switch the current group that is being collected.
+ *
+ * <I>Special Notes</I>
  *     This routine is called from the user mode code to handle the multiple group
  *     situation.  4 distinct steps are taken:
  *     Step 1: Pause the sampling
  *     Step 2: Increment the current group count
  *     Step 3: Write the new group to the PMU
  *     Step 4: Resume sampling
- *
- * Parameters
- *     None
- *
- * Returns
- *     OS_STATUS
  */
 static OS_STATUS
 lwpmudrv_Switch_Group (
@@ -937,17 +1011,17 @@ lwpmudrv_Switch_Group (
     return status;
 }
 
-/*
- * lwpmudrv_Init_PMU
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Init_PMU(void)
  *
- *     Parameters
- *         NONE
+ * @param - none
  *
- *     Returns
- *         OS_STATUS
+ * @return - OS_STATUS
  *
- *     Description
- *         Initialize the PMU state.
+ * @brief Initialize the PMU and the driver state in preparation for data collection.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Init_PMU (
@@ -985,7 +1059,7 @@ lwpmudrv_Init_PMU (
     for (i = 0; i < num_devices; i++) {
         pcfg_unc = (DRV_CONFIG)LWPMU_DEVICE_pcfg(&devices[i]);
         dispatch_unc = LWPMU_DEVICE_dispatch(&devices[i]);
-        if (pcfg_unc && DRV_CONFIG_event_based_counts(pcfg_unc) && dispatch_unc && dispatch_unc->write) {
+        if (pcfg_unc  && dispatch_unc && dispatch_unc->write ) {
             SEP_PRINT_DEBUG("LWP: calling UNC Init\n");
             preempt_disable();
             invoking_processor_id = CONTROL_THIS_CPU();
@@ -1001,19 +1075,224 @@ lwpmudrv_Init_PMU (
 }
 
 
-/*
- * lwpmudrv_Read_MSRs
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwpmudrv_Read_MSR(pvoid param)
  *
- *     Parameters
- *         IN: out_buf       - pointer to the output buffer
- *         IN: out_buf_len   - length of the output buffer
+ * @param param - pointer to the buffer to store the MSR counts
  *
- *     Returns
- *         OS_STATUS
+ * @return none
  *
- *     Description
- *         Read all the programmed data counters and accumulate them
- *         into a single buffer.
+ * @brief
+ * @brief  Read the U64 value at address in in_buf and
+ * @brief  write the result into out_buf.
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Read_MSR (
+    PVOID param
+)
+{
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    U32       this_cpu;
+    MSR_DATA  this_node;
+    S64       reg_num;
+
+    preempt_disable();
+    this_cpu  = CONTROL_THIS_CPU();
+    this_node = &msr_data[this_cpu];
+    reg_num = MSR_DATA_addr(this_node);
+
+    if (reg_num == 0) {
+      preempt_enable();
+      return;
+    }
+    
+    MSR_DATA_value(this_node) = (U64)SYS_Read_MSR((U32)MSR_DATA_addr(this_node));
+    preempt_enable();
+#endif
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Read_MSR_All_Cores(IOCTL_ARGS arg)
+ *
+ * @param arg - pointer to the IOCTL_ARGS structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Read the U64 value at address into in_buf and write
+ * @brief  the result into out_buf.
+ * @brief  Returns OS_SUCCESS if the read across all cores succeed,
+ * @brief  otherwise OS_FAULT.
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Read_MSR_All_Cores (
+    IOCTL_ARGS    arg
+)
+{
+    U64            *val;
+    S32            *reg_num;
+    S32             i;
+    MSR_DATA        node;
+
+    if ((arg->r_len != sizeof(U32))  || (arg->r_buf == NULL) || (arg->w_buf == NULL)) {
+        return OS_FAULT;
+    }
+
+    val     = (U64 *)arg->w_buf;
+    reg_num = (U32 *)arg->r_buf;
+
+    if (val == NULL)  {
+        SEP_PRINT_ERROR("NULL out_buf\n");
+        return OS_SUCCESS;
+    }
+    
+    msr_data = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(MSR_DATA_NODE));
+    if (!msr_data) {
+        return OS_NO_MEM;
+    }
+
+    for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+        node                = &msr_data[i];
+        MSR_DATA_addr(node) = *reg_num;
+    }
+
+    CONTROL_Invoke_Parallel(lwpmudrv_Read_MSR, (VOID *)(size_t)0);
+
+    /* copy values to arg array? */
+    if (arg->w_len < GLOBAL_STATE_num_cpus(driver_state)) {
+        SEP_PRINT_ERROR("Not enough memory allocated in output buffer.\n");
+        msr_data = CONTROL_Free_Memory(msr_data);
+        return OS_SUCCESS;
+    }
+    for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+        node = &msr_data[i];
+        if (copy_to_user(&val[i], (U64*)&MSR_DATA_value(node), sizeof(U64))) {
+            return OS_FAULT;
+        }
+    }
+
+    msr_data = CONTROL_Free_Memory(msr_data);
+
+    return OS_SUCCESS;
+}
+
+#ifdef EMON
+#ifdef EMON_INTERNAL
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwpmudrv_Write_MSR(pvoid iaram)
+ *
+ * @param param - pointer to array containing the MSR address and the value to be written
+ *
+ * @return none
+ *
+ * @brief
+ * @brief  Read the U64 value at address in in_buf and
+ * @brief  write the result into out_buf.
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Write_MSR (
+    PVOID param
+)
+{
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    U32       this_cpu;
+    MSR_DATA  this_node;
+    U32       reg_num;
+    U64       val;
+
+    preempt_disable();
+    this_cpu  = CONTROL_THIS_CPU();
+    this_node = &msr_data[this_cpu];
+    reg_num   = (U32)MSR_DATA_addr(this_node);
+    val       = (U64)MSR_DATA_value(this_node);
+    // don't attempt to write MSR 0
+    if (reg_num == 0) {
+        preempt_enable();
+        return;
+    }
+
+    SYS_Write_MSR(reg_num, val);
+    preempt_enable();
+#endif
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Write_MSR_All_Cores(IOCTL_ARGS arg)
+ *
+ * @param arg - pointer to the IOCTL_ARGS structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Read the U64 value at address into in_buf and write
+ * @brief  the result into out_buf.
+ * @brief  Returns OS_SUCCESS if the write across all cores succeed,
+ * @brief  otherwise OS_FAULT.
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Write_MSR_All_Cores (
+    IOCTL_ARGS    arg
+)
+{
+    EVENT_REG       in_buf;
+    U32             reg_num;
+    U64             val;
+    S32             i;
+    MSR_DATA        node;
+
+    if (arg->w_len == 0 || arg->w_buf == NULL) {
+        return OS_FAULT;
+    }
+    in_buf  = (EVENT_REG)arg->w_buf;
+    reg_num = (U32)EVENT_REG_reg_id(in_buf,0);
+    val     = (U64)EVENT_REG_reg_value(in_buf,0);
+
+    msr_data = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state)*sizeof(MSR_DATA_NODE));
+    if (!msr_data) {
+        return OS_NO_MEM;
+    }
+
+    for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+        node                 = &msr_data[i];
+        MSR_DATA_addr(node)  = reg_num;
+        MSR_DATA_value(node) = val;
+    }
+
+    CONTROL_Invoke_Parallel(lwpmudrv_Write_MSR, (VOID *)(size_t)0);
+
+    msr_data = CONTROL_Free_Memory(msr_data);
+
+    return OS_SUCCESS;
+}
+#endif
+#endif
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Read_MSRs(IOCTL_ARG arg)
+ *
+ * @param arg - pointer to the IOCTL_ARGS structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Read all the programmed data counters and accumulate them
+ * @brief  into a single buffer.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Read_MSRs (
@@ -1021,34 +1300,293 @@ lwpmudrv_Read_MSRs (
 )
 {
     OS_STATUS  status = OS_SUCCESS;
-
-    if (arg->r_len == 0) {
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    DISPATCH    dispatch_unc;
+    ECB         pecb_unc;
+    U32         start_index, j;
+    U32         dev_idx;
+    U32         pkg_idx;
+    DRV_CONFIG  pcfg_unc;
+    U32         evt_index       = 0;
+    U32         prev_ei         = 0;
+    U32         cur_ei          = 0;
+    U32         num_inst_idx    = 0;
+    U32         num_units       = 0;
+#endif
+    if (arg->r_len == 0 || arg->r_buf == NULL ) {
         return status;
     }
     //
     // Transfer the data in the PMU registers to the output buffer
     //
     read_counter_info = CONTROL_Allocate_Memory(arg->r_len);
+    if (!read_counter_info) {
+         return OS_NO_MEM;
+    }
+
+    read_unc_ctr_info = CONTROL_Allocate_Memory(arg->r_len);
+    if (!read_unc_ctr_info) {
+         return OS_NO_MEM;
+    }
+
     CONTROL_Invoke_Parallel(dispatch->read_data, (VOID *)(size_t)0);
+
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    for (dev_idx = 0; dev_idx < num_devices; dev_idx++) {
+        pcfg_unc      = (DRV_CONFIG)LWPMU_DEVICE_pcfg(&devices[dev_idx]);
+        dispatch_unc  = LWPMU_DEVICE_dispatch(&devices[dev_idx]);
+        num_units     = LWPMU_DEVICE_num_units(&devices[dev_idx]);
+        if (pcfg_unc && dispatch_unc && dispatch_unc->read_data && DRV_CONFIG_emon_mode(pcfg_unc)) {
+             pecb_unc                = LWPMU_DEVICE_PMU_register_data(&devices[(dev_idx)])[0];
+             invoking_processor_id   = CONTROL_THIS_CPU();
+             start_index             = DRV_CONFIG_emon_unc_offset(pcfg_unc);
+             CONTROL_Invoke_Parallel(dispatch_unc->read_data, (VOID*)&dev_idx);
+             FOR_EACH_DATA_REG_UNC_VER2(pecb_unc,k, dev_idx ) {
+
+                 cur_ei = ECB_entries_event_id_index(pecb_unc, k);
+                 CHECK_SAVE_RESTORE_EVENT_INDEX(prev_ei, cur_ei, evt_index);
+
+                 if (ECB_entries_is_multi_pkg_bit_set(pecb_unc,k)) { 
+                    for(pkg_idx = 0; pkg_idx < num_packages; pkg_idx++) {
+                        for (num_inst_idx = 0; num_inst_idx < num_units; num_inst_idx++){
+                         j                = start_index + 
+                                             evt_index * num_packages * num_units +
+                                             ECB_entries_event_id_index(pecb_unc,k) + 
+                                             num_inst_idx + 
+                                             pkg_idx * num_units;
+
+                         read_counter_info[j] = read_unc_ctr_info[j];
+                         SEP_PRINT_DEBUG("j = %d value =0x%llx in final\n",j, read_counter_info[j]);
+                        }
+                     }
+                 }
+                 else {
+                    j                = start_index + ECB_entries_event_id_index(pecb_unc,k) + ECB_entries_emon_event_id_index_local(pecb_unc,k);
+                    read_counter_info[j] = read_unc_ctr_info[j];
+                    SEP_PRINT_DEBUG("j = %d value =0x%llx in final\n",j, read_counter_info[j]);
+                 }
+             } END_FOR_EACH_DATA_REG_UNC_VER2 ;
+        }
+    }
+#endif
     if (copy_to_user(arg->r_buf, read_counter_info, arg->r_len)) {
         status = OS_FAULT;
     }
     read_counter_info = CONTROL_Free_Memory(read_counter_info);
+    read_unc_ctr_info = CONTROL_Free_Memory(read_unc_ctr_info);
 
     return status;
 }
 
+#ifdef EMON
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwmudrv_Read_Specific_TSC (PVOID param)
+ *
+ * @param param - pointer to the result
+ *
+ * @return none
+ *
+ * @brief  Read the tsc value in the current processor and
+ * @brief  write the result into param.
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Read_Specific_TSC (
+    PVOID  param
+)
+{
+    U32 this_cpu;
+
+    preempt_disable();
+    this_cpu = CONTROL_THIS_CPU();
+    if (this_cpu == 0) {
+        UTILITY_Read_TSC((U64*)param);
+    }
+    preempt_enable();
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Read_Counters_And_Switch_Group(IOCTL_ARGS arg)
+ *
+ * @param arg - pointer to the IOCTL_ARGS structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Read / Store the counters and switch to the next valid group.
+ *
+ * <I>Special Notes</I>
+ *     This routine is called from the user mode code to handle the multiple group
+ *     situation.  9 distinct steps are taken:
+ *     Step 1: Save the previously collected CPU 0 TSC value
+ *     Step 2: Read CPU 0's TSC
+ *     Step 3: Calculate the difference between the TSCs and save in the first U64 of the buffer
+ *     Step 4: Save previous buffer ptr and Increment the buffer
+ *     Step 5: Pause the counting PMUs
+ *     Step 6: Read the currently programmed data PMUs and copy the data into the output buffer
+ *             Restore the old buffer ptr.
+ *     Step 7: Increment the current group count
+ *     Step 8: Write the new group to the PMU
+ *     Step 9: Resume the counting PMUs
+ *
+ */
+static OS_STATUS
+lwpmudrv_Read_Counters_And_Switch_Group (
+    IOCTL_ARGS arg
+)
+{
+    U64            prev_tsc, diff;
+    U64           *pBuffer;
+    U32            this_cpu;
+    char          *orig_r_buf_ptr;
+    OS_STATUS      status        = OS_SUCCESS;
+
+    if (arg->r_buf == NULL || arg->r_len == 0) {
+        return OS_FAULT;
+    }
+    preempt_disable();
+    this_cpu = CONTROL_THIS_CPU();
+    preempt_enable();
+    // step 1
+    prev_tsc = cpu0_TSC;
+
+    // step 2
+    // read CPU 0's tsc into the global var cpu0_TSC
+    // if running on cpu 0, read the tsc directly, else schedule a dpc
+
+    if (this_cpu == 0) {
+        UTILITY_Read_TSC(&cpu0_TSC);
+    } 
+    else {
+        CONTROL_Invoke_Cpu (0, lwpmudrv_Read_Specific_TSC, &cpu0_TSC);
+    }
+
+    // step 3
+    // get tsc diff (i.e. clocks during this monitor interval)
+    diff = cpu0_TSC - prev_tsc;
+
+    // save diff in first slot in buffer
+    pBuffer = (U64*)(arg->r_buf);
+    *pBuffer = diff;
+
+    // step 4
+    orig_r_buf_ptr = arg->r_buf;
+    pBuffer += 1;
+    arg->r_buf = (char *)pBuffer;
+    // step 5
+    status = lwpmudrv_Pause();
+    // step 6
+    status = lwpmudrv_Read_MSRs(arg);
+    arg->r_buf = orig_r_buf_ptr;
+
+    // step 7
+    // for each processor, increment its current group number
+    CONTROL_Invoke_Parallel(lwpmudrv_Switch_To_Next_Group, (VOID *)(size_t)0);
+    // step 8
+    CONTROL_Invoke_Parallel(dispatch->write, (VOID *)(size_t)0);
+    // step 9
+    status = lwpmudrv_Resume();
+
+    return status;
+}
 
 /*
- * lwpmudrv_Set_Num_EM_Groups
+ * @fn  static OS_STATUS lwpmudrv_Read_And_Reset_Counters(IOCTL_ARGS arg)
  *
- *     Parameters
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Configure the event multiplexing group.
+ * @brief  Read the current value of the counters, and reset them all to 0.
+ *
+ * <I>Special Notes</I>
+ *     This routine is called from the user mode code to handle overflows
+ *     It basically does the same as the lwpmudrv_Read_Counters_And_Switch_Group
+ *     routine except it doesn't switch groups.
+ *     Step 1: Save the previously collected CPU 0 TSC value
+ *     Step 2: Read CPU 0's TSC
+ *     Step 3: Calculate the difference between the TSCs and save in the first U64 of the buffer
+ *     Step 4: Save previous buffer ptr and Increment the buffer
+ *     Step 5: Pause the counting PMUs
+ *     Step 6: Read the currently programmed data PMUs and copy the data into the output buffer
+ *             Restore the old buffer ptr.
+ *     Step 7: Write the new group to the PMU
+ *     Step 8: Resume the counting PMUs
+ */
+static OS_STATUS
+lwpmudrv_Read_And_Reset_Counters (
+    IOCTL_ARGS arg
+)
+{
+    U64            prev_tsc, diff;
+    U64           *p_buffer;
+    U32            this_cpu;
+    char          *orig_r_buf_ptr;
+    OS_STATUS      status        = OS_SUCCESS;
+
+    if (arg->r_buf == NULL || arg->r_len == 0) {
+        return OS_FAULT;
+    }
+    preempt_disable();
+    this_cpu = CONTROL_THIS_CPU();
+    preempt_enable();
+    // step 1
+    prev_tsc = cpu0_TSC;
+
+    // step 2
+    // read CPU 0's tsc into the global var cpu0_TSC
+    // if running on cpu 0, read the tsc directly, else schedule a dpc
+
+    if (this_cpu == 0) {
+        UTILITY_Read_TSC(&cpu0_TSC);
+    } 
+    else {
+        CONTROL_Invoke_Cpu (0, lwpmudrv_Read_Specific_TSC, &cpu0_TSC);
+    }
+
+    // step 3
+    // get tsc diff (i.e. clocks during this monitor interval)
+    diff = cpu0_TSC - prev_tsc;
+
+    // save diff in first slot in buffer
+    p_buffer = (U64*)(arg->r_buf);
+    *p_buffer = diff;
+
+    // step 4
+    orig_r_buf_ptr = arg->r_buf;
+    p_buffer += 1;
+    arg->r_buf = (char *)p_buffer;
+    // step 5
+    status = lwpmudrv_Pause();
+    // step 6
+    status = lwpmudrv_Read_MSRs(arg);
+    arg->r_buf = orig_r_buf_ptr;
+
+    // step 8
+    CONTROL_Invoke_Parallel(dispatch->write, (VOID *)(size_t)0);
+    // step 9
+    status = lwpmudrv_Resume();
+
+    return status;
+}
+#endif
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Set_Num_EM_Groups(IOCTL_ARGS arg)
+ *
+ * @param arg - pointer to the IOCTL_ARGS structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief Configure the event multiplexing group.
+ *
+ * <I>Special Notes</I>
+ *     None
  */
 static OS_STATUS
 lwpmudrv_Set_EM_Config (
@@ -1091,20 +1629,19 @@ lwpmudrv_Set_EM_Config (
 }
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * lwpmudrv_Set_EM_Config_UNC
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Set_EM_Config_UNC(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN:  arg->w_buf       - pointer to the input buffer
- *         IN:  arg->w_len       - length of the input buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Set the number of em groups in the global state node.
- *         Also, copy the EVENT_CONFIG struct that has been passed in,
- *         into a global location for now.
+ * @brief  Set the number of em groups in the global state node.
+ * @brief  Also, copy the EVENT_CONFIG struct that has been passed in,
+ * @brief  into a global location for now.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Set_EM_Config_UNC (
@@ -1127,19 +1664,18 @@ lwpmudrv_Set_EM_Config_UNC (
 }
 #endif
 
-/*
- * lwpmudrv_Configure_Events
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Configure_events(IOCTL_ARGS arg)
  *
- *     Parameter - pointer to struct
- *         int    byte_size
- *         char   data[byte_size]
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Copies one group of events into kernel space at
- *         PMU_register_data[em_groups_count].
+ * @brief  Copies one group of events into kernel space at
+ * @brief  PMU_register_data[em_groups_count].
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Configure_Events (
@@ -1157,7 +1693,9 @@ lwpmudrv_Configure_Events (
         SEP_PRINT_ERROR("lwpmudrv_Configure_Events: Number of EM groups exceeded the initial configuration.");
         return OS_SUCCESS;
     }
-
+    if (arg->w_buf == NULL || arg->w_len == 0) {
+        return OS_FAULT;
+    }
     PMU_register_data[em_groups_count] = CONTROL_Allocate_Memory(arg->w_len);
     if (!PMU_register_data[em_groups_count]) {
         return OS_NO_MEM;
@@ -1167,7 +1705,7 @@ lwpmudrv_Configure_Events (
     //
     uncopied = copy_from_user(PMU_register_data[em_groups_count], arg->w_buf, arg->w_len);
     if (uncopied > 0) {
-        return OS_NO_MEM;  // TODO: should be some other error code
+        return OS_NO_MEM;
     }
     em_groups_count++;
 
@@ -1175,19 +1713,18 @@ lwpmudrv_Configure_Events (
 }
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * lwpmudrv_Configure_Events_UNC
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Configure_events_UNC(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: in_buf        - pointer to the input buffer
- *         IN: in_buf_len    - length of the input buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Make a copy of the uncore registers that need to be programmed
- *         for the next event set used for event multiplexing
+ * @brief  Make a copy of the uncore registers that need to be programmed
+ * @brief  for the next event set used for event multiplexing
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Configure_Events_UNC (
@@ -1211,7 +1748,9 @@ lwpmudrv_Configure_Events_UNC (
         SEP_PRINT_DEBUG("Number of Uncore EM groups exceeded the initial configuration.");
         return OS_SUCCESS;
     }
- 
+     if (arg->w_buf == NULL || arg->w_len == 0) {
+        return OS_FAULT;
+    }
     //       size is in w_len, data is pointed to by w_buf
     //
     PMU_register_data_unc[em_groups_count_unc] = CONTROL_Allocate_Memory(arg->w_len);
@@ -1247,25 +1786,22 @@ lwpmudrv_Configure_Events_UNC (
     
     LWPMU_DEVICE_em_groups_count(&devices[cur_device])++;
 
-    // on to the next device.
-    cur_device++;
         
     return OS_SUCCESS;
 }
 #endif
 
-/*
- * lwpmudrv_Set_Sample_Descriptors
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Set_Sample_Descriptors(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN:  in_buf       - pointer to the input buffer
- *         IN:  in_buf_len   - length of the input buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Set the number of descriptor groups in the global state node.
+ * @brief  Set the number of descriptor groups in the global state node.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Set_Sample_Descriptors (
@@ -1275,7 +1811,7 @@ lwpmudrv_Set_Sample_Descriptors (
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
         return OS_IN_PROGRESS;
     }
-    if (arg->w_len != sizeof(U32)) {
+    if (arg->w_len != sizeof(U32) || arg->w_buf == NULL) {
         SEP_PRINT_WARNING("Unknown size of Sample Descriptors\n");
         return OS_SUCCESS;
     }
@@ -1292,19 +1828,17 @@ lwpmudrv_Set_Sample_Descriptors (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Configure_Descriptors
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Configure_Descriptors(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: in_buf        - pointer to the input buffer
- *         IN: in_buf_len    - length of the input buffer
+ * @param arg - pointer to the IOCTL_ARGS structure
+ * @return OS_STATUS
  *
- *     Returns
- *         OS_STATUS
+ * @brief Make a copy of the descriptors that need to be read in order
+ * @brief to configure a sample record.
  *
- *     Description
- *         Make a copy of the descriptors that need to be read in order
- *         to configure a sample record.
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Configure_Descriptors (
@@ -1341,18 +1875,17 @@ lwpmudrv_Configure_Descriptors (
 }
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * lwpmudrv_LBR_Info
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_LBR_Info(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN: in_buf        - pointer to the input buffer
- *         IN: in_buf_len    - length of the input buffer
  *
- *     Returns
- *         OS_STATUS
+ * @param arg - pointer to the IOCTL_ARGS structure
+ * @return OS_STATUS
  *
- *     Description
- *         Make a copy of the LBR information that is passed in.
+ * @brief Make a copy of the LBR information that is passed in.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_LBR_Info (
@@ -1384,8 +1917,81 @@ lwpmudrv_LBR_Info (
     return OS_SUCCESS;
 }
 
+#ifdef EMON
+#define CR4_PCE  0x00000100    //Performance-monitoring counter enable RDPMC  
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwpmudrv_Set_CR4_PCE_Bit(PVOID param)
+ *
+ * @param param - dummy parameter
+ *
+ * @return NONE
+ *
+ * @brief Set CR4's PCE bit on the logical processor
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Set_CR4_PCE_Bit (
+    PVOID  param
+)
+{
+#if defined(DRV_IA32) 
+  __asm__("movl %%cr4,%%eax\n\t"
+          "orl %0,%%eax\n\t"
+          "movl %%eax,%%cr4\n"
+          : : "irg" (CR4_PCE)
+          :"ax");
+#endif
+#if defined(DRV_EM64T)
+  __asm__("movq %%cr4,%%rax\n\t"
+          "orq %0,%%rax\n\t"
+          "movq %%rax,%%cr4\n"
+          : : "irg" (CR4_PCE)
+          :"ax");
+#endif
 
-#else /* defined(DRV_IA32) || defined(DRV_EM64T) */
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static void lwpmudrv_Clear_CR4_PCE_Bit(PVOID param)
+ *
+ * @param param - dummy parameter
+ *
+ * @return NONE
+ *
+ * @brief ClearSet CR4's PCE bit on the logical processor
+ *
+ * <I>Special Notes</I>
+ */
+static VOID
+lwpmudrv_Clear_CR4_PCE_Bit (
+    PVOID  param
+)
+{
+#if defined(DRV_IA32)
+  __asm__("movl %%cr4,%%eax\n\t"
+          "andl %0,%%eax\n\t"
+          "movl %%eax,%%cr4\n"
+          : : "irg" (~CR4_PCE)
+          :"ax");
+#endif
+#if defined(DRV_EM64T)
+  __asm__("movq %%cr4,%%rax\n\t"
+          "andq %0,%%rax\n\t"
+          "movq %%rax,%%cr4\n"
+          : : "irg" (~CR4_PCE)
+          :"ax");
+#endif
+
+    return;
+}
+#endif
+#endif
+
+#if defined(DRV_IA64)
 
 /*
  * @fn OS_STATUS lwpmudrv_RO_Info(arg)
@@ -1421,31 +2027,31 @@ lwpmudrv_RO_Info (
     return OS_SUCCESS;
 }
 
-#endif /* defined(DRV_IA32) || defined(DRV_EM64T) */
+#endif
 
-/*
- * lwpmudrv_Start
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Start(void)
  *
- *     Parameters
- *         NONE
+ * @param none
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMU_IOCTL_START call.
- *         Set up the OS hooks for process/thread/load notifications.
- *         Write the initial set of MSRs.
+ * @brief  Local function that handles the LWPMU_IOCTL_START call.
+ * @brief  Set up the OS hooks for process/thread/load notifications.
+ * @brief  Write the initial set of MSRs.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Start (
     VOID
 )
 {
-    OS_STATUS  status = OS_SUCCESS;
+    OS_STATUS  status       = OS_SUCCESS;
     U32        previous_state;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-    DRV_CONFIG pcfg_unc = NULL;
+    DRV_CONFIG pcfg_unc     = NULL;
     DISPATCH   dispatch_unc = NULL;
     U32        i;
 #endif
@@ -1471,8 +2077,17 @@ lwpmudrv_Start (
     atomic_set(&read_now, GLOBAL_STATE_num_cpus(driver_state));
     init_waitqueue_head(&read_tsc_now);
 
+#ifdef EMON
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    CONTROL_Invoke_Parallel(lwpmudrv_Set_CR4_PCE_Bit, (PVOID)(size_t)0);
+#endif // (DRV_IA32 || DRV_EM64T)
+#endif // EMON
     CONTROL_Invoke_Parallel(lwpmudrv_Fill_TSC_Info, (PVOID)(size_t)0);
 
+#ifdef EMON
+    // initialize the cpu0_TSC var
+    cpu0_TSC = tsc_info[0];
+#endif
 
     if (DRV_CONFIG_start_paused(pcfg)) {
         GLOBAL_STATE_current_phase(driver_state) = DRV_STATE_PAUSED;
@@ -1509,9 +2124,8 @@ lwpmudrv_Start (
  * @param        NONE
  * @return       OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMUDRV_IOCTL_STOP call.
- *         Cleans up the interrupt handler.
+ * @brief  Local function that handles the LWPMUDRV_IOCTL_STOP call.
+ * @brief  Cleans up the interrupt handler.
  */
 static OS_STATUS
 lwpmudrv_Prepare_Stop (
@@ -1519,11 +2133,11 @@ lwpmudrv_Prepare_Stop (
 )
 {
     U32 i;
-    S32 done = FALSE;
-    U32 current_state = GLOBAL_STATE_current_phase(driver_state);
+    S32 done                = FALSE;
+    U32 current_state       = GLOBAL_STATE_current_phase(driver_state);
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-    DRV_CONFIG pcfg_unc = NULL;
+    DRV_CONFIG pcfg_unc     = NULL;
     DISPATCH   dispatch_unc = NULL;
 #endif
     SEP_PRINT_DEBUG("lwpmudrv_Prepare_Stop: About to stop sampling\n");
@@ -1582,6 +2196,11 @@ lwpmudrv_Prepare_Stop (
     }
 #endif
 
+#ifdef EMON
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    CONTROL_Invoke_Parallel(lwpmudrv_Clear_CR4_PCE_Bit, (VOID *)(size_t)0);
+#endif
+#endif
 
 
     return OS_SUCCESS;
@@ -1590,21 +2209,20 @@ lwpmudrv_Prepare_Stop (
 /*
  * @fn lwpmudrv_Finish_Stop();
  *
- * @param        NONE
- * @return       OS_STATUS
+ * @param  NONE
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the LWPMUDRV_IOCTL_STOP call.
- *         Cleans up the interrupt handler.
+ * @brief  Local function that handles the LWPMUDRV_IOCTL_STOP call.
+ * @brief  Cleans up the interrupt handler.
  */
 static OS_STATUS
 lwpmudrv_Finish_Stop (
     VOID
 )
 {
-    U32      current_state = GLOBAL_STATE_current_phase(driver_state);
-    S32      prev_value;
-    OS_STATUS  status      = OS_SUCCESS;
+    U32        current_state = GLOBAL_STATE_current_phase(driver_state);
+    S32        prev_value;
+    OS_STATUS  status        = OS_SUCCESS;
 
     prev_value = cmpxchg(&in_finish_code, 0, 1);
     if (prev_value != 0) {
@@ -1637,15 +2255,17 @@ lwpmudrv_Finish_Stop (
     return status;
 }
 
-/*
- * lwpmudrv_Get_Normalized_TSC
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Get_Normalized_TSC(IOCTL_ARGS arg)
  *
- *     Parameters
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
+ * @brief  Return the current value of the normalized TSC.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_Normalized_TSC (
@@ -1678,17 +2298,17 @@ lwpmudrv_Get_Normalized_TSC (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Get_Num_Cores
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Get_Num_Cores(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN   out_buf       - pointer to the output buffer
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Quickly return the (total) number of cpus in the system.
+ * @brief  Quickly return the (total) number of cpus in the system.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_Num_Cores (
@@ -1708,20 +2328,18 @@ lwpmudrv_Get_Num_Cores (
     return status;
 }
 
-/*
- * lwpmudrv_Set_CPU_Mask
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Set_CPU_Mask(PVOID in_buf, U32 in_buf_size)
  *
- *     Parameters
- *         IN   in_buf       - pointer to the input buffer
- *         IN   in_buf_len   - length of the input buffer
+ * @param in_buf      - pointer to the CPU mask buffer
+ * @param in_buf_size - size of the CPU mask buffer
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Check and make sure that enough space is provided to 
- *         generate the data.
- *         Return the total number of cores in the system.
+ * @brief  process the CPU mask as requested by the user
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Set_CPU_Mask (
@@ -1750,7 +2368,7 @@ lwpmudrv_Set_CPU_Mask (
 
     for (cpu_count = 0; cpu_count < (U32)GLOBAL_STATE_num_cpus(driver_state); cpu_count++) {
         CPU_STATE_accept_interrupt(&pcb[cpu_count]) = cpu_mask_bits[cpu_count] ? 1 : 0;
-        CPU_STATE_initial_mask(&pcb[cpu_count])     = cpu_mask_bits[cpu_count] ? 1 : 0;
+        CPU_STATE_initial_mask(&pcb[cpu_count    ]) = cpu_mask_bits[cpu_count] ? 1 : 0;
     }
 
     return OS_SUCCESS;
@@ -1758,14 +2376,17 @@ lwpmudrv_Set_CPU_Mask (
 
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * @fn lwpmudrv_Get_KERNEL_CS
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Get_KERNEL_CS(IOCTL_ARGS arg)
  *
- * @param    IN   out_buf       - pointer to the output buffer
- * @return   OS_STATUS
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Description
- *         Return the value of the Kernel symbol KERNEL_CS.
+ * @return OS_STATUS
+ *
+ * @brief  Return the value of the Kernel symbol KERNEL_CS.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_KERNEL_CS (
@@ -1792,8 +2413,7 @@ lwpmudrv_Get_KERNEL_CS (
  * @param     IN   arg      - pointer to the output buffer
  * @return   OS_STATUS
  *
- *     Description
- *         Receive the value of the UID of the collector process.
+ * @brief  Receive the value of the UID of the collector process.
  */
 static OS_STATUS
 lwpmudrv_Set_UID (
@@ -1816,15 +2436,16 @@ lwpmudrv_Set_UID (
     return status;
 }
 
-/*
- * lwpmudrv_Get_TSC_Skew_Info
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Get_TSC_Skew_Info(IOCTL_ARGS arg)
  *
- *     Parameters
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
+ * @brief  Return the current value of the TSC skew data
  *
- *     Description
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_TSC_Skew_Info (
@@ -1866,19 +2487,19 @@ lwpmudrv_Get_TSC_Skew_Info (
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Collect_Sys_Config
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Collect_Sys_Config(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN   out_buf       - pointer to the U32 result
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Local function that handles the COLLECT_SYS_CONFIG call.
- *         Builds and collects the SYS_INFO data needed.
- *         Writes the result into the argument.
+ * @brief  Local function that handles the COLLECT_SYS_CONFIG call.
+ * @brief  Builds and collects the SYS_INFO data needed.
+ * @brief  Writes the result into the argument.
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Collect_Sys_Config (
@@ -1898,41 +2519,44 @@ lwpmudrv_Collect_Sys_Config (
     return status;
 }
 
-/*
- * lwpmudrv_Sys_Config
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Sys_Config(IOCTL_ARGS arg)
  *
- *     Parameters
- *         IN   out_buf       - pointer to the output buffer
+ * @param arg - Pointer to the IOCTL structure
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Transfers the VTSA_SYS_INFO data back to the abstraction layer.
- *         The out_buf should have enough space to handle the transfer.
+ * @brief  Return the current value of the normalized TSC.
+ *
+ * @brief  Transfers the VTSA_SYS_INFO data back to the abstraction layer.
+ * @brief  The out_buf should have enough space to handle the transfer.
  */
 static OS_STATUS
 lwpmudrv_Sys_Config (
     IOCTL_ARGS   arg
 )
 {
+    if (arg->r_len == 0 || arg->r_buf == NULL) {
+        return OS_FAULT;
+    }
+
     SYS_INFO_Transfer(arg->r_buf, arg->r_len);
 
     return OS_SUCCESS;
 }
 
-/*
- * lwpmudrv_Samp_Read_Num_Of_Core_Counters
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Samp_Read_Num_Of_Core_Counters(IOCTL_ARGS arg)
  *
- * Abstract
- *     Read memory mapped i/o physical location
+ * @param arg - Pointer to the IOCTL structure
  *
- * Parameters
- *     physical_address - physical address in mmio
- *     value            - value at this address
+ * @return OS_STATUS
  *
- * Returns
- *     OS_STATUS
+ * @brief  Read memory mapped i/o physical location
+ *
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Samp_Read_Num_Of_Core_Counters (
@@ -1941,8 +2565,12 @@ lwpmudrv_Samp_Read_Num_Of_Core_Counters (
 {
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     U64           rax, rbx, rcx, rdx,num_basic_functions;
-    U32           val = 0;
+    U32           val    = 0;
     OS_STATUS     status = OS_SUCCESS;
+
+    if (arg->r_len == 0 || arg->r_buf == NULL) {
+        return OS_FAULT;
+    }
 
     UTILITY_Read_Cpuid(0x0,&num_basic_functions,&rbx, &rcx, &rdx);
 
@@ -1962,29 +2590,32 @@ lwpmudrv_Samp_Read_Num_Of_Core_Counters (
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          U64 lwpmudrv_Get_Platform_Info
+ * @fn  static OS_STATUS lwpmudrv_Get_Platform_Info(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
  *
  * @brief       Reads the MSR_PLATFORM_INFO register if present
  *
- * @param       void
- *
- * @return      status
- *
- * <I>Special Notes:</I>
- *              <NONE>
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_Platform_Info (
     IOCTL_ARGS args
 )
 {
-    U64        value = 0;
+    U64        value  = 0;
     OS_STATUS  status = OS_SUCCESS;
+
+    if (args->r_len == 0 || args->r_buf == NULL) {
+        return OS_FAULT;
+    }
 
     if (dispatch && dispatch->platform_info) {
         value = dispatch->platform_info();
     }
-    status = put_user(value, (U64*)args->r_buf);
+    status  = put_user(value, (U64*)args->r_buf);
 
     return status;
 }
@@ -2015,7 +2646,7 @@ lwpmudrv_Setup_Cpu_Topology (
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
         return OS_IN_PROGRESS;
     }
-    if (args->w_buf == NULL || pcb == NULL ) {
+    if (args->w_len == 0 || args->w_buf == NULL || pcb == NULL ) {
         SEP_PRINT_ERROR("topology information has been misconfigured\n");
         return OS_NO_MEM;
     }
@@ -2051,16 +2682,16 @@ lwpmudrv_Setup_Cpu_Topology (
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          void lwpmudrv_Get_Num_Samples (args)
+ * @fn  static OS_STATUS lwpmudrv_Get_Num_Samples(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
  *
  * @brief       Returns the number of samples collected during the current
- *              sampling run
+ * @brief       sampling run
  *
- * @param       IOCTL_ARGS args
- *
- * @return      OS_STATUS
- *
- * <I>Special Notes:</I>
+ * <I>Special Notes</I>
  */
 static OS_STATUS
 lwpmudrv_Get_Num_Samples (
@@ -2074,7 +2705,7 @@ lwpmudrv_Get_Num_Samples (
         SEP_PRINT_ERROR("PCB was not initialized\n");
         return OS_FAULT;
     }
-    if (args->r_buf == NULL) {
+    if (args->r_len == 0 || args->r_buf == NULL) {
         SEP_PRINT_ERROR("topology information has been misconfigured\n");
         return OS_NO_MEM;
     }
@@ -2090,6 +2721,41 @@ lwpmudrv_Get_Num_Samples (
     return put_user(samples, (U64*)args->r_buf);
 }
 
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Get_Num_Samples(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief       Returns the number of samples collected during the current
+ * @brief       sampling run
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Set_Device_Num_Units (
+    IOCTL_ARGS args
+)
+{
+    SEP_PRINT_DEBUG("Entered lwpmudrv_Set_Device_Num_Units\n");
+    
+    if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
+       
+        return OS_SUCCESS;
+    }
+     if (args->w_len == 0 || args->w_buf == NULL) {
+        return OS_NO_MEM;
+    }
+
+    LWPMU_DEVICE_num_units(&devices[cur_device]) = *(U32 *)args->w_buf; 
+    SEP_PRINT_DEBUG("LWP: num_units = %d cur_device = %d\n",LWPMU_DEVICE_num_units(&devices[cur_device]),cur_device);
+    // on to the next device.
+    cur_device++;
+
+    return OS_SUCCESS;
+}
 /*******************************************************************************
  *  External Driver functions - Open
  *      This function is common to all drivers
@@ -2098,7 +2764,7 @@ lwpmudrv_Get_Num_Samples (
 static int
 lwpmu_Open (
     struct inode *inode,
-    struct file *filp
+    struct file  *filp
 )
 {
     SEP_PRINT_DEBUG("lwpmu_Open called on maj:%d, min:%d\n",
@@ -2159,20 +2825,20 @@ lwpmu_Write (
     return 1;
 }
 
-/*
- * LWPMU_Device_Control
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  extern IOCTL_OP_TYPE lwpmu_Device_Control(IOCTL_USE_NODE, filp, cmd, arg)
  *
- *     Parameters
- *         IN: inode - pointer to the device object
- *         IN: filp  - pointer to the file object
- *         IN: cmd   - ioctl value (defined in lwpmu_ioctl.h)
- *         IN: arg   - arg or arg pointer
+ * @param   IOCTL_USE_INODE       - Used for pre 2.6.32 kernels
+ * @param   struct   file   *filp - file pointer
+ * @param   unsigned int     cmd  - IOCTL command
+ * @param   unsigned long    arg  - args to the IOCTL command
  *
- *     Returns
- *         OS_STATUS
+ * @return OS_STATUS
  *
- *     Description
- *         Worker function that handles IOCTL requests from the user mode.
+ * @brief  Worker function that handles IOCTL requests from the user mode.
+ *
+ * <I>Special Notes</I>
  */
 extern IOCTL_OP_TYPE
 lwpmu_Device_Control (
@@ -2253,7 +2919,7 @@ lwpmu_Device_Control (
             break;
 
         case LWPMUDRV_IOCTL_START:
-            SEP_PRINT("LWPMUDRV_IOCTL_START\n");
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_START\n");
             status = lwpmudrv_Start();
             break;
 
@@ -2432,6 +3098,45 @@ lwpmu_Device_Control (
         * EMON-specific IOCTL commands
         */
 
+        case LWPMUDRV_IOCTL_READ_MSR:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_READ_MSR\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Read_MSR_All_Cores(&local_args);
+            break;
+
+#if defined(EMON)
+#if defined(EMON_INTERNAL)
+        case LWPMUDRV_IOCTL_WRITE_MSR:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_WRITE_MSR\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Write_MSR_All_Cores(&local_args);
+            break;
+#endif  // EMON_INTERNAL
+
+        case LWPMUDRV_IOCTL_READ_SWITCH_GROUP:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_READ_SWITCH_GROUP\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Read_Counters_And_Switch_Group(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_READ_AND_RESET:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_READ_AND_RESET\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Read_And_Reset_Counters(&local_args);
+            break;
+#endif  // EMON
 
        /*
         * Platform-specific IOCTL commands (IA64 only)
@@ -2514,6 +3219,15 @@ lwpmu_Device_Control (
                 goto cleanup;
             }
             status = lwpmudrv_Get_Num_Samples(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_SET_DEVICE_NUM_UNITS:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_SET_DEVICE_NUM_UNITS\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Set_Device_Num_Units(&local_args);
             break;
 
        /*
@@ -2690,25 +3404,25 @@ static struct file_operations lwsamp_Fops = {
     .llseek =  NULL,
 };
 
-/*
- * lwpmu_setup_cdev
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static int lwpmudrv_setup_cdev(dev, fops, dev_number)
  *
- *     Parameters
- *         dev        - pointer to the device object
- *         fops       - point to file operations struct
- *         dev_number - major/minor device number
+ * @param LWPMU_DEV               dev  - pointer to the device object
+ * @param struct file_operations *fops - pointer to the file operations struct
+ * @param dev_t                   dev_number - major/monor device number
  *
- *     Returns
- *         int
+ * @return OS_STATUS
  *
- *     Description
- *         Set up the device object.
+ * @brief  Set up the device object.
+ *
+ * <I>Special Notes</I>
  */
 static int
 lwpmu_setup_cdev (
-    LWPMU_DEV  dev,
+    LWPMU_DEV               dev,
     struct file_operations *fops,
-    dev_t      dev_number
+    dev_t                   dev_number
 )
 {
     cdev_init(&LWPMU_DEV_cdev(dev), fops);
@@ -2718,19 +3432,17 @@ lwpmu_setup_cdev (
     return cdev_add(&LWPMU_DEV_cdev(dev), dev_number, 1);
 }
 
-/*
- * lwpmu_Load
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static int lwpmu_Load(void)
  *
- *     Parameters
- *         NONE
+ * @param none
  *
- *     Returns
- *         int
+ * @return STATUS
  *
- *     Description
- *         Load the driver module into the kernel.  Set up the driver object.
- *         Set up the initial state of the driver and allocate the memory
- *         needed to keep basic state information.
+ * @brief  Load the driver module into the kernel.  Set up the driver object.
+ * @brief  Set up the initial state of the driver and allocate the memory
+ * @brief  needed to keep basic state information.
  */
 static int
 lwpmu_Load (
@@ -2740,7 +3452,6 @@ lwpmu_Load (
     int        i, num_cpus;
     dev_t      lwmod_DevNum;
     OS_STATUS  status      = OS_SUCCESS;
-
 #if defined (DRV_ANDROID)
     char       dev_name[MAXNAMELEN];
 #endif
@@ -2757,7 +3468,7 @@ lwpmu_Load (
     lwpmu_DevNum = MKDEV(0, 0);
     status = alloc_chrdev_region(&lwpmu_DevNum, 0, PMU_DEVICES, SEP_DRIVER_NAME);
     SEP_PRINT_DEBUG("result of alloc_chrdev_region is %d\n", status);
-    if (status < 0) {
+    if (status<0) {
         SEP_PRINT_ERROR("lwpmu driver failed to alloc chrdev_region!\n");
         return status;
     }
@@ -2815,7 +3526,7 @@ lwpmu_Load (
     lwsamp_DevNum = MKDEV(0, 0);
     status = alloc_chrdev_region(&lwsamp_DevNum, 0, num_cpus, SEP_SAMPLES_NAME);
 
-    if (status < 0) {
+    if (status<0) {
         SEP_PRINT_ERROR("lwpmu driver failed to alloc chrdev_region!\n");
         return status;
     }
@@ -2853,7 +3564,7 @@ lwpmu_Load (
         output_buffer_size = OUTPUT_SMALL_BUFFER;
     }
 
-    mutex_init(&ioctl_lock);
+    MUTEX_INIT(ioctl_lock);
     in_finish_code = 0;
 
     /*
@@ -2891,17 +3602,15 @@ lwpmu_Load (
     return status;
 }
 
-/*
- * lwpmu_Unload
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static int lwpmu_Unload(void)
  *
- *     Parameters
- *         NONE
+ * @param none
  *
- *     Returns
- *         NONE
+ * @return none
  *
- *     Description
- *         Remove the driver module from the kernel.
+ * @brief  Remove the driver module from the kernel.
  */
 static VOID
 lwpmu_Unload (
@@ -2921,6 +3630,22 @@ lwpmu_Unload (
     pcb_size            = 0;
     tsc_info            = CONTROL_Free_Memory(tsc_info);
     core_to_package_map = CONTROL_Free_Memory(core_to_package_map);
+    if (restore_bl_bypass) {
+        restore_bl_bypass = CONTROL_Free_Memory(restore_bl_bypass);
+    }
+    if (restore_qpi_direct2core) {
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+              restore_qpi_direct2core[i]= CONTROL_Free_Memory(restore_qpi_direct2core[i]);
+        }
+        restore_qpi_direct2core = CONTROL_Free_Memory(restore_qpi_direct2core);
+    }
+    if (restore_ha_direct2core) {
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+              restore_ha_direct2core[i]= CONTROL_Free_Memory(restore_ha_direct2core[i]);
+        }
+        restore_ha_direct2core = CONTROL_Free_Memory(restore_ha_direct2core);
+    }
+
 #if defined (DRV_ANDROID)
     unregister_chrdev(MAJOR(lwpmu_DevNum), SEP_DRIVER_NAME);
     device_destroy(pmu_class, lwpmu_DevNum);
@@ -2930,6 +3655,7 @@ lwpmu_Unload (
     cdev_del(&LWPMU_DEV_cdev(lwpmu_control));
     cdev_del(&LWPMU_DEV_cdev(lwmod_control));
     unregister_chrdev_region(lwpmu_DevNum, PMU_DEVICES);
+
 #if defined (DRV_ANDROID)
     unregister_chrdev(MAJOR(lwsamp_DevNum), SEP_SAMPLES_NAME);
 #endif
@@ -2940,9 +3666,11 @@ lwpmu_Unload (
 #endif
         cdev_del(&LWPMU_DEV_cdev(&lwsamp_control[i]));
     }
+
 #if defined (DRV_ANDROID)
     class_destroy(pmu_class);
 #endif
+
     unregister_chrdev_region(lwsamp_DevNum, num_cpus);
     lwpmu_control  = CONTROL_Free_Memory(lwpmu_control);
     lwmod_control  = CONTROL_Free_Memory(lwmod_control);

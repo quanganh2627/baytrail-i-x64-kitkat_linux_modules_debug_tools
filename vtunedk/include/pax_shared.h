@@ -91,6 +91,16 @@
 #define PAX_IOCTL_RESERVE_ALL    _IO (PAX_IOC_MAGIC, 3)
 #define PAX_IOCTL_UNRESERVE      _IO (PAX_IOC_MAGIC, 4)
 
+#elif defined(DRV_OS_FREEBSD)
+
+#define PAX_DEVICE_NAME          "/dev/" PAX_NAME
+
+#define PAX_IOC_MAGIC            100
+#define PAX_IOCTL_INFO           _IOW(PAX_IOC_MAGIC, 1, IOCTL_ARGS_NODE)
+#define PAX_IOCTL_STATUS         _IOW(PAX_IOC_MAGIC, 2, IOCTL_ARGS_NODE)
+#define PAX_IOCTL_RESERVE_ALL    _IO (PAX_IOC_MAGIC, 3)
+#define PAX_IOCTL_UNRESERVE      _IO (PAX_IOC_MAGIC, 4)
+
 #elif defined(DRV_OS_MAC)
 
 // OSX driver names are always in reverse DNS form.
@@ -158,3 +168,4 @@ typedef        PAX_VERSION_NODE   *PAX_VERSION;
 #define PAX_VERSION_NODE_bugfix(v)  (v)->u1.s1.bugfix
 
 #endif
+

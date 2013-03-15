@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -25,10 +25,6 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 **COPYRIGHT*/
-
-/*
- * cvs_id = "$Id$"
- */
 
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
@@ -178,6 +174,36 @@ linuxos_Load_Image_Notify_Routine (
     return OS_SUCCESS;
 }
 
+#ifdef DRV_MM_EXE_FILE_PRESENT
+static DRV_BOOL
+linuxos_Equal_VM_Exe_File (
+    struct vm_area_struct *vma 
+)          
+{         
+    S8   name_vm_file[MAXNAMELEN];
+    S8   name_exe_file[MAXNAMELEN]; 
+    S8  *pname_vm_file = NULL; 
+    S8  *pname_exe_file = NULL; 
+              
+    if (vma == NULL) {
+        return FALSE; 
+    } 
+     
+    if (vma->vm_file == NULL) { 
+        return FALSE;
+    } 
+     
+    if (vma->vm_mm->exe_file == NULL) { 
+        return FALSE; 
+    } 
+ 
+    pname_vm_file = D_PATH(vma->vm_file, name_vm_file, MAXNAMELEN);
+    pname_exe_file = D_PATH(vma->vm_mm->exe_file, name_exe_file, MAXNAMELEN);
+    return (strcmp (pname_vm_file, pname_exe_file) == 0);
+}
+#endif
+
+
 //
 // Register the module for a process.  The task_struct and mm
 // should be locked if necessary to make sure they don't change while we're
@@ -196,7 +222,7 @@ linuxos_VMA_For_Process (
     S8   name[MAXNAMELEN];
     S8  *pname = NULL;
     U32  ppid  = 0;
-
+    U16  exec_mode; 
 #if defined(DRV_ANDROID)
     char andr_app[MAXNAMELEN +1];
 #endif
@@ -206,14 +232,13 @@ linuxos_VMA_For_Process (
        return OS_SUCCESS;
     }
 
-    pname = D_PATH(vma->vm_file, name, MAXNAMELEN);
-    if (!IS_ERR(pname)) {
+    if (vma->vm_file) pname = D_PATH(vma->vm_file, name, MAXNAMELEN);
+    if (!IS_ERR(pname) && pname != NULL) {
         SEP_PRINT_DEBUG("enum: %s, %d, %lx, %lx \n",
                         pname, p->pid, vma->vm_start, (vma->vm_end - vma->vm_start));
-        options = 0;
         // if the VM_EXECUTABLE flag is set then this is the module
         // that is being used to name the module
-        if (vma->vm_flags & VM_EXECUTABLE) {
+        if (DRV_VM_MOD_EXECUTABLE(vma)) {
             options |= LOPTS_EXE;
 #if defined(DRV_ANDROID)
             if(!strcmp (pname, "/system/bin/app_process")){
@@ -228,11 +253,31 @@ linuxos_VMA_For_Process (
             options |= LOPTS_1ST_MODREC;
             *first = 0;
         }
-        
+    }
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+#if defined(DRV_ALLOW_VDSO)
+    else if (vma->vm_mm && 
+             vma->vm_start == (long)vma->vm_mm->context.vdso) {
+        pname = "[vdso]";
+    }
+#endif
+#if defined(DRV_ALLOW_SYSCALL)
+    else if (vma->vm_start == VSYSCALL_START) {
+        pname = "[vsyscall]";
+    }
+#endif
+#endif
+
+    if (pname != NULL) {
+        options = 0;
+        if (DRV_VM_MOD_EXECUTABLE(vma)) {
+            options |= LOPTS_EXE;
+        }
+
         if (p && p->parent) {
             ppid = p->parent->tgid;
         }
-        
+        exec_mode = linuxos_Get_Exec_Mode(p);
         // record this module
         linuxos_Load_Image_Notify_Routine(pname,
                                           (PVOID)vma->vm_start,
@@ -240,7 +285,7 @@ linuxos_VMA_For_Process (
                                           p->pid,
                                           ppid,
                                           options,
-                                          linuxos_Get_Exec_Mode(p),
+                                          exec_mode,
                                           load_event);
     }
     return OS_SUCCESS;
@@ -273,9 +318,26 @@ linuxos_Enum_Modules_For_Process (
     }
 #endif
     for (mmap = mm->mmap; mmap; mmap = mmap->vm_next) {
-        if ((mmap->vm_flags & VM_EXEC) && 
-             mmap->vm_file             && 
-             mmap->vm_file->f_dentry) {
+        /* We have 3 distinct conditions here.
+         * 1) Is the page executable?
+         * 2) Is is a part of the vdso area?
+         * 3) Is it the vsyscall area?
+         */
+        if (((mmap->vm_flags & VM_EXEC) && 
+              mmap->vm_file             && 
+              mmap->vm_file->f_dentry) 
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+#if defined(DRV_ALLOW_VDSO)
+             ||
+             (mmap->vm_mm          &&
+              mmap->vm_start == (long)mmap->vm_mm->context.vdso)
+#endif
+#endif
+#if defined(DRV_ALLOW_VSYSCALL)
+             ||
+             (mmap->vm_start == VSYSCALL_START)
+#endif
+             ) {
 
             linuxos_VMA_For_Process(p, 
                                     mmap, 
@@ -302,7 +364,6 @@ linuxos_Enum_Modules_For_Process (
  *              data IN  - this is cast in the mm_struct of the task that is call unmap 
  *
  * @return      none
- *  
  *
  * <I>Special Notes:</I>
  *
@@ -312,7 +373,6 @@ linuxos_Enum_Modules_For_Process (
  * However it is not called when a process is exiting instead exit_mmap is called 
  * (resulting in an EXIT_MMAP notification).
  */
-
 static int
 linuxos_Exec_Unmap_Notify (
     struct notifier_block *self, 
@@ -433,16 +493,12 @@ LINUXOS_Enum_Process_Modules (
  *
  * @return      none
  *
- *  
- *
  * <I>Special Notes:</I>
- *
  * this function is called whenever a task exits.  It is called right before
  * the virtual memory areas are freed.  We just enumerate through all the modules
  * of the task and set the unload sample count and the load event flag to 1 to
  * indicate this is a module unload
  */
-
 static int
 linuxos_Exit_Task_Notify (
     struct notifier_block *self,
@@ -492,18 +548,18 @@ static struct notifier_block linuxos_exit_task_nb = {
 
 /* ------------------------------------------------------------------------- */
 /*!
- * @fn          int LINUXOS_Install_Hooks(VOID) 
+ * @fn          VOID LINUXOS_Install_Hooks(VOID) 
  * @brief       registers the profiling callbacks 
  *
  * @param       none 
  *
- * @return      0 for success everything else fails
+ * @return      none
  *
  * <I>Special Notes:</I>
  *
  * None
  */
-extern int
+extern VOID
 LINUXOS_Install_Hooks (
     VOID
 )
@@ -513,7 +569,7 @@ LINUXOS_Install_Hooks (
 
     if (hooks_installed == 1) {
         SEP_PRINT_DEBUG("The OS Hooks are already installed\n");
-        return 0;
+        return;
     }
     err = profile_event_register(MY_UNMAP, &linuxos_exec_unmap_nb);
     err2= profile_event_register(MY_TASK,  &linuxos_exit_task_nb);
@@ -526,7 +582,7 @@ LINUXOS_Install_Hooks (
     }
     hooks_installed = 1;
 
-    return err;
+    return;
 }
 
 /* ------------------------------------------------------------------------- */

@@ -26,6 +26,10 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
+/*
+ *  CVS_Id="$Id$"
+ */
+
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/interrupt.h>
@@ -91,16 +95,15 @@ typedef union {
     unsigned short int    u16[4];
 } local_handler_t;
 
-/*
- * cpumon_Save_Cpu
- *     Parameters
- *         IN PVOID - Unused, set up to enable parallel calls
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Save_Cpu(param)
  *
- *     Description
- *         Set up the interrupt handler.  
- *         Save the old handler for restoration when done
+ * @param    param    unused parameter
+ *
+ * @return   None     No return needed
+ *
+ * @brief  Save the old handler for restoration when done
  *
  */
 static void 
@@ -125,16 +128,15 @@ cpumon_Save_Cpu (
     return;
 }
 
-/*
- * cpumon_Init_Cpu
- *     Parameters
- *         IN PVOID - Unused, set up to enable parallel calls
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Init_Cpu(param)
  *
- *     Description
- *         Set up the interrupt handler.  
- *         Save the old handler for restoration when done
+ * @param    param    unused parameter
+ *
+ * @return   None     No return needed
+ *
+ * @brief  Set up the interrupt handler.  
  *
  */
 static VOID 
@@ -166,16 +168,16 @@ cpumon_Init_Cpu (
     return;
 }
 
-/*
- * cpumon_Destroy_Cpu
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Destroy_Cpu(param)
  *
- *     Description
- *         Restore the old handler
- *         Finish clean up of the apic
+ * @param    param    unused parameter
+ *
+ * @return   None     No return needed
+ *
+ * @brief  Restore the old handler
+ * @brief  Finish clean up of the apic
  *
  */
 static VOID 
@@ -202,17 +204,17 @@ cpumon_Destroy_Cpu (
 #endif
 
 #if defined(DRV_EM64T)
-/*
- * cpumon_Set_IDT_Func
- *     Parameters
- *         IN GATE_STRUCT*  - address of the idt vector
- *         IN PVOID         - function to set in IDT 
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Set_IDT_Func(idt, func)
  *
- *     Description
- *         Set up the interrupt handler.  
- *         Save the old handler for restoration when done
+ * @param  GATE_STRUCT*  - address of the idt vector
+ * @param  PVOID         - function to set in IDT 
+ *
+ * @return None     No return needed
+ *
+ * @brief  Set up the interrupt handler.  
+ * @brief  Save the old handler for restoration when done
  *
  */
 static VOID
@@ -234,16 +236,16 @@ cpumon_Set_IDT_Func (
     return;
 }
 
-/*
- * cpumon_Save_Cpu
- *     Parameters
- *         IN PVOID - Unused, set up to enable parallel calls
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Save_Cpu(param)
  *
- *     Description
- *         Set up the interrupt handler.  
- *         Save the old handler for restoration when done
+ * @param  param - Unused, set up to enable parallel calls
+ *
+ * @return None     No return needed
+ *
+ * @brief  Set up the interrupt handler.  
+ * @brief  Save the old handler for restoration when done
  *
  */
 static VOID 
@@ -274,16 +276,15 @@ cpumon_Save_Cpu (
     return;
 }
 
-/*
- * cpumon_Init_Cpu
- *     Parameters
- *         IN PVOID - Unused, set up to enable parallel calls
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Init_Cpu(param)
  *
- *     Description
- *         Set up the interrupt handler.  
- *         Save the old handler for restoration when done
+ * @param    param    unused parameter
+ *
+ * @return   None     No return needed
+ *
+ * @brief  Set up the interrupt handler.  
  *
  */
 static VOID 
@@ -303,19 +304,18 @@ cpumon_Init_Cpu (
     return;
 }
 
-/*
- * cpumon_Destroy_Cpu
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn void cpumon_Destroy_Cpu(param)
  *
- *     Description
- *         Restore the old handler
- *         Finish clean up of the apic
+ * @param    param    unused parameter
+ *
+ * @return   None     No return needed
+ *
+ * @brief  Restore the old handler
+ * @brief  Finish clean up of the apic
  *
  */
-
 static VOID 
 cpumon_Destroy_Cpu (
     PVOID ctx
@@ -336,16 +336,16 @@ cpumon_Destroy_Cpu (
 #endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
-/*
- * CPUMON_Install_Cpuhooks
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void CPUMON_Install_Cpuhools(void)
  *
- *     Description
- *         set up the interrupt handler (on a per-processor basis)
- *         Initialize the APIC in two phases (current CPU, then others)
+ * @param    None
+ *
+ * @return   None     No return needed
+ *
+ * @brief  set up the interrupt handler (on a per-processor basis)
+ * @brief  Initialize the APIC in two phases (current CPU, then others)
  *
  */
 extern VOID 
@@ -367,16 +367,16 @@ CPUMON_Install_Cpuhooks (
     return;
 }
 
-/*
- * CPUMON_Remove_Cpuhooks
- *     Parameters
- *         None
- *     Returns
- *         None
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern void CPUMON_Remove_Cpuhools(void)
  *
- *     Description
- *         De-Initialize the APIC in phases
- *         clean up the interrupt handler (on a per-processor basis)
+ * @param    None
+ *
+ * @return   None     No return needed
+ *
+ * @brief  De-Initialize the APIC in phases
+ * @brief  clean up the interrupt handler (on a per-processor basis)
  *
  */
 extern VOID 

@@ -39,18 +39,103 @@
 #include "lwpmudrv.h"
 #include "pci.h"
 
-/*
- * PCI_Read_Ulong
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Read_From_Memory_Address(addr, val)
  *
- * Abstract
- *     Reads a ULONG from PCI configuration space
+ * @param    addr    - physical address in mmio
+ * @param   *value  - value at this address
  *
- * Parameters
- *     pci_address - PCI configuration address
- *     value       - Value at this location
+ * @return  status
  *
- * Returns
- *     The ULONG read from the given PCI address.
+ * @brief   Read memory mapped i/o physical location
+ *
+ */
+extern int
+PCI_Read_From_Memory_Address (
+    U32 addr,
+    U32* val
+)
+{
+    U32 aligned_addr, offset, value;
+    PVOID base;
+
+    if (addr <= 0) {
+        return OS_INVALID;
+    }
+
+    SEP_PRINT_DEBUG("PCI_Read_From_Memory_Address: reading physcial address:%x\n",addr);
+    offset       = addr & ~PAGE_MASK;
+    aligned_addr = addr & PAGE_MASK;
+    SEP_PRINT_DEBUG("PCI_Read_From_Memory_Address: aligned physcial address:%x,offset:%x\n",aligned_addr,offset);
+
+    base = ioremap_nocache(aligned_addr, PAGE_SIZE);
+    if (base == NULL) {
+        return OS_INVALID;
+    }
+
+    value = readl(base+offset);
+    *val = value;
+    SEP_PRINT_DEBUG("PCI_Read_From_Memory_Address: value at this physical address:%x\n",value);
+
+    iounmap(base);
+
+    return OS_SUCCESS;
+}
+
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Write_To_Memory_Address(addr, val)
+ *
+ * @param   addr   - physical address in mmio
+ * @param   value  - value to be written
+ *
+ * @return  status
+ *
+ * @brief   Write to memory mapped i/o physical location
+ *
+ */
+extern int
+PCI_Write_To_Memory_Address (
+    U32 addr,
+    U32 val
+)
+{
+    U32 aligned_addr, offset;
+    PVOID base;
+
+    if (addr <= 0) {
+        return OS_INVALID;
+    }
+
+    SEP_PRINT_DEBUG("PCI_Write_To_Memory_Address: writing physcial address:%x with value:%x\n",addr,val);
+    offset       = addr & ~PAGE_MASK;
+    aligned_addr = addr & PAGE_MASK;
+    SEP_PRINT_DEBUG("PCI_Write_To_Memory_Address: aligned physcial address:%x,offset:%x\n",aligned_addr,offset);
+
+    base = ioremap_nocache(aligned_addr, PAGE_SIZE);
+    if (base == NULL) {
+        return OS_INVALID;
+    }
+
+    writel(val,base+offset);
+
+    iounmap(base);
+
+    return OS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Read_Ulong(pci_address)
+ *
+ * @param    pci_address - PCI configuration address
+ *
+ * @return  value at this location
+ *
+ * @brief   Reads a ULONG from PCI configuration space
+ *
  */
 extern int
 PCI_Read_Ulong (
@@ -66,18 +151,17 @@ PCI_Read_Ulong (
 }
 
 
-/*
- * PCI_Write_Ulong
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn extern int PCI_Write_Ulong(addr, val)
  *
- * Abstract
- *     Writes a ULONG to PCI configuration space
+ * @param    pci_address - PCI configuration address
+ * @param    value - Value to be written
  *
- * Parameters
- *     pci_address - PCI configuration address
- *     value - Value to be written
+ * @return  status
  *
- * Returns
- *     None
+ * @brief   Writes a ULONG to PCI configuration space
+ *
  */
 extern void
 PCI_Write_Ulong (

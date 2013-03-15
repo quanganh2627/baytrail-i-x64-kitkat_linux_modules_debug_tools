@@ -1,7 +1,8 @@
 # This makefile is included from vendor/intel/*/AndroidBoard.mk.
-vtunedk=1
-.PHONY: sep3_8
-sep3_8: build_kernel
+vtunedk=true
+sep_version=sep3_10
+.PHONY: sep3_10
+sep3_10: build_kernel
 	+TARGET_TOOLS_PREFIX="$(ANDROID_BUILD_TOP)/$(TARGET_TOOLS_PREFIX)" \
 	TARGET_DEVICE="$(TARGET_DEVICE)" \
 	TARGET_BOARD_PLATFORM="$(TARGET_BOARD_PLATFORM)" \

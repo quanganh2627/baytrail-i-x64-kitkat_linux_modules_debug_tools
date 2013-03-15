@@ -26,7 +26,6 @@
     the GNU General Public License.
 */
 
-
 #ifndef _CPUMON_H_
 #define _CPUMON_H_
 

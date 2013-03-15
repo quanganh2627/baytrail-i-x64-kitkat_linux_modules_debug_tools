@@ -26,7 +26,6 @@
     the GNU General Public License.
 */
 
-
 #ifndef _OUTPUT_H_
 #define _OUTPUT_H_
 
@@ -83,12 +82,12 @@ extern BUFFER_DESC   module_buf;
  *  Interface Functions
  */
 
-extern int     OUTPUT_Module_Fill (PVOID data, U16 size);
-extern VOID    OUTPUT_Initialize (char *buffer, unsigned long len);
-extern int     OUTPUT_Destroy (VOID);
-extern int     OUTPUT_Flush (VOID);
-extern ssize_t OUTPUT_Module_Read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
-extern ssize_t OUTPUT_Sample_Read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
-extern void*   OUTPUT_Reserve_Buffer_Space (BUFFER_DESC  bd, U32 size);
+extern int       OUTPUT_Module_Fill (PVOID data, U16 size);
+extern OS_STATUS OUTPUT_Initialize (char *buffer, unsigned long len);
+extern int       OUTPUT_Destroy (VOID);
+extern int       OUTPUT_Flush (VOID);
+extern ssize_t   OUTPUT_Module_Read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
+extern ssize_t   OUTPUT_Sample_Read (struct file *filp, char *buf, size_t count, loff_t *f_pos);
+extern void*     OUTPUT_Reserve_Buffer_Space (BUFFER_DESC  bd, U32 size);
 
 #endif 

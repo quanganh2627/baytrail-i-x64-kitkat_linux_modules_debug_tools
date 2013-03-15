@@ -1,21 +1,21 @@
 /*
-    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
- 
+    Copyright (C) 2012 Intel Corporation.  All Rights Reserved.
+
     This file is part of SEP Development Kit
- 
+
     SEP Development Kit is free software; you can redistribute it
     and/or modify it under the terms of the GNU General Public License
     version 2 as published by the Free Software Foundation.
- 
+
     SEP Development Kit is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
- 
+
     You should have received a copy of the GNU General Public License
     along with SEP Development Kit; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- 
+
     As a special exception, you may use this file as part of a free software
     library without restriction.  Specifically, if other files instantiate
     templates or use macros or inline functions from this file, or you compile
@@ -25,6 +25,7 @@
     invalidate any other reasons why the executable file might be covered by
     the GNU General Public License.
 */
+
 #ifndef _PCI_H_
 #define _PCI_H_
 
@@ -49,6 +50,26 @@
                                             ((dev & 0x1F) << 11)    |   \
                                             ((fun & 0x07) <<  8)    |   \
                                             ((off & 0xFF) <<  0))
+
+#define VENDOR_ID_MASK                        0x0000FFFF
+#define DEVICE_ID_MASK                        0xFFFF0000
+#define DEVICE_ID_BITSHIFT                    16
+#define LOWER_4_BYTES_MASK                    0x00000000FFFFFFFF
+#define MAX_BUSNO                             256
+#define NEXT_ADDR_OFFSET                      4
+#define NEXT_ADDR_SHIFT                       32
+#define DRV_IS_PCI_VENDOR_ID_INTEL            0x8086
+
+#define CHECK_IF_GENUINE_INTEL_DEVICE(value, vendor_id, device_id)    \
+    {                                                                 \
+        vendor_id = value & VENDOR_ID_MASK;                           \
+        device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;   \
+                                                                      \
+        if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {                \
+            continue;                                                 \
+        }                                                             \
+                                                                      \
+    }
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 extern int

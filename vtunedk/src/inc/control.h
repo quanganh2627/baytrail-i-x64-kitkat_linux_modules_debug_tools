@@ -43,9 +43,6 @@
 #include "lwpmudrv_defines.h"
 #include "lwpmudrv.h"
 #include "lwpmudrv_types.h"
-#if defined(BUILD_CHIPSET)
-#include "lwpmudrv_chipset.h"
-#endif
 
 // large memory allocation will be used if the requested size (in bytes) is
 // above this threshold
@@ -128,14 +125,6 @@ struct CPU_STATE_NODE_S {
     U32         initial_mask;
     U32         accept_interrupt;
 
-#if defined(BUILD_CHIPSET)
-    // Chipset counter stuff
-    U32         chipset_count_init;  // flag to initialize the last MCH and ICH arrays below.
-    U64         last_mch_count[8];
-    U64         last_ich_count[8];
-    U64         last_gmch_count[MAX_CHIPSET_COUNTERS];
-    U64         last_mmio_count[32]; // it's only 9 now but the next generation may have 29.
-#endif
 
     U64        *pmu_state;           // holds PMU state (e.g., MSRs) that will be
                                      // saved before and restored after collection
@@ -199,8 +188,9 @@ struct MSR_DATA_NODE_S {
 typedef struct MEM_EL_NODE_S  MEM_EL_NODE;
 typedef        MEM_EL_NODE   *MEM_EL;
 struct MEM_EL_NODE_S {
-    char  *address;    // pointer to piece of memory we're tracking
-    S32    size;       // size (bytes) of the piece of memory
+    char     *address;    // pointer to piece of memory we're tracking
+    S32       size;       // size (bytes) of the piece of memory
+    DRV_BOOL  is_addr_vmalloc; // flag to check if the memory is allocated using vmalloc
 };
 
 // accessors for MEM_EL defined in terms of MEM_TRACKER below
@@ -220,6 +210,7 @@ struct MEM_TRACKER_NODE_S {
 #define MEM_TRACKER_next(mt)             (mt)->next
 #define MEM_TRACKER_mem_address(mt, i)   (MEM_TRACKER_mem(mt)[(i)].address)
 #define MEM_TRACKER_mem_size(mt, i)      (MEM_TRACKER_mem(mt)[(i)].size)
+#define MEM_TRACKER_mem_vmalloc(mt, i)   (MEM_TRACKER_mem(mt)[(i)].is_addr_vmalloc)
 
 /****************************************************************************
  ** Global State variables exported
@@ -230,6 +221,10 @@ extern   GLOBAL_STATE_NODE    driver_state;
 extern   MSR_DATA             msr_data;
 extern   U32                 *core_to_package_map;
 extern   U32                  num_packages;
+extern   U64                 *restore_bl_bypass;
+extern   U32                 **restore_ha_direct2core;
+extern   U32                 **restore_qpi_direct2core;
+
 
 /****************************************************************************
  **  Handy Short cuts
@@ -341,23 +336,6 @@ CONTROL_Invoke_Parallel_Service (
  */
 #define CONTROL_Invoke_Parallel_XS(a,b)   CONTROL_Invoke_Parallel_Service((a),(b),TRUE,TRUE)
 
-/* ------------------------------------------------------------------------- */
-/*
- * @fn VOID CONTROL_Invoke_Serial(func, ctx)
- *
- * @param    func     - function to be invoked by each core in the system
- * @param    ctx      - pointer to the parameter block for each function invocation
- *
- * @returns  None
- *
- * @brief    Service routine to handle serial invocation on all cores in the system
- *
- */
-extern VOID 
-CONTROL_Invoke_Serial (
-    VOID   (*func)(PVOID), 
-    PVOID  ctx
-);
 
 /*
  * @fn VOID CONTROL_Memory_Tracker_Init(void)

@@ -9,8 +9,6 @@
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
-
-
 #ifndef _LWPMUDRV_TYPES_H_
 #define _LWPMUDRV_TYPES_H_
 
@@ -28,7 +26,7 @@ typedef          int        S32;
 #if defined(DRV_OS_WINDOWS)
 typedef unsigned __int64    U64;
 typedef          __int64    S64;
-#elif defined (DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID)
+#elif defined (DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 typedef unsigned long long  U64;
 typedef          long long  S64;
 typedef unsigned long       ULONG;
@@ -53,18 +51,20 @@ typedef U64                 UIOP;
 #endif
 
 typedef U32                 DRV_BOOL;
-
-typedef   void*             PVOID;
+typedef void*               PVOID;
 
 #if defined(UNICODE)
-typedef   wchar_t           STCHAR;
+typedef wchar_t             STCHAR;
+#define VTSA_T(x)           L ## x
 #else
-typedef   char              STCHAR;
+typedef char                STCHAR;
+#define VTSA_T(x)           x
 #endif
 
 #if defined(DRV_OS_WINDOWS)
 #include <wchar.h>
 typedef   wchar_t           DRV_STCHAR;
+typedef   wchar_t           VTSA_CHAR;
 #else
 typedef   char              DRV_STCHAR;
 #endif
@@ -82,19 +82,19 @@ typedef   U32                             DRV_STATUS;
 #define   RENAME                        rename
 #define   WCSDUP                        _wcsdup
 #endif
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define   UNLINK                        unlink
 #define   RENAME                        rename
 #endif
 
-#if (defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID))&& !defined(_KERNEL)
+#if (defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined (DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD))&& !defined(_KERNEL)
 //wcsdup is missing on Solaris
 #include <stdlib.h>
 #include <wchar.h>
 
 static inline wchar_t* solaris_wcsdup(const wchar_t *wc)
 {
-	wchar_t *tmp = (wchar_t *)malloc(wcslen(wc) + 1);
+	wchar_t *tmp = (wchar_t *)malloc((wcslen(wc) + 1) * sizeof(wchar_t));
 	wcscpy(tmp, wc);
 	return tmp;
 }
@@ -104,6 +104,25 @@ static inline wchar_t* solaris_wcsdup(const wchar_t *wc)
 #if defined(DRV_OS_LINUX)
 #define   WCSDUP                        wcsdup
 #endif
+
+#if !defined(_WCHAR_T_DEFINED)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_ANDROID)
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+#endif
+#endif
+
+#if (defined(DRV_OS_LINUX) || defined(DRV_OS_ANDROID)) && !defined(__KERNEL__)
+#include <wchar.h>
+typedef wchar_t VTSA_CHAR;
+#endif
+
+#if (defined(DRV_OS_MAC) || defined(DRV_OS_FREEBSD)) && !defined(_KERNEL)
+#include <wchar.h>
+typedef wchar_t VTSA_CHAR;
+#endif
+
 
 #define   TRUE                          1
 #define   FALSE                         0
@@ -118,3 +137,4 @@ static inline wchar_t* solaris_wcsdup(const wchar_t *wc)
 #endif
 
 #endif
+

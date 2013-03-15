@@ -40,6 +40,7 @@
 #include "lwpmudrv.h"
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #include "core2.h"
+#include "silvermont.h"
 #if !defined (DRV_ATOM_ONLY)
 #include "core.h"
 #include "corei7_unc.h"
@@ -50,7 +51,16 @@
 #include "wsmexunc_wbox.h"
 #include "jktunc_imc.h"
 #include "jktunc_qpill.h"
-#include "snb_power.h"
+#include "jaketown_ubox.h"
+#include "haswellunc_ncu.h"
+#include "ivtunc_cbo.h"
+#include "ivtunc_imc.h"
+#include "ivytown_pcu.h"
+#include "ivytown_ha.h"
+#include "ivytown_qpill.h"
+#include "ivytown_r3qpi.h"
+#include "ivytown_ubox.h"
+#include "ivytown_r2pcie.h"
 #endif
 #endif
 #if defined(DRV_IA64)
@@ -77,7 +87,7 @@ UTILITY_Read_PMV (
 
     return r;
 }
-                                           //        1 = mask counter overflow interrupts
+
 extern VOID
 UTILITY_Set_PMV_Mask (
     VOID
@@ -177,7 +187,7 @@ UTILITY_Clear_DCR_PP (
     return;
 }
 
-#endif  // DRV_IA64
+#endif
 
 extern DRV_BOOL
 UTILITY_down_read_mm (
@@ -332,6 +342,10 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the Sandybridge dispatch table\n");
             dispatch = &corei7_dispatch_htoff_mode_2;
             break;
+        case 6:
+            SEP_PRINT_DEBUG("Set up the Silvermont dispatch table\n");
+            dispatch = &silvermont_dispatch;
+            break;
         case 100:
             SEP_PRINT_DEBUG("Set up the Core i7 uncore dispatch table\n");
             dispatch = &corei7_unc_dispatch;
@@ -364,9 +378,45 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the JKT QPILL dispatch table\n");
             dispatch = &jktunc_qpill_dispatch;
             break;
-        case 300:
-            SEP_PRINT_DEBUG("Set up the SNB Power dispatch table\n");
-            dispatch = &snb_power_dispatch;
+        case 222:
+            SEP_PRINT_DEBUG("Set up the Jaketown UBOX dispatch table\n");
+            dispatch = &jaketown_ubox_dispatch;
+            break;
+        case 500:
+            SEP_PRINT_DEBUG("Set up the Haswell UNC NCU dispatch table\n");
+            dispatch = &haswellunc_ncu_dispatch;
+            break;
+        case 600:
+            SEP_PRINT_DEBUG("Set up the IVT UNC CBO dispatch table\n");
+            dispatch = &ivtunc_cbo_dispatch;
+            break;
+        case 610:
+            SEP_PRINT_DEBUG("Set up the IVT UNC IMC dispatch table\n");
+            dispatch = &ivtunc_imc_dispatch;
+            break;
+        case 620:
+            SEP_PRINT("Set up the Ivytown UNC PCU dispatch table\n");
+            dispatch = &ivytown_pcu_dispatch;
+            break;
+        case 630:
+            SEP_PRINT("Set up the Ivytown UNC PCU dispatch table\n");
+            dispatch = &ivytown_ha_dispatch;
+            break;
+        case 640:
+            SEP_PRINT_DEBUG("Set up the Ivytown QPI dispatch table\n");
+            dispatch = &ivytown_qpill_dispatch;
+            break;
+        case 650:
+            SEP_PRINT_DEBUG("Set up the Ivytown R3QPI dispatch table\n");
+            dispatch = &ivytown_r3qpi_dispatch;
+            break;
+        case 660:
+            SEP_PRINT("Set up the Ivytown UNC UBOX dispatch table\n");
+            dispatch = &ivytown_ubox_dispatch;
+            break;
+        case 670:
+            SEP_PRINT("Set up the Ivytown UNC R2PCIe dispatch table\n");
+            dispatch = &ivytown_r2pcie_dispatch;
             break;
 #endif
 #endif
@@ -382,7 +432,7 @@ UTILITY_Configure_CPU (
 #endif
         default:
             dispatch = NULL;
-            SEP_PRINT_ERROR("Architecture not supported\n");
+            SEP_PRINT_ERROR("Architecture not supported (dispatch_id=%d)\n", dispatch_id);
             break;
     }
 
@@ -405,4 +455,4 @@ SYS_Read_MSR (
 
 
 
-#endif /* defined(DRV_IA32) || defined(DRV_EM64T) */
+#endif

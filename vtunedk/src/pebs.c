@@ -207,6 +207,48 @@ pebs_Modify_IP (
     return;
 }
 
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn          VOID pebs_Modify_IP_With_Eventing_IP (sample, is_64bit_addr)
+ *
+ * @brief       Change the IP field in the sample to that in the PEBS record
+ *
+ * @param       sample        - sample buffer
+ * @param       is_64bit_addr - are we in a 64 bit module
+ *
+ * @return      NONE
+ *
+ * <I>Special Notes:</I>
+ *              <NONE>
+ */
+static VOID
+pebs_Modify_IP_With_Eventing_IP (
+    void        *sample,
+    DRV_BOOL     is_64bit_addr
+)
+{
+    SampleRecordPC  *psamp = sample;
+    DTS_BUFFER_EXT   dtes  = CPU_STATE_dts_buffer(&pcb[CONTROL_THIS_CPU()]);
+
+    if (dtes && psamp) {
+        S8   *pebs_base  = (S8 *)(UIOP)DTS_BUFFER_EXT_pebs_base(dtes);
+        S8   *pebs_index = (S8 *)(UIOP)DTS_BUFFER_EXT_pebs_index(dtes);
+        SEP_PRINT_DEBUG("In PEBS Fill Buffer: cpu %d\n", CONTROL_THIS_CPU());
+        if (pebs_base != pebs_index) {
+            PEBS_REC_EXT1  pb = (PEBS_REC_EXT1)pebs_base;
+            if (is_64bit_addr) {
+                SAMPLE_RECORD_iip(psamp)    = PEBS_REC_EXT1_eventing_ip(pb);
+                SAMPLE_RECORD_ipsr(psamp)   = PEBS_REC_EXT1_r_flags(pb);
+            }
+            else {
+                SAMPLE_RECORD_eip(psamp)    = PEBS_REC_EXT1_eventing_ip(pb) & 0xFFFFFFFF;
+                SAMPLE_RECORD_eflags(psamp) = PEBS_REC_EXT1_r_flags(pb) & 0xFFFFFFFF;
+            }
+        }
+    }
+
+    return;
+}
 
 /*
  * Initialize the pebs micro dispatch tables
@@ -236,7 +278,7 @@ PEBS_DISPATCH_NODE  haswell_pebs =
 {
      pebs_Corei7_Initialize_Threshold,
      pebs_Corei7_Overflow,
-     pebs_Modify_IP
+     pebs_Modify_IP_With_Eventing_IP
 };
 
 #define PER_CORE_BUFFER_SIZE(record_size)  (sizeof(DTS_BUFFER_EXT_NODE) +  2 * (record_size) + 64)
@@ -461,6 +503,7 @@ PEBS_Modify_IP (
     pebs_dispatch->modify_ip(sample, is_64bit_addr);
     return;
 }
+
 
 /* ------------------------------------------------------------------------- */
 /*!

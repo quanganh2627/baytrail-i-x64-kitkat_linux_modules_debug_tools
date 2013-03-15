@@ -25,7 +25,6 @@
 #     the GNU General Public License.
 
 
-
 #include <linux/version.h>
 #include <asm/segment.h>
 

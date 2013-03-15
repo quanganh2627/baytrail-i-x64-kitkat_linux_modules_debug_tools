@@ -31,7 +31,7 @@
 # -------------------- user configurable options ------------------------
 
 # base name of SEP driver
-DRIVER_NAME = sep3_8
+DRIVER_NAME = sep3_10
 
 # location to install driver
 INSTALL = .
@@ -39,6 +39,7 @@ INSTALL = .
 # If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
 # Example flags are "-Werror", "-Wno-error", etc.
+#EXTRA_CFLAGS += -I$(LDDINCDIR) -I$(LDDINCDIR1)
 EXTRA_CFLAGS += -I$(M)/../include -I$(M)/inc
 
 # if ARCH variable is set, unset it to avoid conflicts with kbuild
@@ -70,6 +71,7 @@ ifeq ($(PLATFORM),x32)
 	arch-objs :=              \
 			core2.o           \
 			sys32.o           \
+			silvermont.o      \
 			pci.o             \
 			apic.o            \
 			pebs.o
@@ -77,6 +79,7 @@ endif
 ifeq ($(PLATFORM),x32_64)
 	arch-objs :=    core2.o   \
 			sys64.o           \
+			silvermont.o      \
 			pci.o             \
 			apic.o            \
 			pebs.o
