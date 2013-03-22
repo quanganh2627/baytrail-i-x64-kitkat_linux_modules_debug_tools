@@ -23,8 +23,7 @@
    in the file called LICENSE.GPL.
 
    Contact Information:
-   Gautam Upadhyaya <gautam.upadhyaya@intel.com>
-   1906 Fox Drive, Champaign, IL - 61820, USA
+   SOCWatch Developer Team <socwatchdevelopers@intel.com>
 
    BSD LICENSE 
 
@@ -104,7 +103,7 @@
 #include <linux/suspend.h> // for "pm_notifier"
 #include <linux/pci.h>
 
-#if DO_WAKELOCK_SAMPLE
+#if DO_WAKELOCK_SAMPLE 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
 #include <trace/events/wakelock.h> // Works for the custom kernel enabling wakelock tracepoint event
 #endif
@@ -119,6 +118,7 @@
 #include "pw_data_structs.h"
 #include "pw_output_buffer.h"
 #include "pw_defines.h"
+#include "pw_matrix.h"
 
 /**** CONFIGURATION ****/
 
@@ -129,9 +129,16 @@ typedef enum {
     CLV
 } atom_arch_type_t;
 
+typedef enum {
+    NON_SLM=0,
+    SLM_VLV2,
+    SLM_TNG,
+} slm_arch_type_t;
+
 #define APWR_VERSION_CODE LINUX_VERSION_CODE
 
 static __read_mostly atom_arch_type_t pw_is_atm = NON_ATOM;
+static __read_mostly slm_arch_type_t pw_is_slm = NON_SLM;
 static __read_mostly bool pw_is_any_thread_set = false;
 static __read_mostly bool pw_is_auto_demote_enabled = false;
 static __read_mostly unsigned long pw_msr_fsb_freq_value = false;
@@ -246,7 +253,7 @@ static unsigned long startJIFF, stopJIFF;
  * '1' ==> YES, use APERF, MPERF
  * '0' ==> NO, use IA32_FIXED_CTR{1,2}
  */
-#define USE_APERF_MPERF_FOR_DYNAMIC_FREQUENCY 0
+#define USE_APERF_MPERF_FOR_DYNAMIC_FREQUENCY 1
 /*
  * MSR used to toggle C-state auto demotions.
  */
@@ -276,9 +283,10 @@ static unsigned long startJIFF, stopJIFF;
  * Collect S state residency counters
  * The S state residency counters are only available 
  * for MFLD now.
+ * GU: changed to zero, because matrix will handle this
  */
-// #define DO_S_RESIDENCY_SAMPLE 1
 #define DO_S_RESIDENCY_SAMPLE 1
+// #define DO_S_RESIDENCY_SAMPLE 0
 /*
  * Collect S states
  * By default, S-state sample collection is intentionally 
@@ -290,9 +298,9 @@ static unsigned long startJIFF, stopJIFF;
  * Collect D state residency counters in south complex
  * The D state residency counters are only available 
  * for MFLD now.
+ * GU: turned OFF because matrix will handle this code moving forward
  */
-// #define DO_D_SC_RESIDENCY_SAMPLE 1
-#define DO_D_SC_RESIDENCY_SAMPLE 1
+#define DO_D_SC_RESIDENCY_SAMPLE 0
 /*
  * Collect D states in north complex
  */
@@ -322,7 +330,7 @@ static unsigned long startJIFF, stopJIFF;
  * at the beginning and the end to avoid any delay 
  * due to serial execution
  */
-#define DO_GENERATE_CURRENT_FREQ_IN_PARALLEL 0
+#define DO_GENERATE_CURRENT_FREQ_IN_PARALLEL 1
 
 /*
  * Compile-time constants and
@@ -804,8 +812,9 @@ static unsigned int pw_device_poll(struct file *filp, poll_table *wait);
 static int pw_device_mmap(struct file *filp, struct vm_area_struct *vma);
 static int pw_register_dev(void);
 static void pw_unregister_dev(void);
-static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val);
-#if DO_WAKELOCK_SAMPLE
+// static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val);
+static int pw_read_msr_info_set_i(struct pw_msr_info_set *msr_set);
+#if DO_WAKELOCK_SAMPLE 
 static unsigned long pw_hash_string(const char *data);
 #endif // DO_WAKELOCK_SAMPLE
 static int pw_init_data_structures(void);
@@ -865,6 +874,8 @@ static DEFINE_PER_CPU(u64, num_local_apic_timer_inters) = 0;
 static DEFINE_PER_CPU(u32, pcpu_prev_req_freq) = 0;
 
 static DEFINE_PER_CPU(struct msr_set, pw_pcpu_msr_sets);
+
+static struct pw_msr_info_set *pw_pcpu_msr_info_sets ____cacheline_aligned_in_smp = NULL;
 
 
 /*
@@ -1695,6 +1706,50 @@ int init_mod_list(void)
     return SUCCESS;
 };
 
+/*
+ * MSR info set alloc/dealloc routines.
+ */
+static void pw_reset_msr_info_sets(void)
+{
+    int cpu = -1;
+    if (likely(pw_pcpu_msr_info_sets)) {
+        for_each_possible_cpu(cpu) {
+            struct pw_msr_info_set *info_set = pw_pcpu_msr_info_sets + cpu;
+            if (likely(info_set->prev_msr_vals)) {
+                pw_kfree(info_set->prev_msr_vals);
+            }
+            if (likely(info_set->curr_msr_count)) {
+                pw_kfree(info_set->curr_msr_count);
+            }
+            if (likely(info_set->c_multi_msg_mem)) {
+                pw_kfree(info_set->c_multi_msg_mem);
+            }
+            memset(info_set, 0, sizeof(*info_set));
+        }
+    }
+};
+
+static void pw_destroy_msr_info_sets(void)
+{
+    if (likely(pw_pcpu_msr_info_sets)) {
+        pw_reset_msr_info_sets();
+        pw_kfree(pw_pcpu_msr_info_sets);
+        pw_pcpu_msr_info_sets = NULL;
+    }
+};
+
+static int pw_init_msr_info_sets(void)
+{
+    BUG_ON(pw_max_num_cpus <= 0);
+    pw_pcpu_msr_info_sets = pw_kmalloc(sizeof(struct pw_msr_info_set) * pw_max_num_cpus, GFP_KERNEL);
+    if (!pw_pcpu_msr_info_sets) {
+        pw_pr_error("ERROR allocating space for info sets!\n");
+        return -ERROR;
+    }
+    memset(pw_pcpu_msr_info_sets, 0, sizeof(struct pw_msr_info_set) * pw_max_num_cpus);
+    return SUCCESS;
+};
+
 
 static void pw_destroy_data_structures(void)
 {
@@ -1722,6 +1777,8 @@ static void pw_destroy_data_structures(void)
     }
 
     pw_destroy_per_cpu_buffers();
+
+    pw_destroy_msr_info_sets();
 
     {
         /*
@@ -1787,6 +1844,12 @@ static int pw_init_data_structures(void)
 
     if (pw_init_per_cpu_buffers()) {
         pw_pr_error("ERROR initializing per-cpu output buffers\n");
+        pw_destroy_data_structures();
+        return -ERROR;
+    }
+
+    if (pw_init_msr_info_sets()) {
+        pw_pr_error("ERROR initializing MSR info sets\n");
         pw_destroy_data_structures();
         return -ERROR;
     }
@@ -3002,6 +3065,9 @@ static inline void produce_p_sample(int cpu, unsigned long long tsc, u32 req_fre
     sample.cpuidx = cpu;
     sample.tsc = tsc;
 
+    p_msg.unhalted_core_value = aperf;
+    p_msg.unhalted_ref_value = mperf;
+
     p_msg.prev_req_frequency = req_freq;
     p_msg.perf_status_val = (u16)perf_status;
     p_msg.is_boundary_sample = is_boundary_sample;
@@ -3074,13 +3140,15 @@ static inline void produce_k_sample(int cpu, const tnode_t *tentry)
 /*
  * Insert an IRQ_MAP sample into a (per-cpu) output buffer.
  */
-static inline void produce_i_sample(int cpu, int num, const char *name)
+static inline void produce_i_sample(int cpu, int num, u64 tsc, const char *name)
 {
     struct PWCollector_msg sample;
     i_sample_t i_sample;
+    /*
     u64 tsc;
 
     tscval(&tsc);
+    */
 
     sample.cpuidx = cpu;
     sample.tsc = tsc;
@@ -3368,7 +3436,7 @@ static void probe_hrtimer_start(struct hrtimer *hrt)
 
 	LOCK(tick_count_lock);
 	{
-	    if( (should_unregister = (++tick_count == pw_max_num_cpus))){
+	    if( (should_unregister = (++tick_count == num_online_cpus()))){
 		OUTPUT(0, KERN_INFO "[%d]: ALL TICK TIMERS accounted for -- removing hrtimer start probe!\n", cpu);
 		should_probe_on_hrtimer_start = false;
 	    }
@@ -3389,8 +3457,8 @@ static void handle_irq_wakeup_i(int cpu, int irq_num, const char *irq_name, bool
      * Send a sample to Ring-3
      * (but only if collecting).
      */
+    u64 sample_tsc;
     if (IS_COLLECTING()) {
-        u64 sample_tsc;
         tscval(&sample_tsc);
         record_wakeup_cause(sample_tsc, PW_BREAK_TYPE_I, irq_num, -1, -1, -1);
     }
@@ -3421,7 +3489,8 @@ static void handle_irq_wakeup_i(int cpu, int irq_num, const char *irq_name, bool
                 /*
                  * Send mapping info to Ring-3.
                  */
-                produce_i_sample(cpu, irq_num, irq_name);
+                // produce_i_sample(cpu, irq_num, irq_name);
+                produce_i_sample(cpu, irq_num, sample_tsc, irq_name);
             }else if(__ret == ERROR_IRQ_MAPPING){
                 pw_pr_error("ERROR: could NOT insert [%d,%s] into irq list!\n", irq_num, irq_name);
             }
@@ -3885,31 +3954,43 @@ int read_tps_epoch_i(void)
 };
 #endif // DO_TPS_EPOCH_COUNTER
 
-static int pw_read_msr_set_i(struct msr_set *msr_set, int *which_cx, u64 *cx_val)
+static int pw_read_msr_info_set_i(struct pw_msr_info_set *info_set)
 {
     int num_res = 0;
 #ifndef __arm__
-    int i=0;
+    int i=0, cpu = CPU(), curr_index = 0;
     u64 val = 0;
     s32 msr_addr = -1;
+    bool init_msr_set_sent = info_set->init_msr_set_sent == 1;
+    int num_msrs = INTERNAL_STATE.num_msrs;
+    struct pw_msr_addr *msr_addrs = INTERNAL_STATE.msr_addrs;
 
-    *which_cx = APERF;
-
-    // for (i=C2; i<MAX_MSR_ADDRESSES; ++i) {
-    for (i=C9; i>= C2; --i) { // iterate backwards!
-        msr_set->curr_msr_count[i] = 0;
-        msr_addr = INTERNAL_STATE.coreResidencyMSRAddresses[i];
-        // msr_addr = INTERNAL_STATE.pkgResidencyMSRAddresses[i];
-        if (msr_addr <= 0) {
+    /*
+     * Read values for EVERY C-state MSR (Thread/Core/Mod/Pkg)
+     * TODO:
+     * We will need to move away from a linked list to an array.
+     */
+    for (i=0; i<num_msrs; ++i) {
+        msr_addr = msr_addrs[i].addr;
+        if (unlikely(msr_addr <= 0)) {
             continue;
         }
         rdmsrl(msr_addr, val);
-        if (msr_set->prev_msr_vals[i] != 0 && msr_set->prev_msr_vals[i] != val) {
-            *which_cx = i; *cx_val = val;
-            ++num_res;
-            msr_set->curr_msr_count[i] = val;
+        if (unlikely(info_set->prev_msr_vals[i].val == 0x0)) {
+            if (msr_addrs[i].id.depth == MPERF) {
+                info_set->curr_msr_count[curr_index].id = info_set->prev_msr_vals[i].id;
+                info_set->curr_msr_count[curr_index++].val = val;
+            }
+        } else { // val != 0x0
+            if (info_set->prev_msr_vals[i].val != val) {
+                if (msr_addrs[i].id.depth > MPERF) {
+                    ++num_res;
+                }
+                info_set->curr_msr_count[curr_index].id = info_set->prev_msr_vals[i].id;
+                info_set->curr_msr_count[curr_index++].val = val;
+            }
         }
-        msr_set->prev_msr_vals[i] = val;
+        info_set->prev_msr_vals[i].val = val;
     }
 #else
     // probe_power_end fills in these statistics when it is called
@@ -3928,58 +4009,60 @@ static void tps(unsigned int type, unsigned int state)
     PWCollector_msg_t sample;
     int which_cx = APERF;
     u64 cx_val = 0;
-    msr_set_t *set = NULL;
+    pw_msr_info_set_t *info_set = NULL;
     bool local_apic_fired = false;
     u32 prev_req_cstate = 0;
     u8 init_msr_set_sent = 1;
     int num_cx = -1;
-    u64 msr_vals[MAX_MSR_ADDRESSES];
-    u64 msr_set[MAX_MSR_ADDRESSES];
-    PWC_tps_msg_t c_msg;
-    c_msg_t *cm = &c_msg.data;
+    char *__buffer = NULL;
+    bool did_alloc = false;
+    int num_msrs = 0;
+    pw_msr_val_t *msr_vals = NULL;
 
-    const char *wakeup_reasons[] = {"IRQ", "TIM", "SCHED", "IPI", "WRQ", "BEGIN", "NOT", "ABRT", "?"};
 #ifdef __arm__
     u64 *prev_tsc = NULL;
     u64 c0_time = 0;
 #endif
 
-    memset(msr_vals, 0, sizeof(u64) * MAX_MSR_ADDRESSES);
-
     tscval(&tsc);
-
-    // trace_printk("APWR: [%d] TPS at %llu\n", cpu, tsc);
 
     /*
      * Read all C-state MSRs.
      */
-    set = &get_cpu_var(pw_pcpu_msr_sets);
-#ifdef __arm__
-    ++state;  // on ARM (Nexus 7 at least) states start with LP3 and no C0
-    prev_tsc = &get_cpu_var(trace_power_prev_time);
-    c0_time = tsc - *prev_tsc;
-    *prev_tsc = tsc;
-    put_cpu_var(trace_power_prev_time);
-    set->prev_msr_vals[MPERF] += c0_time;
-    c0_time = set->prev_msr_vals[MPERF];
-#endif // __arm__
+    get_cpu();
     {
-        init_msr_set_sent = set->init_msr_set_sent;
-        prev_req_cstate = set->prev_req_cstate;
-        num_cx = pw_read_msr_set_i(set, &which_cx, &cx_val);
-        set->prev_req_cstate = (u32)state; // must be after pw_read_msr_set_i for ARM changes
-        if (unlikely(init_msr_set_sent == 0)) {
-            memcpy(msr_set, set->prev_msr_vals, sizeof(u64) * MAX_MSR_ADDRESSES);
-            set->init_msr_set_sent = 1;
-        }
-        if (unlikely(num_cx > 1)) {
-            memcpy(msr_vals, set->curr_msr_count, sizeof(u64) * MAX_MSR_ADDRESSES);
+        info_set = pw_pcpu_msr_info_sets + cpu;
+#ifdef __arm__
+        ++state;  // on ARM (Nexus 7 at least) states start with LP3 and no C0
+        prev_tsc = &__get_cpu_var(trace_power_prev_time);
+        c0_time = tsc - *prev_tsc;
+        *prev_tsc = tsc;
+        set->prev_msr_vals[MPERF] += c0_time;
+        c0_time = set->prev_msr_vals[MPERF];
+#endif // __arm__
+        {
+            num_msrs = info_set->num_msrs;
+            init_msr_set_sent = info_set->init_msr_set_sent;
+            prev_req_cstate = info_set->prev_req_cstate;
+            num_cx = pw_read_msr_info_set_i(info_set);
+            info_set->prev_req_cstate = (u32)state; // must be after pw_read_msr_set_i for ARM changes
+            if (unlikely(init_msr_set_sent == 0)) {
+                // memcpy(msr_set, info_set->prev_msr_vals, sizeof(u64) * info_set->num_msrs);
+                info_set->init_msr_set_sent = 1;
+            }
+            if (unlikely(num_cx > 1)) {
+                // memcpy(msr_vals, info_set->curr_msr_count, sizeof(u64) * info_set->num_msrs);
+            }
         }
     }
-    put_cpu_var(pw_pcpu_msr_sets);
+    put_cpu();
+
+    if (num_cx > 1) {
+        OUTPUT(0, KERN_INFO "WARNING: [%d]: # cx = %d\n", cpu, num_cx);
+    }
 
     /*
-     * Check if the local APIC timer raised interrupts.
+     * Get wakeup cause(s).
      * Only required if we're capturing C-state samples.
      */
     if (IS_C_STATE_MODE()) {
@@ -4034,10 +4117,11 @@ static void tps(unsigned int type, unsigned int state)
             event_val = 0;
         }
 
+
         if (unlikely(init_msr_set_sent == 0)) {
             /*
-             * OK, this is the first TPS for this thread during the current collection. Send two messages:
-             * 1. First, a "POSIX_TIME_SYNC" message to allow Ring-3 to correlate the TSC used by wuwatch with 
+             * OK, this is the first TPS for this thread during the current collection.
+             * Send a "POSIX_TIME_SYNC" message to allow Ring-3 to correlate the TSC used by wuwatch with 
              * the "clock_gettime()" used by TPSS.
              */
             {
@@ -4057,7 +4141,7 @@ static void tps(unsigned int type, unsigned int state)
 
                 pw_produce_generic_msg(&sample, true);
                 pw_pr_debug(KERN_INFO "[%d]: SENT POSIX_TIME_SYNC\n", cpu);
-                printk(KERN_INFO "[%d]: tsc = %llu posix mono = %llu\n", cpu, tmp_tsc, tmp_nsecs);
+                pw_pr_debug(KERN_INFO "[%d]: tsc = %llu posix mono = %llu\n", cpu, tmp_tsc, tmp_nsecs);
             }
             /*
              * 2. Second, the initial MSR 'set' for this (logical) CPU.
@@ -4066,8 +4150,10 @@ static void tps(unsigned int type, unsigned int state)
                 sample.tsc = tsc;
                 sample.cpuidx = cpu;
                 sample.data_type = C_STATE_MSR_SET;
-                sample.data_len = sizeof(msr_set);
-                sample.p_data = (u64)((unsigned long)msr_set);
+                // sample.data_len = sizeof(msr_set);
+                sample.data_len = num_msrs * sizeof(pw_msr_val_t);
+                // sample.p_data = (u64)((unsigned long)msr_set);
+                sample.p_data = (u64)((unsigned long)info_set->prev_msr_vals);
 
                 // Why "true"? Document!
                 pw_produce_generic_msg(&sample, true);
@@ -4075,69 +4161,133 @@ static void tps(unsigned int type, unsigned int state)
             }
         }
 
-        c_msg.cpuidx = cpu;
-        c_msg.tsc = tsc;
+        /*
+         * Send the actual TPS message here.
+         */
+#if 0
+        {
+            c_msg.cpuidx = cpu;
+            c_msg.tsc = tsc;
 
 #ifndef __arm__
-        {
-            u64 mperf = 0;
-            rdmsrl(INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], mperf);
-            cm->mperf = mperf;
-        }
+            cm->mperf = info_set->curr_msr_count[0].val;
 #else
-        cm->mperf = c0_time;
-#endif // ifndef __arm__
-        // cm->req_state = (u8)prev_req_cstate;
-        cm->req_state = (u8)state;
-        cm->act_state = (u8)which_cx;
-        cm->cx_msr_val = cx_val;
- 
-	cm->wakeup_tsc = event_tsc;
-	cm->wakeup_data = event_val;
-        cm->timer_init_cpu = event_init_cpu;
-	cm->wakeup_pid = event_pid;
-	cm->wakeup_tid = event_tid;
-	cm->wakeup_type = event_type;
+            // TODO
+            cm->mperf = c0_time;
+#endif
 
-        // trace_printk("APWR: TPS at %llu has wakeup reason = %s\n", tsc, wakeup_reasons[event_type]);
+            cm->req_state = (u8)state;
+
+            if (num_cx > 0) {
+                cm->cx_msr_val = info_set->curr_msr_count[1];
+            } else {
+                // cm->act_state_id = info_set->curr_msr_count[0].id;
+                cm->cx_msr_val = info_set->curr_msr_count[0];
+            }
+
+            if (unlikely(init_msr_set_sent == 0)) {
+                pw_pr_debug(KERN_INFO "[%d] TSC = %llu mperf val = %llu cx_msr_val = %llu\n", cpu, tsc, cm->mperf, cm->cx_msr_val.val);
+            }
+
+            cm->wakeup_tsc = event_tsc;
+            cm->wakeup_data = event_val;
+            cm->timer_init_cpu = event_init_cpu;
+            cm->wakeup_pid = event_pid;
+            cm->wakeup_tid = event_tid;
+            cm->wakeup_type = event_type;
 
 
-        c_msg.data_type = C_STATE;
-        c_msg.data_len = sizeof(*cm);
+            c_msg.data_type = C_STATE;
+            c_msg.data_len = sizeof(*cm);
 
 #if DO_TPS_EPOCH_COUNTER
-        /*
-         * We're entering a new TPS "epoch".
-         * Increment our counter.
-         */
-        epoch = inc_tps_epoch_i();
-        cm->tps_epoch = epoch;
+            /*
+             * We're entering a new TPS "epoch".
+             * Increment our counter.
+             */
+            epoch = inc_tps_epoch_i();
+            // epoch = 0x0;
+            cm->tps_epoch = epoch;
 #endif // DO_TPS_EPOCH_COUNTER
 
-        if (IS_COLLECTING()) {
-            DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
+            if (IS_COLLECTING()) {
+                DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
 #ifndef __arm__
-            if (unlikely(num_cx > 1)) {
-                // pw_pr_warn("WARNING: [%d] has %d cx residencies!\n", cpu, num_cx);
-                // printk(KERN_INFO "WARNING: [%d] has %d cx residencies at TSC = %llu! Prev = %d, val = %llu\n", cpu, num_cx, tsc, which_cx, cx_val);
-                for (--num_cx; num_cx > 0; --num_cx) {
-                    /*
-                     * Subsequent samples have the same 'header' information (i.e. same TSC, same cpuidx etc.),
-                     * and also the same 'mperf' and 'wakeup' information. The ONLY things that are different
-                     * are the 'which_cx' and 'cx_msr_val' fields.
-                     */
-                    int i=0;
-                    for (i=C2; i<MAX_MSR_ADDRESSES; ++i) {
-                        if (i == which_cx || msr_vals[i] == 0) {
-                            continue;
-                        }
-                        pw_pr_debug("[%d]: cx = %d\n", cpu, i);
-                        cm->act_state = i; cm->cx_msr_val = msr_vals[i];
+                if (unlikely(num_cx > 1)) {
+                    int curr_index = 2;
+                    // printk(KERN_INFO "[%d]: # cx = %d\n", cpu, num_cx);
+                    for (; curr_index <= num_cx; ++curr_index) {
+                        /*
+                         * Subsequent samples have the same 'header' information (i.e. same TSC, same cpuidx etc.),
+                         * and also the same 'mperf' and 'wakeup' information. The ONLY things that are different
+                         * are the 'which_cx' and 'cx_msr_val' fields.
+                         */
+                        cm->cx_msr_val = info_set->curr_msr_count[curr_index];
                         DO_PER_CPU_OVERHEAD_FUNC(pw_produce_tps_msg, &c_msg);
                     }
                 }
-            }
 #endif // __arm__
+            }
+        }
+#endif
+        {
+            c_multi_msg_t *cm = (c_multi_msg_t *)info_set->c_multi_msg_mem;
+            BUG_ON(!cm);
+
+            sample.cpuidx = cpu;
+            sample.tsc = tsc;
+
+            msr_vals = (pw_msr_val_t *)cm->data;
+
+#ifndef __arm__
+            cm->mperf = info_set->curr_msr_count[0].val;
+#else
+            // TODO
+            cm->mperf = c0_time;
+#endif
+
+            cm->req_state = (u8)state;
+
+
+            cm->wakeup_tsc = event_tsc;
+            cm->wakeup_data = event_val;
+            cm->timer_init_cpu = event_init_cpu;
+            cm->wakeup_pid = event_pid;
+            cm->wakeup_tid = event_tid;
+            cm->wakeup_type = event_type;
+            cm->num_msrs = num_cx;
+
+            /*
+             * 'curr_msr_count[0]' contains the MPERF value, which is encoded separately. 
+             * We therefore read from 'curr_msr_count[1]'
+             */
+            memcpy(msr_vals, &info_set->curr_msr_count[1], sizeof(pw_msr_val_t) * num_cx);
+
+#if DO_TPS_EPOCH_COUNTER
+            /*
+             * We're entering a new TPS "epoch".
+             * Increment our counter.
+             */
+            epoch = inc_tps_epoch_i();
+            // epoch = 0x0;
+            cm->tps_epoch = epoch;
+#endif // DO_TPS_EPOCH_COUNTER
+
+            sample.data_type = C_STATE;
+            sample.data_len = sizeof(pw_msr_val_t) * num_cx + C_MULTI_MSG_HEADER_SIZE();
+            sample.p_data = (u64)((unsigned long)cm);
+
+            if (false && cpu == 0) {
+                printk(KERN_INFO "[%d]: TSC = %llu, #cx = %d, data_len = %u, break_type = %u\n", cpu, sample.tsc, num_cx, sample.data_len, cm->wakeup_type);
+            }
+
+            if (false && cpu == 0 && num_cx == 1) {
+                printk(KERN_INFO "[%d]: TSC = %llu, 1 Cx MSR counted: id = %u, val = %llu\n", cpu, sample.tsc, info_set->curr_msr_count[1].id.depth, info_set->curr_msr_count[1].val);
+            }
+
+            if (IS_COLLECTING()) {
+                pw_produce_generic_msg(&sample, true);
+            }
         }
 
         /*
@@ -4145,6 +4295,11 @@ static void tps(unsigned int type, unsigned int state)
          */
         {
             __get_cpu_var(wakeup_event_counter).event_tsc = 0;
+        }
+
+        if (unlikely(did_alloc)) {
+            did_alloc = false;
+            pw_kfree(__buffer);
         }
     } // IS_C_STATE_MODE()
 
@@ -4187,7 +4342,6 @@ static void tps(unsigned int type, unsigned int state)
 #endif
     }
 #endif // if 0
-
 };
 
 /*
@@ -4382,75 +4536,6 @@ int extract_valid_frequencies(const char *buffer, ssize_t len)
     return SUCCESS;
 };
 
-#define IS_BRACKETED_BY(upper, lower, freq) ({bool __tmp = ( (upper) >= (freq) && (freq) >= (lower) ) ? true : false; __tmp;})
-#define GET_CORRECT_FREQ_BOUND(upper, lower, freq) ({u32 __delta_upper = (upper) - (freq), __delta_lower = (freq) - (lower), __tmp = (__delta_upper < __delta_lower) ? (upper) : (lower); __tmp;})
-
-/*
- * Given a frequency calculated using the
- * 'aperf/mperf' ratio, try and figure out
- * what the ACTUAL frequency was.
- */
-unsigned long get_actual_frequency(unsigned long avg_freq)
-{
-    /*
-     * Basic algo: iterate through array of
-     * available frequencies, comparing 'avg_freq'
-     * to each. Stop at FIRST frequency which
-     * is LESS than 'avg_freq' (i.e. we're ROUNDING
-     * DOWN the 'avg_freq').
-     *
-     * Note that we should probably be trying to
-     * find which of the 'available' frequencies
-     * is CLOSEST to 'avg_freq'. For now,
-     * we rely on this more primitive method.
-     *
-     * UPDATE: we're now finding the CLOSEST
-     * frequency to the 'avg_freq' value.
-     */
-    int i=0;
-
-    if(!apwr_available_frequencies || apwr_available_frequencies[0] == 0)
-	return 0;
-    /*
-     * SPECIAL CASE FOR TURBO frequencies:
-     * If 'avg_freq' > FIRST entry in array
-     * (i.e. the TURBO entry) then just
-     * return 'avg_freq'
-     * UPDATE: NO -- for now we return the
-     * TSC freq + 1 MHz i.e. the first TURBO
-     * freq
-     */
-    /*
-    if(avg_freq > apwr_available_frequencies[0])
-	return avg_freq;
-        */
-    if (avg_freq >= apwr_available_frequencies[0]) {
-        return apwr_available_frequencies[0]; // in Hz
-    }
-
-    /*
-     * Try and find the frequency STEP that's
-     * closest to 'avg_freq'
-     */
-    for(i=1; apwr_available_frequencies[i] != 0; ++i){
-	u32 upper = apwr_available_frequencies[i-1], lower = apwr_available_frequencies[i];
-	if(IS_BRACKETED_BY(upper, lower, avg_freq)){
-	    u32 act_freq = GET_CORRECT_FREQ_BOUND(upper, lower, avg_freq);
-	    OUTPUT(3, KERN_INFO "AVG = %lu, UPPER = %u, LOWER = %u, CLOSEST = %u, \n", avg_freq, upper, lower, act_freq);
-	    return act_freq;
-	}
-    }
-
-    /*
-     * OK, couldn't find a suitable freq -- just
-     * return the 'avg_freq'.
-     * UPDATE: reaching here implies a frequency
-     * LOWER than the LOWEST frequency step. In this
-     * case, return this LOWEST frequency.
-     */
-    return apwr_available_frequencies[--i];
-};
-
 
 /*
  * New methodology -- We're now using APERF/MPERF
@@ -4459,10 +4544,10 @@ unsigned long get_actual_frequency(unsigned long avg_freq)
  * the 'power_frequency' tracepoint.
  */
 #ifndef __arm__
-static void tpf(int cpu, unsigned int type, u32 req_freq)
+static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq)
 {
     u64 tsc = 0, aperf = 0, mperf = 0;
-    u32 prev_req_freq = 0;
+    // u32 prev_req_freq = 0;
     u32 perf_status = 0;
 
 #if DO_IOCTL_STATS
@@ -4486,10 +4571,10 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
      */
 #if 1
     {
-        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[APERF], &l, &h));
+        WARN_ON(rdmsr_safe_on_cpu(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
         aperf = (u64)h << 32 | (u64)l;
 
-        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], &l, &h));
+        WARN_ON(rdmsr_safe_on_cpu(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
         mperf = (u64)h << 32 | (u64)l;
     }
 #endif
@@ -4506,12 +4591,14 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
     /*
      * Retrieve the previous requested frequency, if any. 
      */
-    prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
-    per_cpu(pcpu_prev_req_freq, cpu) = req_freq;
+    if (unlikely(prev_req_freq == 0x0)) {
+        prev_req_freq = per_cpu(pcpu_prev_req_freq, cpu);
+    }
+    per_cpu(pcpu_prev_req_freq, cpu) = curr_req_freq;
 
     produce_p_sample(cpu, tsc, prev_req_freq, perf_status, 0 /* boundary */, aperf, mperf); // "0" ==> NOT a boundary sample
 
-    OUTPUT(0, KERN_INFO "[%d]: TSC = %llu, OLD_req_freq = %u, NEW_REQ_freq = %u, perf_status = %u\n", cpu, tsc, prev_req_freq, req_freq, perf_status); 
+    OUTPUT(0, KERN_INFO "[%d]: TSC = %llu, OLD_req_freq = %u, NEW_REQ_freq = %u, perf_status = %u\n", cpu, tsc, prev_req_freq, curr_req_freq, perf_status); 
 
 #if DO_IOCTL_STATS
     {
@@ -4533,7 +4620,8 @@ static void tpf(int cpu, unsigned int type, u32 req_freq)
 static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val, void *data)
 {
     struct cpufreq_freqs *freq = data;
-    u32 state = freq->new; // "state" is frequency CPU is ABOUT TO EXECUTE AT
+    u32 old_state = freq->old; // "state" is frequency CPU is ABOUT TO EXECUTE AT
+    u32 new_state = freq->new; // "state" is frequency CPU is ABOUT TO EXECUTE AT
     int cpu = freq->cpu;
 
     if (unlikely(!IS_FREQ_MODE())) {
@@ -4542,7 +4630,7 @@ static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val
 
     if (val == CPUFREQ_PRECHANGE) {
 #ifndef __arm__
-        DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, state);
+        DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, new_state, old_state);
 #else
         u64 tsc;
         u32 prev_req_freq = 0;
@@ -4874,8 +4962,10 @@ static void probe_wakeup_source_activate(void *ignore, const char *name, unsigne
 
     if (name == NULL) {
         printk("wake_lock: name=UNKNOWNs, state=%u\n", name, state);
-        return;
+        return; 
     }
+
+    printk("wake_lock: name=%s, state=%u\n", name, state);
 
     /*
      * Track task exits ONLY IF COLLECTION
@@ -4899,8 +4989,10 @@ static void probe_wakeup_source_deactivate(void *ignore, const char *name, unsig
 
     if (name == NULL) {
         printk("wake_unlock: name=UNKNOWNs, state=%u\n", name, state);
-        return;
+        return; 
     }
+
+    printk("wake_unlock: name=%s, state=%u\n", name, state);
 
     /*
      * Track task exits ONLY IF COLLECTION
@@ -5516,7 +5608,7 @@ static void unregister_pausable_probes(void)
 #else
         unregister_trace_wakeup_source_activate(probe_wakeup_source_activate);
         unregister_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate);
-#endif
+#endif 
 
         tracepoint_synchronize_unregister();
 #endif
@@ -5571,7 +5663,7 @@ static void unregister_pausable_probes(void)
 #else
         unregister_trace_wakeup_source_activate(probe_wakeup_source_activate, NULL);
         unregister_trace_wakeup_source_deactivate(probe_wakeup_source_deactivate, NULL);
-#endif
+#endif 
 
         tracepoint_synchronize_unregister();
 #endif
@@ -5936,6 +6028,106 @@ int set_config(struct PWCollector_config *remote_config, int size)
     return SUCCESS;
 };
 
+/*
+ * Free up space allocated for MSR information.
+ */
+static void pw_deallocate_msr_info_i(struct pw_msr_addr **addrs)
+{
+    if (likely(*addrs)) {
+        pw_kfree(*addrs);
+        *addrs = NULL;
+    }
+};
+
+/*
+ * Set MSR addrs
+ */
+int pw_set_msr_addrs(struct pw_msr_info *remote_info, int size)
+{
+    int i=0, retVal = SUCCESS;
+    struct pw_msr_info *local_info = NULL;
+    struct pw_msr_addr *msr_addrs = NULL;
+    int num_msrs = -1;
+    /*
+     * 'Size' includes space for the 'header' AND space for all of the individual 'msr_info' values.
+     */
+    char *__buffer = pw_kmalloc(sizeof(char) * size, GFP_KERNEL);
+    if (!__buffer) {
+        pw_pr_error("ERROR allocating space for msr_addrs!\n");
+        return -ERROR;
+    }
+    memset(__buffer, 0, (sizeof(char) * size));
+
+    local_info = (pw_msr_info_t *)__buffer;
+
+    i = copy_from_user(local_info, remote_info, size);
+    if (i) { // "copy_from_user" returns number of bytes that COULD NOT be copied
+        pw_pr_error("ERROR copying msr_info data from userspace!\n");
+        pw_kfree(__buffer);
+	return i;
+    }
+    num_msrs = local_info->num_msr_addrs;
+    msr_addrs = (struct pw_msr_addr *)local_info->data;
+    pw_pr_debug(KERN_INFO "pw_set_msr_addrs: size = %d, # msrs = %d\n", size, num_msrs);
+    INTERNAL_STATE.num_msrs = num_msrs;
+    INTERNAL_STATE.msr_addrs = pw_kmalloc(sizeof(pw_msr_addr_t) * num_msrs, GFP_KERNEL);
+    if (unlikely(!INTERNAL_STATE.msr_addrs)) {
+        pw_pr_error("ERROR allocating msr_addr array");
+        retVal = -ERROR;
+        goto done;
+    }
+    memcpy(INTERNAL_STATE.msr_addrs, msr_addrs, sizeof(pw_msr_addr_t) * num_msrs);
+    /*
+     * We also need to allocate space for the MSR sets populated by the "pw_read_msr_info_set_i()" function.
+     */
+    {
+        int cpu = 0;
+        for_each_possible_cpu(cpu) {
+            pw_msr_info_set_t *info_set = pw_pcpu_msr_info_sets + cpu;
+            {
+                info_set->num_msrs = num_msrs;
+                info_set->prev_msr_vals = pw_kmalloc(sizeof(pw_msr_val_t) * num_msrs, GFP_KERNEL); 
+                if (unlikely(!info_set->prev_msr_vals)) {
+                    pw_pr_error("ERROR allocating space for info_set->prev_msr_vals!\n");
+                    pw_kfree(INTERNAL_STATE.msr_addrs);
+                    retVal = -ERROR;
+                    goto done;
+                }
+                info_set->curr_msr_count = pw_kmalloc(sizeof(pw_msr_val_t) * num_msrs, GFP_KERNEL);
+                if (unlikely(!info_set->curr_msr_count)) {
+                    pw_pr_error("ERROR allocating space for info_set->curr_msr_count!\n");
+                    pw_kfree(INTERNAL_STATE.msr_addrs);
+                    pw_kfree(info_set->prev_msr_vals);
+                    info_set->prev_msr_vals = NULL;
+                    retVal = -ERROR;
+                    goto done;
+                }
+                info_set->c_multi_msg_mem = pw_kmalloc(sizeof(pw_msr_val_t) * num_msrs + C_MULTI_MSG_HEADER_SIZE(), GFP_KERNEL);
+                if (unlikely(!info_set->c_multi_msg_mem)) {
+                    pw_pr_error("ERROR allocating space for c_multi_msg scratch space!\n");
+                    pw_kfree(INTERNAL_STATE.msr_addrs);
+                    pw_kfree(info_set->prev_msr_vals);
+                    pw_kfree(info_set->curr_msr_count);
+                    info_set->prev_msr_vals = NULL;
+                    info_set->curr_msr_count = NULL;
+                    retVal = -ERROR;
+                    goto done;
+                }
+                memset(info_set->prev_msr_vals, 0, sizeof(pw_msr_val_t) * num_msrs);
+                memset(info_set->curr_msr_count, 0, sizeof(pw_msr_val_t) * num_msrs);
+                memset(info_set->c_multi_msg_mem, 0, sizeof(pw_msr_val_t) * num_msrs + C_MULTI_MSG_HEADER_SIZE());
+                for (i=0; i<num_msrs; ++i) {
+                    info_set->prev_msr_vals[i].id = msr_addrs[i].id;
+                }
+                pw_pr_debug(KERN_INFO "[%d]: info_set = %p, prev_msr_vals = %p, curr_msr_count = %p\n", cpu, info_set, info_set->prev_msr_vals, info_set->curr_msr_count);
+            }
+        }
+    }
+done:
+    pw_kfree(__buffer);
+    return retVal;
+};
+
 int check_platform(struct PWCollector_check_platform *remote_check, int size)
 {
     struct PWCollector_check_platform *local_check;
@@ -6184,6 +6376,22 @@ void reset_per_cpu_msr_residencies(void)
          */
         memset((&per_cpu(pw_pcpu_msr_sets, cpu)), 0, sizeof(msr_set_t));
         /*
+         * Reset the MSR info sets.
+         */
+        {
+            pw_msr_info_set_t *info_set = pw_pcpu_msr_info_sets + cpu;
+            if (likely(info_set->prev_msr_vals)) {
+                int i = 0;
+                for (i=0; i<info_set->num_msrs; ++i) {
+                    info_set->prev_msr_vals[i].val = 0x0;
+                }
+            }
+            if (likely(info_set->curr_msr_count)) {
+                memset(info_set->curr_msr_count, 0, sizeof(pw_msr_val_t) * info_set->num_msrs);
+            }
+            info_set->init_msr_set_sent = 0;
+        }
+        /*
          * Reset stats on # samples produced and # dropped.
          */
         local_set(&per_cpu(num_samples_produced, cpu), 0);
@@ -6267,10 +6475,10 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      */
 #if 1
     {
-        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[APERF], &l, &h));
+        WARN_ON(rdmsr_safe_on_cpu(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
         aperf = (u64)h << 32 | (u64)l;
 
-        WARN_ON(rdmsr_safe_on_cpu(cpu, INTERNAL_STATE.coreResidencyMSRAddresses[MPERF], &l, &h));
+        WARN_ON(rdmsr_safe_on_cpu(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
         mperf = (u64)h << 32 | (u64)l;
     }
 #endif
@@ -6675,6 +6883,9 @@ int stop_collection(PWCollector_cmd_t cmd)
 #if DO_USE_CONSTANT_POOL_FOR_WAKELOCK_NAMES
         destroy_wlock_map();
 #endif // DO_USE_CONSTANT_POOL_FOR_WAKELOCK_NAMES
+        printk(KERN_INFO "Debug: deallocating on a stop/cancel!\n");
+        pw_deallocate_msr_info_i(&INTERNAL_STATE.msr_addrs);
+        pw_reset_msr_info_sets();
     }
 
     OUTPUT(0, KERN_INFO "\tUNREGISTERED all probes!\n");
@@ -7108,6 +7319,10 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         }
         return SUCCESS;
     }
+    else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_MSR_ADDRS)) {
+        pw_pr_debug(KERN_INFO "PW_IOCTL_MSR_ADDRS\n");
+        return pw_set_msr_addrs((struct pw_msr_info *)remote_args->in_arg, local_in_len);
+    }
     else{
 	// ERROR!
 	pw_pr_error("Invalid IOCTL command = %u\n", ioctl_num);
@@ -7208,10 +7423,6 @@ int pw_register_dev(void)
 
     device_create(apwr_class, NULL, apwr_dev, NULL, PW_DEVICE_NAME);
     apwr_cdev = cdev_alloc();
-    if (apwr_cdev == NULL) {
-        printk("Error allocating character device\n");
-        return ret;
-    }
     apwr_cdev->owner = THIS_MODULE;
     apwr_cdev->ops = &Fops;
     if( cdev_add(apwr_cdev, apwr_dev, 1) < 0 )  {
@@ -7417,25 +7628,31 @@ static void restore_ref(void)
     }
 };
 #endif // ifndef __arm__
-/*
- * Check if we're running on ATM.
- */
-atom_arch_type_t is_atm(void)
+static void get_fms(unsigned int *family, unsigned int *model, unsigned int *stepping)
 {
-#ifndef __arm__
     unsigned int ecx, edx;
-    unsigned int fms, family, model, stepping;
+    unsigned int fms;
 
     asm("cpuid" : "=a" (fms), "=c" (ecx), "=d" (edx) : "a" (1) : "ebx");
 
-    family = (fms >> 8) & 0xf;
-    model = (fms >> 4) & 0xf;
-    stepping = fms & 0xf;
+    *family = (fms >> 8) & 0xf;
+    *model = (fms >> 4) & 0xf;
+    *stepping = fms & 0xf;
 
-    if (family == 6 || family == 0xf){
-        model += ((fms >> 16) & 0xf) << 4;
+    if (*family == 6 || *family == 0xf){
+        *model += ((fms >> 16) & 0xf) << 4;
     }
-    OUTPUT(0, KERN_INFO "FMS = 0x%x:%x:%x (%d:%d:%d)\n", family, model, stepping, family, model, stepping);
+    printk(KERN_INFO "FMS = 0x%x:%x:%x (%d:%d:%d)\n", *family, *model, *stepping, *family, *model, *stepping);
+};
+/*
+ * Check if we're running on ATM.
+ */
+static atom_arch_type_t is_atm(void)
+{
+#ifndef __arm__
+    unsigned int family, model, stepping;
+
+    get_fms(&family, &model, &stepping);
     /*
      * This check below will need to
      * be updated for each new
@@ -7457,6 +7674,30 @@ atom_arch_type_t is_atm(void)
     }
 #endif // ifndef __arm__
     return NON_ATOM;
+};
+static slm_arch_type_t is_slm(void)
+{
+#ifndef __arm__
+    unsigned int family, model, stepping;
+
+    get_fms(&family, &model, &stepping);
+    /*
+     * This check below will need to
+     * be updated for each new
+     * architecture type!!!
+     */
+    if (family == 0x6) {
+        switch (model) {
+            case 0x37:
+                return SLM_VLV2;
+            case 0x4a:
+                return SLM_TNG;
+            default:
+                break;
+        }
+    }
+#endif // __arm__
+    return NON_SLM;
 };
 
 static void test_wlock_mappings(void)
@@ -7500,6 +7741,14 @@ static int __init init_hooks(void)
      * Check if we're running on ATM.
      */
     pw_is_atm = is_atm();
+    /*
+     * Check if we're running on SLM.
+     */
+    pw_is_slm = is_slm();
+    /*
+     * Sanity!
+     */
+    BUG_ON(pw_is_atm && pw_is_slm);
 
     /*
      * For MFLD, we also check
@@ -7542,9 +7791,9 @@ static int __init init_hooks(void)
 
     /*
      * Read the 'FSB_FREQ' MSR to determine bus clock freq multiplier.
-     * Update: ONLY if saltwell!
+     * Update: ONLY if saltwell or Silvermont!
      */
-    if (pw_is_atm) {
+    if (pw_is_atm || pw_is_slm) {
         u64 res;
 
         rdmsrl(MSR_FSB_FREQ_ADDR, res);
@@ -7669,7 +7918,7 @@ static int __init init_hooks(void)
             pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_APM_STS_REG);
             pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
             pci_apm_sts_mem_addr = read_value & 0xFFFF;
-
+       
             pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_PM_SSS_REG);
             pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
             pci_pm_sss_mem_addr = read_value & 0xFFFF;
@@ -7701,6 +7950,12 @@ static int __init init_hooks(void)
         if( (ret = pw_register_dev()) < 0) {
             goto err_ret_post_init;
         }
+        /*
+         * ...and then the matrix device file.
+         */
+        if (mt_register_dev()) {
+            goto err_ret_post_pw_reg;
+        }
     }
 
     /*
@@ -7726,10 +7981,13 @@ static int __init init_hooks(void)
 #endif
 
     printk(KERN_INFO "\n--------------------------------------------------------------------------------------------\n");
-    printk(KERN_INFO "START Initialized the PWR DRIVER\n");
+    printk(KERN_INFO "START Initialized the SOCWatch driver\n");
     printk(KERN_INFO "--------------------------------------------------------------------------------------------\n");
 
     return SUCCESS;
+
+err_ret_post_pw_reg:
+    pw_unregister_dev();
 
 err_ret_post_init:
     pw_destroy_data_structures();
@@ -7751,6 +8009,7 @@ static void __exit cleanup_hooks(void)
     int num_timers = 0, num_irqs = 0;
 
     {
+        mt_unregister_dev();
         pw_unregister_dev();
     }
 
@@ -7864,7 +8123,7 @@ static void __exit cleanup_hooks(void)
 
     printk(KERN_INFO "\n--------------------------------------------------------------------------------------------\n");
 
-    printk(KERN_INFO "STOP Terminated the PWR Driver.\n");
+    printk(KERN_INFO "STOP Terminated the SOCWatch driver.\n");
 #if DO_PRINT_COLLECTION_STATS
     printk(KERN_INFO "Total time elapsed = %u msecs, Total collection time = %u msecs\n", jiffies_to_msecs(elapsedJIFF), jiffies_to_msecs(collectJIFF));
 

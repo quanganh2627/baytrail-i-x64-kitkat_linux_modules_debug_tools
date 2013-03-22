@@ -23,8 +23,7 @@
   in the file called LICENSE.GPL.
 
   Contact Information:
-  Gautam Upadhyaya <gautam.upadhyaya@intel.com>
-  1906 Fox Drive, Champaign, IL - 61820, USA
+  SOCWatch Developer Team <socwatchdevelopers@intel.com>
 
   BSD LICENSE 
 
@@ -86,6 +85,7 @@
  * Current driver version is 3.0.0
  * Current driver version is 3.1.0
  * Current driver version is 3.1.1
+ * Current driver version is 3.1.4
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 1
