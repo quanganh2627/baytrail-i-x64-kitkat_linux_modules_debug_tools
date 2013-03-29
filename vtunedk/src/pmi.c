@@ -26,7 +26,6 @@
     the GNU General Public License.
 **COPYRIGHT*/
 
-
 #include "lwpmudrv_defines.h"
 #include <linux/version.h>
 #include <linux/kernel.h>

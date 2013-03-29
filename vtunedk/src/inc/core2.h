@@ -26,42 +26,10 @@
     the GNU General Public License.
 */
 
-
 #ifndef _CORE2_H_
 #define _CORE2_H_
 
-/*
- * Local to this architecture: Core2, Core i7
- * Arch Perf monitoring version 3
- */
-#define IA32_PMC0                   0x0C1
-#define IA32_PMC1                   0x0C2
-#define IA32_PMC2                   0x0C3
-#define IA32_PMC3                   0x0C4
-#define IA32_PMC4                   0x0C5
-#define IA32_PMC5                   0x0C6
-#define IA32_PMC6                   0x0C7
-#define IA32_PMC7                   0x0C8
-#define IA32_PERFEVTSEL0            0x186
-#define IA32_PERFEVTSEL1            0x187
-#define IA32_FIXED_CTR0             0x309
-#define IA32_FIXED_CTR1             0x30A
-#define IA32_FIXED_CTR2             0x30B
-#define IA32_PERF_CAPABILITIES      0x345
-#define IA32_FIXED_CTRL             0x38D
-#define IA32_PERF_GLOBAL_STATUS     0x38E
-#define IA32_PERF_GLOBAL_CTRL       0x38F
-#define IA32_PERF_GLOBAL_OVF_CTRL   0x390
-#define IA32_PEBS_ENABLE            0x3F1
-#define IA32_MISC_ENABLE            0x1A0
-#define IA32_DS_AREA                0x600
-#define IA32_DEBUG_CTRL             0x1D9
-#define IA32_LBR_FILTER_SELECT      0x1c8
-
-#define COMPOUND_CTR_CTL            0x306
-#define COMPOUND_PERF_CTR           0x307
-#define COMPOUND_CTR_OVF_BIT        0x800
-#define COMPOUND_CTR_OVF_SHIFT      12
+#include "msrdefs.h"
 
 extern DISPATCH_NODE  core2_dispatch;
 extern DISPATCH_NODE  corei7_dispatch;
@@ -71,27 +39,5 @@ extern DISPATCH_NODE  corei7_dispatch_htoff_mode_2;
 
 #define CORE2UNC_BLBYPASS_BITMASK      0x00000001
 #define CORE2UNC_DISABLE_BL_BYPASS_MSR 0x39C
-
-extern VOID
-CORE2_Disable_PMU (
-    PVOID  param
-);
-
-extern VOID
-CORE2_Enable_PMU (
-    PVOID   param
-);
-
-extern VOID
-CORE2_ReInit_Data (
-    PVOID   param
-);
-
-extern VOID
-CORE2_Read_PMU_Data (
-    U64   *buffer,
-    int    start,
-    int    stop
-);
 
 #endif 

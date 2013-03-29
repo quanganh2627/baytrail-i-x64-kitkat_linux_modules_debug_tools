@@ -9,8 +9,6 @@
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
-
-
 #ifndef _LWPMUDRV_STRUCT_H_
 #define _LWPMUDRV_STRUCT_H_
 
@@ -56,6 +54,12 @@ struct DRV_CONFIG_NODE_S {
     DRV_BOOL     start_paused;
     DRV_BOOL     counting_mode;
     U32          dispatch_id;
+    DRV_BOOL     enable_chipset;
+    U32          num_chipset_events;
+    U32          chipset_offset;
+    DRV_BOOL     enable_gfx;
+    DRV_BOOL     enable_pwr;
+    DRV_BOOL     emon_mode;
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     U32          pebs_mode;
     U32          pebs_capture;
@@ -69,6 +73,7 @@ struct DRV_CONFIG_NODE_S {
     U32          results_offset;   // this is to store the offset for this device's results
     DRV_BOOL     eventing_ip_capture;
     DRV_BOOL     hle_capture;
+    U32          emon_unc_offset;
 #else
     DRV_BOOL     collect_ro;
 #endif
@@ -80,11 +85,11 @@ struct DRV_CONFIG_NODE_S {
     union {
         S8      *seed_name;
         U64      dummy1;
-    };
+    } u1;
     union {
         S8      *cpu_mask;
         U64      dummy2;
-    };
+    } u2;
 };
 
 #define DRV_CONFIG_size(cfg)                      (cfg)->size
@@ -92,6 +97,12 @@ struct DRV_CONFIG_NODE_S {
 #define DRV_CONFIG_start_paused(cfg)              (cfg)->start_paused
 #define DRV_CONFIG_counting_mode(cfg)             (cfg)->counting_mode
 #define DRV_CONFIG_dispatch_id(cfg)               (cfg)->dispatch_id
+#define DRV_CONFIG_enable_chipset(cfg)            (cfg)->enable_chipset
+#define DRV_CONFIG_num_chipset_events(cfg)        (cfg)->num_chipset_events
+#define DRV_CONFIG_chipset_offset(cfg)            (cfg)->chipset_offset
+#define DRV_CONFIG_enable_gfx(cfg)                (cfg)->enable_gfx
+#define DRV_CONFIG_enable_pwr(cfg)                (cfg)->enable_pwr
+#define DRV_CONFIG_emon_mode(cfg)                 (cfg)->emon_mode
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #define DRV_CONFIG_pebs_mode(cfg)                 (cfg)->pebs_mode
 #define DRV_CONFIG_pebs_capture(cfg)              (cfg)->pebs_capture
@@ -105,12 +116,14 @@ struct DRV_CONFIG_NODE_S {
 #define DRV_CONFIG_results_offset(cfg)            (cfg)->results_offset
 #define DRV_CONFIG_eventing_ip_capture(cfg)       (cfg)->eventing_ip_capture
 #define DRV_CONFIG_hle_capture(cfg)               (cfg)->hle_capture
+
+#define DRV_CONFIG_emon_unc_offset(cfg)           (cfg)->emon_unc_offset
 #else
 #define DRV_CONFIG_collect_ro(cfg)                (cfg)->collect_ro
 #endif
-#define DRV_CONFIG_seed_name(cfg)                 (cfg)->seed_name
+#define DRV_CONFIG_seed_name(cfg)                 (cfg)->u1.seed_name
 #define DRV_CONFIG_seed_name_len(cfg)             (cfg)->seed_name_len
-#define DRV_CONFIG_cpu_mask(cfg)                  (cfg)->cpu_mask
+#define DRV_CONFIG_cpu_mask(cfg)                  (cfg)->u2.cpu_mask
 #define DRV_CONFIG_target_pid(cfg)                (cfg)->target_pid
 #define DRV_CONFIG_use_pcl(cfg)                   (cfg)->use_pcl
 #define DRV_CONFIG_event_based_counts(cfg)        (cfg)->enable_ebc
@@ -515,7 +528,7 @@ typedef struct __node_info {
     U32 node_num_available;        // total number cpus on this node
     U32 node_num_used;             // USER: number used based on cpu mask at time of run
 
-    U64 node_physical_memory;      // amount of physical memory on this node
+    U64 node_physical_memory;      // amount of physical memory (bytes) on this node
 
     //
     // pointer to the first generic header that
@@ -665,29 +678,27 @@ typedef struct _MarkerWallClockData {
 #define MARKER_DATA_wallclock(pdata)       (pdata)->wallclock
 
 
-#define OSSNAMELEN      64
-#define OSNAMELEN      128
- 
+#define OSSNAMELEN      64 
+#define OSNAMELEN       128 
+
 typedef struct _SOFTWARE_INFO_NODE_S SOFTWARE_INFO_NODE;
 typedef SOFTWARE_INFO_NODE          *SOFTWARE_INFO;
- 
+
 struct _SOFTWARE_INFO_NODE_S {
     char sysname[OSSNAMELEN];
     char hostname[OSSNAMELEN];
     char ipaddr[OSSNAMELEN];
+    char osname[OSNAMELEN];
     char release[OSSNAMELEN];
     char machine[OSSNAMELEN];
-    char osname[OSNAMELEN];
 };
- 
-#define SOFTWARE_INFO_sysname(info)        (info)->sysname
-#define SOFTWARE_INFO_hostname(info)       (info)->hostname
+
+#define SOFTWARE_INFO_sysname(info)        (info)->sysname    
+#define SOFTWARE_INFO_hostname(info)       (info)->hostname    
 #define SOFTWARE_INFO_ipaddr(info)         (info)->ipaddr
-#define SOFTWARE_INFO_osname(info)         (info)->osname
+#define SOFTWARE_INFO_osname(info)         (info)->osname    
 #define SOFTWARE_INFO_release(info)        (info)->release
 #define SOFTWARE_INFO_machine(info)        (info)->machine
- 
-
 
 
 /*
@@ -751,7 +762,7 @@ struct _SOFTWARE_INFO_NODE_S {
 #define DEBUG_CTL_NODE_enable_uncore_pmi_set(reg)     (reg) |=  DEBUG_CTL_ENABLE_UNCORE_PMI
 #define DEBUG_CTL_NODE_enable_uncore_pmi_clear(reg)   (reg) &= ~DEBUG_CTL_ENABLE_UNCORE_PMI
 
-#endif
+#endif /* defined(DRV_IA32) || defined(DRV_EM64T) */
 
 /* 
  * @macro SEP_VERSION_NODE_S
@@ -771,8 +782,8 @@ struct SEP_VERSION_NODE_S {
             S32  major:8;
             S32  minor:8;
             S32  api:16;
-        } s1;
-    } u1;
+        }s1;
+    }u1;
 };
 
 #define SEP_VERSION_NODE_sep_version(version) (version)->u1.sep_version
@@ -801,6 +812,10 @@ struct DEVICE_INFO_NODE_S {
     PVOID               drv_event;
     U32                 num_events;
     U32                 event_id_index; // event id index of device (basically how many events processed before this device)
+    U32                 num_counters;
+    U32                 group_index;
+    U32                 num_packages;
+    U32                 num_units;
 };
 
 #define MAX_EVENT_NAME_LENGTH 64
@@ -820,6 +835,11 @@ struct DEVICE_INFO_NODE_S {
 #define DEVICE_INFO_drv_event(pdev)                 (pdev)->drv_event
 #define DEVICE_INFO_num_events(pdev)                (pdev)->num_events
 #define DEVICE_INFO_event_id_index(pdev)            (pdev)->event_id_index
+#define DEVICE_INFO_num_counters(pdev)              (pdev)->num_counters
+#define DEVICE_INFO_group_index(pdev)               (pdev)->group_index
+#define DEVICE_INFO_num_packages(pdev)              (pdev)->num_packages
+#define DEVICE_INFO_num_units(pdev)                 (pdev)->num_units
+
 
 typedef struct DEVICE_INFO_DATA_NODE_S DEVICE_INFO_DATA_NODE;
 typedef        DEVICE_INFO_DATA_NODE  *DEVICE_INFO_DATA;
@@ -836,10 +856,12 @@ struct DEVICE_INFO_DATA_NODE_S {
 
 typedef enum
 {
-    DEVICE_INFO_CORE    =    0,
-    DEVICE_INFO_UNCORE  =    1,
-    DEVICE_INFO_CHIPSET =    2,
-    DEVICE_INFO_GFX     =    3
+    DEVICE_INFO_CORE        =   0,
+    DEVICE_INFO_UNCORE      =   1,
+    DEVICE_INFO_CHIPSET     =   2,
+    DEVICE_INFO_GFX         =   3,
+    DEVICE_INFO_PWR         =   4,
+    DEVICE_INFO_TELEMETRY   =   5
 }   DEVICE_INFO_TYPE;
 
 #if defined(__cplusplus)
@@ -906,4 +928,26 @@ struct DRV_MASKS_NODE_S {
 #define DRV_MASKS_masks_num(d)           (d)->masks_num
 #define DRV_MASKS_eventmasks(d)          (d)->eventmasks
 
+typedef struct EMON_SCHED_INFO_NODE_S   EMON_SCHED_INFO_NODE;
+typedef        EMON_SCHED_INFO_NODE     *EMON_SCHED_INFO;
+
+struct EMON_SCHED_INFO_NODE_S {
+     U32   max_counters_for_all_pmus;
+     U32   num_cpus;
+     U32   group_index;
+     U32   offset_for_next_device;
+     U32   device_id;
+     U32   num_packages;
+     U32   num_units;
+};
+
+#define EMON_SCHED_INFO_max_counters_for_all_pmus(x)  (x)->max_counters_for_all_pmus
+#define EMON_SCHED_INFO_num_cpus(x)                   (x)->num_cpus
+#define EMON_SCHED_INFO_group_index(x)                (x)->group_index
+#define EMON_SCHED_INFO_offset_for_next_device(x)     (x)->offset_for_next_device
+#define EMON_SCHED_INFO_device_id(x)                  (x)->device_id
+#define EMON_SCHED_INFO_num_packages(x)               (x)->num_packages
+#define EMON_SCHED_INFO_num_units(x)                  (x)->num_units
+
 #endif
+

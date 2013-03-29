@@ -9,8 +9,6 @@
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
-
-
 #ifndef _LWPMUDRV_EMON_H_
 #define _LWPMUDRV_EMON_H_
 
@@ -32,3 +30,4 @@ struct EMON_REGISTER_INFO_S
 #define EMON_REGISTER_INFO_value(er)    (er)->value
 
 #endif
+

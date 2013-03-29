@@ -9,8 +9,6 @@
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
-
-
 #ifndef _LWPMUDRV_ECB_H_
 #define _LWPMUDRV_ECB_H_
 
@@ -46,7 +44,7 @@ extern "C" {
  * \var    latency_offset_in_sample      - offset in the sample to locate the latency information
  * \var    latency_size_in_sample        - size of latency records in the sample
  * \var    latency_size_from_pebs_record - size of the latency data from pebs record in the sample
- * \var    latency_offset_in_pebs_record - offset in the sample to locate the latency information 
+ * \var    latency_offset_in_pebs_record - offset in the sample to locate the latency information
  *                                         in pebs record
  * \var    power_offset_in_sample        - offset in the sample to locate the power information
  * \var    ebc_offset                    - offset in the sample to locate the ebc count information
@@ -64,6 +62,7 @@ extern "C" {
  * \var    ipear_count                   - number of IPEAR entries
  *
  * \var    gfx_offset                    - offset in the sample to locate the gfx count information
+ * \var    pwr_offset                    - offset in the sample to locate the pwr count information
  *
  * \brief  Data structure to describe the events and the mode
  *
@@ -88,7 +87,10 @@ struct EVENT_DESC_NODE_S {
     U32     uncore_ebc_offset;
     U32     eventing_ip_offset;
     U32     hle_offset;
-#else  /* DRV_IA64 */
+    U32     gfx_offset;
+    U32     pwr_offset;
+#endif
+#if defined(DRV_IA64)
     U32     ro_offset;
     U32     ro_count;
     U32     iear_offset;
@@ -99,7 +101,7 @@ struct EVENT_DESC_NODE_S {
     U32     dear_count;
     U32     btb_count;
     U32     ipear_count;
-#endif  /* DRV_IA32 || DRV_EM64T */
+#endif
 };
 
 //
@@ -120,7 +122,10 @@ struct EVENT_DESC_NODE_S {
 #define EVENT_DESC_uncore_ebc_offset(ec)                  (ec)->uncore_ebc_offset
 #define EVENT_DESC_eventing_ip_offset(ec)                 (ec)->eventing_ip_offset
 #define EVENT_DESC_hle_offset(ec)                         (ec)->hle_offset
-#else  /* DRV_IA64 */
+#define EVENT_DESC_gfx_offset(ec)                         (ec)->gfx_offset
+#define EVENT_DESC_pwr_offset(ec)                         (ec)->pwr_offset
+#endif
+#if defined(DRV_IA64)
 #define EVENT_DESC_ro_offset(ec)                          (ec)->ro_offset
 #define EVENT_DESC_ro_count(ec)                           (ec)->ro_count
 #define EVENT_DESC_iear_offset(ec)                        (ec)->iear_offset
@@ -131,7 +136,7 @@ struct EVENT_DESC_NODE_S {
 #define EVENT_DESC_dear_count(ec)                         (ec)->dear_count
 #define EVENT_DESC_btb_count(ec)                          (ec)->btb_count
 #define EVENT_DESC_ipear_count(ec)                        (ec)->ipear_count
-#endif  /* DRV_IA32 || DRV_EM64T */
+#endif
 
 // ***************************************************************************
 
@@ -146,14 +151,15 @@ struct EVENT_DESC_NODE_S {
  * \var    lbr_num_regs    -  offset in the sample to locate the lbr information
  * \var    latency_offset_in_sample      -  offset in the sample to locate the latency information
  * \var    latency_size_in_sample        -  size of latency records in the sample
- * \var    latency_size_from_pebs_record -  offset in the sample to locate the latency 
+ * \var    latency_size_from_pebs_record -  offset in the sample to locate the latency
  *                                          size from pebs record
- * \var    latency_offset_in_pebs_record -  offset in the sample to locate the latency information 
+ * \var    latency_offset_in_pebs_record -  offset in the sample to locate the latency information
  *                                          in pebs record
  * \var    power_offset_in_sample        -  offset in the sample to locate the power information
  * \var    ebc_offset                    -  offset in the sample to locate the ebc count information
  *
  * \var    gfx_offset                    -  offset in the sample to locate the gfx count information
+ * \var    pwr_offset                    -  offset in the sample to locate the pwr count information
  *
  * \brief  Data structure to describe the events and the mode
  *
@@ -187,7 +193,10 @@ struct EVENT_CONFIG_NODE_S {
     U32     sample_size_unc;
     U32     eventing_ip_offset;
     U32     hle_offset;
-#else  /* DRV_IA64 */
+    U32     gfx_offset;
+    U32     pwr_offset;
+#endif
+#if defined(DRV_IA64)
     U32     ro_offset;
     U32     ro_count;
     U32     iear_offset;
@@ -198,7 +207,7 @@ struct EVENT_CONFIG_NODE_S {
     U32     dear_count;
     U32     btb_count;
     U32     ipear_count;
-#endif  /* DRV_IA32 || DRV_EM64T */
+#endif
 };
 
 //
@@ -228,7 +237,10 @@ struct EVENT_CONFIG_NODE_S {
 #define EVENT_CONFIG_sample_size_unc(ec)                    (ec)->sample_size_unc
 #define EVENT_CONFIG_eventing_ip_offset(ec)                 (ec)->eventing_ip_offset
 #define EVENT_CONFIG_hle_offset(ec)                         (ec)->hle_offset
-#else  /* DRV_IA64 */
+#define EVENT_CONFIG_gfx_offset(ec)                         (ec)->gfx_offset
+#define EVENT_CONFIG_pwr_offset(ec)                         (ec)->pwr_offset
+#endif
+#if defined(DRV_IA64)
 #define EVENT_CONFIG_ro_offset(ec)                          (ec)->ro_offset
 #define EVENT_CONFIG_ro_count(ec)                           (ec)->ro_count
 #define EVENT_CONFIG_iear_offset(ec)                        (ec)->iear_offset
@@ -239,8 +251,7 @@ struct EVENT_CONFIG_NODE_S {
 #define EVENT_CONFIG_dear_count(ec)                         (ec)->dear_count
 #define EVENT_CONFIG_btb_count(ec)                          (ec)->btb_count
 #define EVENT_CONFIG_ipear_count(ec)                        (ec)->ipear_count
-#endif  /* DRV_IA32 || DRV_EM64T */
-
+#endif
 
 typedef enum {
     UNC_VISA = 1,
@@ -258,7 +269,8 @@ typedef enum {
     UNC_PCIEXBAR,
     UNC_GTTMMADR,
     UNC_GDXCBAR,
-    UNC_CHAPADR
+    UNC_CHAPADR,
+    UNC_SIDEBAND
 } UNC_SA_BAR_TYPE;
 
 typedef enum {
@@ -296,7 +308,7 @@ typedef       EVENT_REG_ID_NODE  *EVENT_REG_ID;
  union EVENT_REG_ID_NODE_S {
    U16            reg_id;
    PCI_ID_NODE    pci_id;
-} ; 
+} ;
 
 
 // ***************************************************************************
@@ -311,7 +323,7 @@ typedef       EVENT_REG_ID_NODE  *EVENT_REG_ID;
  * \var    reg_value            - register value
  * \var    max_bits             - max bits
  * \var    scheduled            - boolean to specify if this event node has been scheduled already
- * \var    
+ * \var
  * \brief  Data structure to describe the event registers
  *
  */
@@ -323,6 +335,7 @@ struct EVENT_REG_NODE_S {
     U8                   reg_type;
     U8                   event_id_index;       // U8 must be changed if MAX_EVENTS > 256
     U8                   event_id_index_local; // U8 must be changed if MAX_EVENTS > 256
+    U8                   emon_event_id_index_local; 
     EVENT_REG_ID_NODE    event_reg_id;
     U16                  desc_id;
     U16                  flags;
@@ -339,21 +352,22 @@ struct EVENT_REG_NODE_S {
 // Accessor macros for EVENT_REG node
 // Note: the flags field is not directly addressible to prevent hackery
 //
-#define EVENT_REG_reg_type(x,i)             (x)[(i)].reg_type
-#define EVENT_REG_event_id_index(x,i)       (x)[(i)].event_id_index
-#define EVENT_REG_event_id_index_local(x,i) (x)[(i)].event_id_index_local
-#define EVENT_REG_reg_id(x,i)               (x)[(i)].event_reg_id.reg_id
-#define EVENT_REG_pci_id(x,i)               (x)[(i)].event_reg_id.pci_id
-#define EVENT_REG_pci_id_offset(x,i)        (x)[(i)].event_reg_id.pci_id.offset
-#define EVENT_REG_pci_id_size(x,i)          (x)[(i)].event_reg_id.pci_id.data_size
-#define EVENT_REG_desc_id(x,i)              (x)[(i)].desc_id
-#define EVENT_REG_reg_value(x,i)            (x)[(i)].reg_value
-#define EVENT_REG_max_bits(x,i)             (x)[(i)].max_bits
-#define EVENT_REG_scheduled(x,i)            (x)[(i)].scheduled
+#define EVENT_REG_reg_type(x,i)                    (x)[(i)].reg_type
+#define EVENT_REG_event_id_index(x,i)              (x)[(i)].event_id_index
+#define EVENT_REG_event_id_index_local(x,i)        (x)[(i)].event_id_index_local
+#define EVENT_REG_emon_event_id_index_local(x,i)   (x)[(i)].emon_event_id_index_local
+#define EVENT_REG_reg_id(x,i)                      (x)[(i)].event_reg_id.reg_id
+#define EVENT_REG_pci_id(x,i)                      (x)[(i)].event_reg_id.pci_id
+#define EVENT_REG_pci_id_offset(x,i)               (x)[(i)].event_reg_id.pci_id.offset
+#define EVENT_REG_pci_id_size(x,i)                 (x)[(i)].event_reg_id.pci_id.data_size
+#define EVENT_REG_desc_id(x,i)                     (x)[(i)].desc_id
+#define EVENT_REG_reg_value(x,i)                   (x)[(i)].reg_value
+#define EVENT_REG_max_bits(x,i)                    (x)[(i)].max_bits
+#define EVENT_REG_scheduled(x,i)                   (x)[(i)].scheduled
 // PCI config-specific fields
-#define EVENT_REG_bus_no(x,i)               (x)[(i)].bus_no
-#define EVENT_REG_dev_no(x,i)               (x)[(i)].dev_no
-#define EVENT_REG_func_no(x,i)              (x)[(i)].func_no
+#define EVENT_REG_bus_no(x,i)                      (x)[(i)].bus_no
+#define EVENT_REG_dev_no(x,i)                      (x)[(i)].dev_no
+#define EVENT_REG_func_no(x,i)                     (x)[(i)].func_no
 
 //
 // Config bits
@@ -372,6 +386,7 @@ struct EVENT_REG_NODE_S {
 #define EVENT_REG_fixed_reg_bit             0x00000200
 #define EVENT_REG_compound_ctr_sub_bit      0x00000400
 #define EVENT_REG_compound_ctr_bit          0x00000800
+#define EVENT_REG_multi_pkg_evt_bit         0x00001000
 
 #else  /* DRV_IA64 */
 
@@ -430,6 +445,11 @@ struct EVENT_REG_NODE_S {
 #define EVENT_REG_compound_ctr_sub_bit_set(x,i)   ((x)[(i)].flags |=  EVENT_REG_compound_ctr_sub_bit)
 #define EVENT_REG_compound_ctr_sub_bit_clear(x,i) ((x)[(i)].flags &= ~EVENT_REG_compound_ctr_sub_bit)
 
+#define EVENT_REG_multi_pkg_evt_bit_get(x,i)   ((x)[(i)].flags &   EVENT_REG_multi_pkg_evt_bit)
+#define EVENT_REG_multi_pkg_evt_bit_set(x,i)   ((x)[(i)].flags |=  EVENT_REG_multi_pkg_evt_bit)
+#define EVENT_REG_multi_pkg_evt_bit_clear(x,i) ((x)[(i)].flags &= ~EVENT_REG_multi_pkg_evt_bit)
+
+
 #else  /* DRV_IA64 */
 
 #define EVENT_REG_dear_value_get(x,i)       ((x)[(i)].flags &   EVENT_REG_dear_value_bit)
@@ -474,7 +494,7 @@ struct EVENT_REG_NODE_S {
  * \var    bar_address        the actual BAR present
  * \var    enable_offset      Offset info to enable/disable
  * \var    enabled            Status of enable/disable
- * \brief  Data structure to describe the PCI Device 
+ * \brief  Data structure to describe the PCI Device
  *
  */
 
@@ -499,6 +519,8 @@ struct DRV_PCI_DEVICE_ENTRY_NODE_S {
     U64        value;
     U64        mask;
     U64        virtual_address;
+    U32        port_id;
+    U32        op_code;
 };
 
 //
@@ -521,6 +543,8 @@ struct DRV_PCI_DEVICE_ENTRY_NODE_S {
 #define DRV_PCI_DEVICE_ENTRY_value(x)                 (x)->value
 #define DRV_PCI_DEVICE_ENTRY_mask(x)                  (x)->mask
 #define DRV_PCI_DEVICE_ENTRY_virtual_address(x)       (x)->virtual_address
+#define DRV_PCI_DEVICE_ENTRY_port_id(x)               (x)->port_id
+#define DRV_PCI_DEVICE_ENTRY_op_code(x)               (x)->op_code
 
 // ***************************************************************************
 
@@ -586,6 +610,7 @@ struct ECB_NODE_S {
 // for flag bit field
 #define ECB_direct2core_bit                0x0001
 #define ECB_bl_bypass_bit                  0x0002
+#define ECB_pci_id_offset_bit              0x0003
 
 #define ECB_CONSTRUCT(x,num_entries,group_id,cccr_start,escr_start,data_start)    \
                                            ECB_num_entries((x)) = (num_entries);  \
@@ -598,22 +623,34 @@ struct ECB_NODE_S {
                                            ECB_data_pop((x)) = 0;                 \
                                            ECB_num_pci_devices((x)) = 0;
 
+#define ECB_CONSTRUCT1(x,num_entries,group_id,cccr_start,escr_start,data_start,num_pci_devices)    \
+                                           ECB_num_entries((x)) = (num_entries);  \
+                                           ECB_group_id((x)) = (group_id);        \
+                                           ECB_cccr_start((x)) = (cccr_start);    \
+                                           ECB_cccr_pop((x)) = 0;                 \
+                                           ECB_escr_start((x)) = (escr_start);    \
+                                           ECB_escr_pop((x)) = 0;                 \
+                                           ECB_data_start((x)) = (data_start);    \
+                                           ECB_data_pop((x)) = 0;                 \
+                                           ECB_num_pci_devices((x)) = (num_pci_devices);
+
 //
 // Accessor macros for ECB node entries
 //
-#define ECB_entries_reg_type(x,i)             EVENT_REG_reg_type((ECB_entries(x)),(i))
-#define ECB_entries_event_id_index(x,i)       EVENT_REG_event_id_index((ECB_entries(x)),(i))
-#define ECB_entries_event_id_index_local(x,i) EVENT_REG_event_id_index_local((ECB_entries(x)),(i))
-#define ECB_entries_reg_id(x,i)               EVENT_REG_reg_id((ECB_entries(x)),(i))
-#define ECB_entries_pci_id(x,i)               EVENT_REG_pci_id((ECB_entries(x)),(i))
-#define ECB_entries_pci_id_offset(x,i)        EVENT_REG_pci_id_offset((ECB_entries(x)),(i))
-#define ECB_entries_reg_value(x,i)            EVENT_REG_reg_value((ECB_entries(x)),(i))
-#define ECB_entries_max_bits(x,i)             EVENT_REG_max_bits((ECB_entries(x)),(i))
-#define ECB_entries_scheduled(x,i)            EVENT_REG_scheduled((ECB_entries(x)),(i))
+#define ECB_entries_reg_type(x,i)                    EVENT_REG_reg_type((ECB_entries(x)),(i))
+#define ECB_entries_event_id_index(x,i)              EVENT_REG_event_id_index((ECB_entries(x)),(i))
+#define ECB_entries_event_id_index_local(x,i)        EVENT_REG_event_id_index_local((ECB_entries(x)),(i))
+#define ECB_entries_emon_event_id_index_local(x,i)   EVENT_REG_emon_event_id_index_local((ECB_entries(x)),(i))
+#define ECB_entries_reg_id(x,i)                      EVENT_REG_reg_id((ECB_entries(x)),(i))
+#define ECB_entries_pci_id(x,i)                      EVENT_REG_pci_id((ECB_entries(x)),(i))
+#define ECB_entries_pci_id_offset(x,i)               EVENT_REG_pci_id_offset((ECB_entries(x)),(i))
+#define ECB_entries_reg_value(x,i)                   EVENT_REG_reg_value((ECB_entries(x)),(i))
+#define ECB_entries_max_bits(x,i)                    EVENT_REG_max_bits((ECB_entries(x)),(i))
+#define ECB_entries_scheduled(x,i)                   EVENT_REG_scheduled((ECB_entries(x)),(i))
 // PCI config-specific fields
-#define ECB_entries_bus_no(x,i)               EVENT_REG_bus_no((ECB_entries(x)),(i))
-#define ECB_entries_dev_no(x,i)               EVENT_REG_dev_no((ECB_entries(x)),(i))
-#define ECB_entries_func_no(x,i)              EVENT_REG_func_no((ECB_entries(x)),(i))
+#define ECB_entries_bus_no(x,i)                      EVENT_REG_bus_no((ECB_entries(x)),(i))
+#define ECB_entries_dev_no(x,i)                      EVENT_REG_dev_no((ECB_entries(x)),(i))
+#define ECB_entries_func_no(x,i)                     EVENT_REG_func_no((ECB_entries(x)),(i))
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #define ECB_entries_precise_get(x,i)                    EVENT_REG_precise_get((ECB_entries(x)),(i))
 #define ECB_entries_tag_get(x,i)                        EVENT_REG_tag_get((ECB_entries(x)),(i))
@@ -624,6 +661,7 @@ struct ECB_NODE_S {
 #define ECB_entries_fixed_reg_get(x,i)                  EVENT_REG_fixed_reg_get((ECB_entries(x)),(i))
 #define ECB_entries_is_compound_ctr_bit_set(x,i)        EVENT_REG_compound_ctr_bit_get((ECB_entries(x)),(i))
 #define ECB_entries_is_compound_ctr_sub_bit_set(x,i)    EVENT_REG_compound_ctr_sub_bit_get((ECB_entries(x)),(i))
+#define ECB_entries_is_multi_pkg_bit_set(x,i)           EVENT_REG_multi_pkg_evt_bit_get((ECB_entries(x)),(i))
 #else  /* DRV_IA64 */
 #define ECB_entries_dear_value_get(x,i)       EVENT_REG_dear_value_get((ECB_entries(x)),(i))
 #define ECB_entries_iear_value_get(x,i)       EVENT_REG_iear_value_get((ECB_entries(x)),(i))
@@ -788,3 +826,4 @@ struct RO_NODE_S {
 #endif
 
 #endif
+

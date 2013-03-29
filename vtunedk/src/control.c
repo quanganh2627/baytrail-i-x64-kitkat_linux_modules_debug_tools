@@ -31,6 +31,7 @@
 #include <linux/mm.h>
 #include <linux/mempool.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 
 #include "lwpmudrv_types.h"
 #include "rise_errors.h"
@@ -53,6 +54,9 @@ MSR_DATA           msr_data      = NULL;
 MEM_TRACKER        mem_tr_head   = NULL;   // start of the mem tracker list
 MEM_TRACKER        mem_tr_tail   = NULL;   // end of mem tracker list
 spinlock_t         mem_tr_lock;            // spinlock for mem tracker list
+U64                *restore_bl_bypass        = NULL;
+U32                **restore_ha_direct2core  = NULL;
+U32                **restore_qpi_direct2core = NULL;
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -121,29 +125,6 @@ CONTROL_Invoke_Parallel_Service (
         func(ctx);
     }
     preempt_enable();
-
-    return;
-}
-
-/* ------------------------------------------------------------------------- */
-/*
- * @fn VOID CONTROL_Invoke_Serial(func, ctx)
- *
- * @param    func     - function to be invoked by each core in the system
- * @param    ctx      - pointer to the parameter block for each function invocation
- *
- * @returns  None
- *
- * @brief    Service routine to handle serial invocation on all cores in the system
- *
- */
-extern VOID 
-CONTROL_Invoke_Serial (
-    VOID   (*func)(PVOID), 
-    PVOID  ctx
-)
-{
-    SEP_PRINT_ERROR("CONTROL_Invoke_Serial is not implemented on Linux\n" );
 
     return;
 }
@@ -276,10 +257,11 @@ control_Memory_Tracker_Create_Node (
 
 /* ------------------------------------------------------------------------- */
 /*
- * @fn VOID control_Memory_Tracker_Add(location, size)
+ * @fn VOID control_Memory_Tracker_Add(location, size, vmalloc_flag)
  *
- * @param    IN location  - memory location
- * @param    IN size      - size of the memory to allocate
+ * @param    IN location     - memory location
+ * @param    IN size         - size of the memory to allocate
+ * @param    IN vmalloc_flag - flag that indicates if the allocation was done with vmalloc
  *
  * @returns  None
  *
@@ -292,8 +274,9 @@ control_Memory_Tracker_Create_Node (
  */
 static U32
 control_Memory_Tracker_Add (
-    PVOID   location,
-    ssize_t size
+    PVOID     location,
+    ssize_t   size,
+    DRV_BOOL  vmalloc_flag
 )
 {
     S32         i, n;
@@ -338,6 +321,7 @@ control_Memory_Tracker_Add (
     // we now have a location in mem tracker to keep track of the memory item
     MEM_TRACKER_mem_address(mem_tr,n) = location;
     MEM_TRACKER_mem_size(mem_tr,n)    = size;
+    MEM_TRACKER_mem_vmalloc(mem_tr,n) = vmalloc_flag;
     SEP_PRINT_DEBUG("control_Memory_Tracker_Add: tracking (0x%p, %d) in node %d of %d\n",
                      location, (S32)size, n, MEM_TRACKER_max_size(mem_tr)-1);
 
@@ -412,6 +396,7 @@ CONTROL_Memory_Tracker_Free (
                 free_pages((unsigned long)MEM_TRACKER_mem_address(mem_tr_head,i), get_order(MEM_TRACKER_mem_size(mem_tr_head,i)));
                 MEM_TRACKER_mem_address(mem_tr_head,i) = NULL;
                 MEM_TRACKER_mem_size(mem_tr_head,i)    = 0;
+                MEM_TRACKER_mem_vmalloc(mem_tr_head,i) = FALSE;
             }
         }
         temp = MEM_TRACKER_next(mem_tr_head);
@@ -528,9 +513,11 @@ CONTROL_Memory_Tracker_Compaction (
         // swap empty node with non-empty node so that "holes" get bubbled towards the end of list
         MEM_TRACKER_mem_address(mem_tr1,i) = MEM_TRACKER_mem_address(mem_tr2,j);
         MEM_TRACKER_mem_size(mem_tr1,i) = MEM_TRACKER_mem_size(mem_tr2,j);
+        MEM_TRACKER_mem_vmalloc(mem_tr1,i) = MEM_TRACKER_mem_vmalloc(mem_tr2,j);
 
         MEM_TRACKER_mem_address(mem_tr2,j) = NULL;
         MEM_TRACKER_mem_size(mem_tr2,j) = 0;
+        MEM_TRACKER_mem_vmalloc(mem_tr2,j) = FALSE;
 
         // keep track of number of memory compactions performed
         c++;
@@ -588,14 +575,16 @@ CONTROL_Allocate_Memory (
         SEP_PRINT_DEBUG("CONTROL_Allocate_Memory: allocated small memory (0x%p, %d)\n", location, (S32) size);
     }
     else {
-        location = (PVOID)__get_free_pages(GFP_KERNEL, get_order(size));
-        status = control_Memory_Tracker_Add(location, size);
-        SEP_PRINT_DEBUG("CONTROL_Allocate_Memory: - allocated *large* memory (0x%p, %d)\n", location, (S32) size);
-        if (status != OS_SUCCESS) {
-            // failed to track in mem_tracker, so free up memory and return NULL
-            free_pages((unsigned long)location, get_order(size));
-            SEP_PRINT_ERROR("CONTROL_Allocate_Memory: - able to allocate, but failed to track via MEM_TRACKER ... freeing\n");
-            return NULL;
+        location = (PVOID)vmalloc(size);
+        if (location) {
+            status = control_Memory_Tracker_Add(location, size, TRUE);
+            SEP_PRINT_DEBUG("CONTROL_Allocate_Memory: - allocated *large* memory (0x%p, %d)\n", location, (S32) size);
+            if (status != OS_SUCCESS) {
+                // failed to track in mem_tracker, so free up memory and return NULL
+                vfree(location);
+                SEP_PRINT_ERROR("CONTROL_Allocate_Memory: - able to allocate, but failed to track via MEM_TRACKER ... freeing\n");
+                return NULL;
+            }
         }
     }
 
@@ -646,7 +635,7 @@ CONTROL_Allocate_KMemory (
     }
     else {
         location = (PVOID)__get_free_pages(GFP_ATOMIC, get_order(size));
-        status = control_Memory_Tracker_Add(location, size);
+        status = control_Memory_Tracker_Add(location, size, FALSE);
         SEP_PRINT_DEBUG("CONTROL_Allocate_KMemory: allocated large memory (0x%p, %d)\n", location, (S32) size);
         if (status != OS_SUCCESS) {
             // failed to track in mem_tracker, so free up memory and return NULL
@@ -706,9 +695,15 @@ CONTROL_Free_Memory (
             if (location == MEM_TRACKER_mem_address(mem_tr,i)) {
                 SEP_PRINT_DEBUG("CONTROL_Free_Memory: freeing large memory location 0x%p\n", location);
                 found = TRUE;
+                if (MEM_TRACKER_mem_vmalloc(mem_tr, i)) {
+                    vfree(location);
+                }
+                else {
                 free_pages((unsigned long)location, get_order(MEM_TRACKER_mem_size(mem_tr,i)));
+                }
                 MEM_TRACKER_mem_address(mem_tr,i) = NULL;
                 MEM_TRACKER_mem_size(mem_tr,i)    = 0;
+                MEM_TRACKER_mem_vmalloc(mem_tr,i) = FALSE;
                 goto finish_free;
             }
         }

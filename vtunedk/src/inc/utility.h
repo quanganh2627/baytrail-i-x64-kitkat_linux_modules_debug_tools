@@ -27,7 +27,6 @@
 */
 
 
-
 #ifndef _UTILITY_H_
 #define _UTILITY_H_
 
@@ -177,6 +176,10 @@ UTILITY_down_read_mm (
 extern void
 UTILITY_up_read_mm(struct task_struct *p);
 
+#if 0 && defined(DRV_EM64T)
+extern void SYS_Get_GDT (U64 *pGdtDesc);
+extern void SYS_Get_IDT (U64 *pIdtDesc);
+#endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 extern void

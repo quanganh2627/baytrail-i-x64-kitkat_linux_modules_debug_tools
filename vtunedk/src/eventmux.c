@@ -347,6 +347,9 @@ EVENTMUX_Destroy (
     EVENT_CONFIG ec
 )
 {
+    if (ec == NULL) {
+        return;
+    }
     if (EVENT_CONFIG_mode(ec)       == EM_DISABLED ||
         EVENT_CONFIG_num_groups(ec) == 1) {
         return;
