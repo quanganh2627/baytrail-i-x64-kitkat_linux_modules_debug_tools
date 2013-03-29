@@ -40,101 +40,27 @@
 #define VT_SUCCESS                      0
 
 /*************************************************************/
-//VTStartSampling and VTStopSampling Error codes
-//
 
 #define VT_INVALID_MAX_SAMP                   1
-#define VTAPI_INVALID_MAX_SAMP                VT_INVALID_MAX_SAMP
-
 #define VT_INVALID_SAMP_PER_BUFF              2
-#define VTAPI_INVALID_SAMP_PER_BUFF           VT_INVALID_SAMP_PER_BUFF
-
 #define VT_INVALID_SAMP_INTERVAL              3
-#define VTAPI_INVALID_SAMP_INTERVAL           VT_INVALID_SAMP_INTERVAL
-
 #define VT_INVALID_PATH                       4
-#define VTAPI_INVALID_PATH                    VT_INVALID_PATH
-                         // invalid .tb5 filename
 #define VT_TB5_IN_USE                         5
-#define VTAPI_TB5_IN_USE                      VT_TB5_IN_USE
-
-                         //If an .sdb file with the
-                         //same name as that of the .tb5 file specified by
-                         //the user exists in the specified directory and
-                         //VTune(TM) analyzer is currently using that .sdb,
-                         //then VTune(TM) analyzer
-                         //should release access to it. This is because
-                         //VTStartSampling deletes the previous .sdb (if any)
-                         //so that the next time VTune(TM) analyzer is used
-                         //to open the
-                         //new .tb5, the previous .sdb is not used.
-
 #define VT_INVALID_NUM_EVENTS                 6
-#define VTAPI_INVALID_NUM_EVENTS              VT_INVALID_NUM_EVENTS
-
 #define VT_INTERNAL_ERROR                     8
-#define VTAPI_INTERNAL_ERROR                  VT_INTERNAL_ERROR
-                       //An internal error occurred in VTStartSampling or
-                       //VTStopSampling
-
 #define VT_BAD_EVENT_NAME                     9
-#define VTAPI_BAD_EVENT_NAME                  VT_BAD_EVENT_NAME
-                       //The specified event doesn't exist.
-
 #define VT_NO_SAMP_SESSION                   10
-#define VTAPI_NO_SAMP_SESSION                VT_NO_SAMP_SESSION
-                       //VTStopSampling was called without calling
-                       //VTStartSampling first
-
 #define VT_NO_EVENTS                         11
-#define VTAPI_NO_EVENTS                      VT_NO_EVENTS
-                       //No events were selected for Event Based Sampling
-                       //and there are no default events
-
 #define VT_MULTIPLE_RUNS                     12
-#define VTAPI_MULTIPLE_RUNS                  VT_MULTIPLE_RUNS
-                       //All of the selected events cannot be run together
-                       //in a single run. Only the events that can run together
-                       //in the first run are selected for sampling.
-                       //
-                       // NOTE :This is a NON-FATAL error returned by VtStartSampling()
-                       // and the calling program must call VtStopSampling() before
-                       // exiting when this error condition happens.
-
 #define VT_NO_SAM_PARAMS                     13
-#define VTAPI_NO_SAM_PARAMS                  VT_NO_SAM_PARAMS
-
 #define VT_SDB_ALREADY_EXISTS                14
-#define VTAPI_SDB_ALREADY_EXISTS             VT_SDB_ALREADY_EXISTS
-
 #define VT_SAMPLING_ALREADY_STARTED          15
-#define VTAPI_SAMPLING_ALREADY_STARTED       VT_SAMPLING_ALREADY_STARTED
-
 #define VT_TBS_NOT_SUPPORTED                 16
-#define VTAPI_TBS_NOT_SUPPORTED              VT_TBS_NOT_SUPPORTED
-                       // This error is returned when time based sampling is requested
-                       // on a system that does not support time based sampling.
-
 #define VT_INVALID_SAMPARAMS_SIZE            17
-#define VTAPI_INVALID_SAMPARAMS_SIZE         VT_INVALID_SAMPARAMS_SIZE
-                       // The size specified in field sizeVtuneSamplingParams is incorrect
-
 #define VT_INVALID_EVENT_SIZE                18
-#define VTAPI_INVALID_EVENT_SIZE             VT_INVALID_EVENT_SIZE
-                       // The size specified in field sizeVtuneEvent is incorrect
-
 #define VT_ALREADY_PROCESSES                 19
-#define VTAPI_ALREADY_PROCESSES              VT_ALREADY_PROCESSES
-                       // The file passed to VTBindSamplingResults was
-                       // already processed
-
 #define VT_INVALID_EVENTS_PATH               20
-#define VTAPI_INVALID_EVENTS_PATH            VT_INVALID_EVENTS_PATH
-                       // Specified path to events file is invalid.
-
 #define VT_INVALID_LICENSE                   21
-#define VTAPI_INVALID_LICENSE                VT_INVALID_LICENSE
-                       // No valid VTune(TM) Performance Analyzer license found.
 
 /******************************************************/
 //SEP error codes
@@ -181,7 +107,6 @@
 #define VT_NOT_CONFIGURED               61
 #define VT_LAUNCH_BUILD64_FAILED        62
 #define VT_BAD_PARAMETER                63
-
 #define VT_ISM_INIT_FAILED              64
 #define VT_INVALID_STATE_TRANS          65
 #define VT_EARLY_EXIT_N_CANCEL          66
@@ -307,6 +232,8 @@
 #define VT_UNSUPPORTED_PWR_ARCH_TYPE    186
 #define VT_PWR_CONFIG_FAILED            187
 #define VT_NMI_WATCHDOG_FOUND           188
+#define VT_NO_PMU_RESOURCES             189
+#define VT_MIC_CARD_NOT_ONLINE          190
 
 /*
  * define error code for checking on async marker request
@@ -328,7 +255,7 @@
 // To make error checking easier, the special VT_LAST_ERROR_CODE
 // should be set to whatever is the last error on the list above
 //
-#define VT_LAST_ERROR_CODE         VT_NMI_WATCHDOG_FOUND
+#define VT_LAST_ERROR_CODE         VT_MIC_CARD_NOT_ONLINE+1
 
 //
 // Define a macro to determine success or failure. Users of this
@@ -346,20 +273,31 @@
 #define SEP_IS_SUCCESS(x)  VTSA_SUCCESS(x)
 #define SEP_IS_FAILED(x)   VTSA_FAILED(x)
 
-//
-// linuxsubs perfmon2 error codes
-//
-// Don't add anything here. These codes actually need to be removed/merged
-// into the above list. DON'T CREATE SPECIALITY AREAS!
-//
-#define VT_PM2_CREATE_CONTEXT_FAILED    1000
-#define VT_PM2_WRITE_PMCS_FAILED        1001
-#define VT_PM2_WRITE_PMDS_FAILED        1002
-#define VT_PM2_LOAD_CONTEXT_FAILED      1003
-#define VT_PM2_START_FAILED             1004
-#define VT_PM2_STOP_FAILED              1005
-#define VT_INVALID_EVENTS               1006
-#define VT_SMP_CALL_INIT_FAILED         1007
+
+
+/*************************************************************
+ * API Error Codes
+ *************************************************************/
+#define VTAPI_INVALID_MAX_SAMP               VT_INVALID_MAX_SAMP
+#define VTAPI_INVALID_SAMP_PER_BUFF          VT_INVALID_SAMP_PER_BUFF
+#define VTAPI_INVALID_SAMP_INTERVAL          VT_INVALID_SAMP_INTERVAL
+#define VTAPI_INVALID_PATH                   VT_INVALID_PATH
+#define VTAPI_TB5_IN_USE                     VT_TB5_IN_USE
+#define VTAPI_INVALID_NUM_EVENTS             VT_INVALID_NUM_EVENTS
+#define VTAPI_INTERNAL_ERROR                 VT_INTERNAL_ERROR
+#define VTAPI_BAD_EVENT_NAME                 VT_BAD_EVENT_NAME
+#define VTAPI_NO_SAMP_SESSION                VT_NO_SAMP_SESSION
+#define VTAPI_NO_EVENTS                      VT_NO_EVENTS
+#define VTAPI_MULTIPLE_RUNS                  VT_MULTIPLE_RUNS
+#define VTAPI_NO_SAM_PARAMS                  VT_NO_SAM_PARAMS
+#define VTAPI_SDB_ALREADY_EXISTS             VT_SDB_ALREADY_EXISTS
+#define VTAPI_SAMPLING_ALREADY_STARTED       VT_SAMPLING_ALREADY_STARTED
+#define VTAPI_TBS_NOT_SUPPORTED              VT_TBS_NOT_SUPPORTED
+#define VTAPI_INVALID_SAMPARAMS_SIZE         VT_INVALID_SAMPARAMS_SIZE
+#define VTAPI_INVALID_EVENT_SIZE             VT_INVALID_EVENT_SIZE
+#define VTAPI_ALREADY_PROCESSES              VT_ALREADY_PROCESSES
+#define VTAPI_INVALID_EVENTS_PATH            VT_INVALID_EVENTS_PATH
+#define VTAPI_INVALID_LICENSE                VT_INVALID_LICENSE
 
 typedef int RISE_ERROR;
 typedef void *RISE_PTR;

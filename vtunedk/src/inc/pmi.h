@@ -27,7 +27,6 @@
 */
 
 
-
 #ifndef _PMI_H_
 #define _PMI_H_
 
@@ -85,6 +84,6 @@ asmlinkage VOID PMI_Interrupt_Handler(struct pt_regs *regs);
 #else
   irqreturn_t PMI_Interrupt_Handler(IN int irq, IN void *arg, IN struct pt_regs *regs);
 #endif
-#endif /* DRV_IA64 */
+#endif 
 
 #endif  

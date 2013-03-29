@@ -26,7 +26,6 @@
     the GNU General Public License.
 */
 
-
 #ifndef _LINUXOS_H_
 #define _LINUXOS_H_
 
@@ -45,6 +44,19 @@
     d_path(&((vm_file)->f_path), (name), (maxlen))
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
+#define DRV_VM_MOD_EXECUTABLE(vma)    \
+    (vma->vm_flags & VM_EXECUTABLE)
+#else
+#define DRV_VM_MOD_EXECUTABLE(vma)    \
+    (linuxos_Equal_VM_Exe_File(vma))
+#define DRV_MM_EXE_FILE_PRESENT
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,32)
+#define DRV_ALLOW_VDSO
+#endif
+
 #if defined(DRV_IA32)
 #define FIND_VMA(mm, data)   find_vma ((mm), (U32)(data));
 #endif
@@ -52,7 +64,7 @@
 #define FIND_VMA(mm, data)   find_vma ((mm), (U64)(data));
 #endif
 
-extern int
+extern VOID
 LINUXOS_Install_Hooks (
     VOID
 );
@@ -67,4 +79,4 @@ LINUXOS_Enum_Process_Modules (
     DRV_BOOL at_end
 );
 
-#endif  
+#endif 

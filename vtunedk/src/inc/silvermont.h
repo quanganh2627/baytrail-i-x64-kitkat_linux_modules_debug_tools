@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2011 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2011-2012 Intel Corporation.  All Rights Reserved.
  
     This file is part of SEP Development Kit
  
@@ -26,29 +26,10 @@
     the GNU General Public License.
 */
 
-/*
- *  cvs_id[] = "$Id$"
- */
+#ifndef _SILVERMONT_H_
+#define _SILVERMONT_H_
 
-#ifndef _EVENTMUX_H_
-#define _EVENTMUX_H_
+#include "msrdefs.h"
+extern DISPATCH_NODE  silvermont_dispatch;
 
-#include "lwpmudrv_ecb.h"
-#include "lwpmudrv_types.h"
-
-extern VOID 
-EVENTMUX_Start (
-    EVENT_CONFIG ec
-);
-
-extern VOID
-EVENTMUX_Initialize (
-    EVENT_CONFIG ec
-);
-
-extern VOID
-EVENTMUX_Destroy (
-    EVENT_CONFIG ec
-);
-
-#endif /* _EVENTMUX_H_ */
+#endif

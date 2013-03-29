@@ -17,7 +17,13 @@ extern "C" {
 #endif
 
 #define MAX_CHIPSET_EVENT_NAME  64
-#define MAX_CHIPSET_COUNTERS    16
+#define MAX_CHIPSET_COUNTERS    5  // TODO: this covers 1 fixed counter
+                                   // plus 4 general counters on GMCH;
+                                   // for other chipset devices, this
+                                   // can vary from 8 to 32; might consider
+                                   // making this per-chipset-type since
+                                   // event-multiplexing is currently not
+                                   // supported for chipset collections
 
 #if defined(_NTDDK_)
 #define CHIPSET_PHYS_ADDRESS PHYSICAL_ADDRESS
@@ -251,8 +257,10 @@ struct CHAP_INTERFACE_NODE_S {
 #define CDV_GMCH_REGISTER_READ          0x10000000
 #define CDV_GMCH_REGISTER_WRITE         0x11000000
 
+
 #if defined(__cplusplus)
 }
 #endif
 
 #endif
+

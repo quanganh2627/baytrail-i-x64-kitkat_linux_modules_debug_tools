@@ -8,7 +8,9 @@
  *        Copyright (c) 2010-2012 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
-
+/*
+ *  File  : lwpmudrv_version.h
+ */
 
 #ifndef _LWPMUDRV_VERSION_H_
 #define _LWPMUDRV_VERSION_H_
@@ -21,8 +23,8 @@
 #define STRINGIFY_W(x)    _STRINGIFY_W(x)
 
 #define SEP_MAJOR_VERSION 3
-#define SEP_MINOR_VERSION 8
-#define SEP_API_VERSION   1
+#define SEP_MINOR_VERSION 10
+#define SEP_API_VERSION   2
 
 #define SEP_NAME          "sep"
 #define SEP_NAME_W        L"sep"
@@ -38,7 +40,7 @@
 
 #endif
 
-#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_ANDROID)
+#if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 
 #define SEP_DRIVER_NAME   SEP_NAME""STRINGIFY(SEP_MAJOR_VERSION)"_"STRINGIFY(SEP_MINOR_VERSION)
 #define SEP_SAMPLES_NAME  SEP_DRIVER_NAME"_s"
@@ -54,6 +56,13 @@
 
 #endif
 
+#if defined(EMON_INTERNAL)
+#define SEP_DRIVER_MODE " (EMON INTERNAL)"
+#elif defined(EMON)
+#define SEP_DRIVER_MODE " (EMON)"
+#else
 #define SEP_DRIVER_MODE ""
+#endif
 
 #endif
+

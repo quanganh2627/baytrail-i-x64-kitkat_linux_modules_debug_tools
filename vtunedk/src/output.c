@@ -446,7 +446,8 @@ output_Initialized_Buffers (
         OUTPUT_buffer_full(outbuf,j) = 0;
         if (!OUTPUT_buffer(outbuf,j)) {
             SEP_PRINT_DEBUG("OUTPUT Initialize_Buffer: Failed Allocation\n");
-            return(desc);
+            /*return NULL to tell the caller that allocation failed*/
+            return NULL;
         }
     }
     /*
@@ -474,7 +475,7 @@ output_Initialized_Buffers (
  *      Initialize the read queues for each sample buffer
  *
  */
-extern VOID
+extern OS_STATUS
 OUTPUT_Initialize (
     char          *buffer, 
     unsigned long  len
@@ -482,12 +483,15 @@ OUTPUT_Initialize (
 {
     BUFFER_DESC    unused;
     int            i;
+    OS_STATUS      status = OS_SUCCESS;
 
     flush = 0;
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
         unused = output_Initialized_Buffers(&cpu_buf[i]);
-        if (unused) {
-        // no-op ... eliminates "variable not used" compiler warning
+        if (!unused) {
+            SEP_PRINT_ERROR("OUTPUT_Initialize: Failed to allocate cpu output buffers\n");
+            OUTPUT_Destroy();
+            return OS_NO_MEM;
         }
     }
 
@@ -496,10 +500,12 @@ OUTPUT_Initialize (
      */
     module_buf = output_Initialized_Buffers(module_buf);
     if (!module_buf) {
-        SEP_PRINT_ERROR("Failed to create module output buffers\n");
+        SEP_PRINT_ERROR("OUTPUT_Initialize: Failed to create module output buffers\n");
+        OUTPUT_Destroy();
+        return OS_NO_MEM;
     }
 
-    return;
+    return status;
 }
 
 
@@ -519,9 +525,9 @@ OUTPUT_Flush (
     VOID
 )
 {
-    int     i;
-    int     writers = 0;
-    OUTPUT  outbuf;
+    int        i;
+    int        writers = 0;
+    OUTPUT     outbuf;
 
     /*
      *  Flush all remaining data to files
@@ -536,7 +542,7 @@ OUTPUT_Flush (
         outbuf = &(cpu_buf[i].outbuf);
         writers += 1;
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-               OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
     }
     atomic_set(&flush_writers, writers + OTHER_C_DEVICES);   
     // Flip the switch to terminate the output threads
@@ -548,7 +554,7 @@ OUTPUT_Flush (
         }
         outbuf = &BUFFER_DESC_outbuf(&cpu_buf[i]);
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-          OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
         wake_up_interruptible_sync(&BUFFER_DESC_queue(&cpu_buf[i]));
     }
 
