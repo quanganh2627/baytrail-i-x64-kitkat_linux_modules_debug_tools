@@ -218,7 +218,7 @@ linuxos_VMA_For_Process (
     U32                   *first
 )
 {
-    U32  options;
+    U32  options = 0;
     S8   name[MAXNAMELEN];
     S8  *pname = NULL;
     U32  ppid  = 0;
