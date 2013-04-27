@@ -70,7 +70,7 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/version.h>
-#include <asm/intel_scu_ipc.h>
+#include <asm/intel_mid_rpmsg.h>
 #if DO_ANDROID
     #include <asm/intel_scu_pmic.h>	/* Needed for 3.4 kernel port */
     #include <asm/intel-mid.h>
@@ -310,7 +310,7 @@ static struct mtx_size_info xhg_buf_info;
             ctrl_data & 0xFF; \
             scu_sub_cmd = (ptr_lut->mmap_##state[lut_loop]. \
                     ctrl_data >> 12) & 0xF; \
-            if ((intel_scu_ipc_simple_command \
+            if ((rpmsg_send_generic_simple_command \
                         (scu_cmd, scu_sub_cmd)) != 0) { \
                 dev_dbg(matrix_device, \
                         "Unable to get SCU data..\n"); \
