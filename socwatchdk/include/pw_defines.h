@@ -5,7 +5,7 @@
 
   GPL LICENSE SUMMARY
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify 
   it under the terms of version 2 of the GNU General Public License as
@@ -27,7 +27,7 @@
 
   BSD LICENSE 
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without 
@@ -61,53 +61,12 @@
 #ifndef _PW_DEFINES_H_
 #define _PW_DEFINES_H_ 1
 
+#include "pw_version.h"
+
 /* ***************************************************
  * Common to kernel and userspace.
  * ***************************************************
  */
-
-/*
- * Power driver version
- * Current driver version is 1.0.1
- * Current driver version is 1.0.2
- * Current driver version is 1.0.3
- * Current driver version is 1.0.4
- * Current driver version is 2.0.0
- * Current driver version is 2.1.1
- * Current driver version is 2.2.0
- * Current driver version is 2.2.1
- * Current driver version is 2.2.2
- * Current driver version is 2.2.3
- * Current driver version is 2.2.4
- * Current driver version is 2.2.5
- * Current driver version is 2.2.6
- * Current driver version is 2.2.7
- * Current driver version is 3.0.0
- * Current driver version is 3.1.0
- * Current driver version is 3.1.1
- * Current driver version is 3.1.4
- */
-#define PW_VERSION_VERSION 3
-#define PW_VERSION_INTERFACE 1
-#define PW_VERSION_OTHER 4
-#define PW_DRV_NAME "apwr3_1"
-
-/*
- * Every wuwatch component shares the same version number.
- */
-#define WUWATCH_VERSION_VERSION 3
-#define WUWATCH_VERSION_INTERFACE 1
-#define WUWATCH_VERSION_OTHER 4
-
-/*
- * Power interface version
- * Current interface version is 0.1.0
- * Current interface version is 0.2.0
- */
-#define PW_INT_VERSION_VERSION 0
-#define PW_INT_VERSION_INTERFACE 2
-#define PW_INT_VERSION_OTHER 0
-
 #define PW_SUCCESS 0
 #define PW_ERROR 1
 
@@ -143,7 +102,7 @@
  * ***************************************************
  */
 
-#define CPU() (smp_processor_id())
+#define CPU() (raw_smp_processor_id())
 #define RAW_CPU() (raw_smp_processor_id())
 #define TID() (current->pid)
 #define PID() (current->tgid)
@@ -195,7 +154,7 @@
 /*
  * Default output file name -- the extensions depend on
  * which program is executing: wuwatch output files have
- * a ".ww1" extension, while wudump output files have a
+ * a ".sw1" extension, while wudump output files have a
  * ".txt" extension. The extensions are added in by the
  * respective programs i.e. wuwatch/wudump.
  */
@@ -210,7 +169,8 @@
  * This is useful when comparing versions, for example.
  * Pretty much identical to the 'KERNEL_VERSION(...)' macro.
  */
-#define WUWATCH_VERSION(major, minor, other) ( (2^16) * (major) + (2^8) * (minor) + (other) )
+//#define WUWATCH_VERSION(major, minor, other) ( (2^16) * (major) + (2^8) * (minor) + (other) )
+#define COLLECTOR_VERSION(major, minor, other) ( (2^16) * (major) + (2^8) * (minor) + (other) )
 /* **************************************
  * Debugging tools.
  * **************************************
@@ -243,6 +203,8 @@ extern bool g_do_debugging;
         perror(__VA_ARGS__); \
     } \
 } while(0)
+
+#define LOG_WUWATCH_FUNCTION_ENTER() db_fprintf(stderr, "ENTERING Function \"%s\"\n", __FUNCTION__);
 
 /*
  * Macros corresponding to the kernel versions of 'likely()'

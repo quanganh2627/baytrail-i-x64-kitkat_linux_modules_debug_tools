@@ -5,7 +5,7 @@
 
   GPL LICENSE SUMMARY
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify 
   it under the terms of version 2 of the GNU General Public License as
@@ -27,7 +27,7 @@
 
   BSD LICENSE 
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without 
@@ -243,6 +243,14 @@
  * MAX number of mappings per block.
  */
 #define PW_MAX_NUM_PROC_MAPPINGS_PER_BLOCK 32
+/*
+ * MAX length of polling data component names; used for fixed-length samples only!
+ */
+#define PW_MAX_POLLING_COMP_NAME 80
+/*
+ * MAX number of GPU frequencies coded per *meta-data* sample; used for fixed-length samples only!
+ */
+#define PW_MAX_GPU_FREQ_PER_SAMPLE 40
 
 /*
  * MSR counter stuff.
@@ -253,18 +261,18 @@
  * For now, hardcoded to values for NHM.
  */
 typedef enum {
-    MPERF=0, // C0
-    APERF, // C1
-    C2,
-    C3,
-    C4,
-    C5,
-    C6,
-    C7,
-    C8,
-    C9,
-    /* C10, */
-    /* C11, */
+    MPERF = 0, // C0
+    APERF = 1, // C1
+    C2 = 2,
+    C3 = 3,
+    C4 = 4,
+    C5 = 5,
+    C6 = 6,
+    C7 = 7,
+    C8 = 8,
+    C9 = 9,
+    /* C10 = 10, */
+    /* C11 = 11, */
     MAX_MSR_ADDRESSES
 } c_state_t;
 
@@ -272,42 +280,47 @@ typedef enum {
  * Enumeration of possible sample types.
  */
 typedef enum {
-    FREE_SAMPLE=0, /* Used (internally) to indicate a FREE entry */
-    C_STATE, /* Used for c-state samples */
-    P_STATE, /* Used for p-state samples */
-    K_CALL_STACK, /* Used for kernel-space call trace entries */
-    M_MAP, /* Used for module map info samples */
-    IRQ_MAP, /* Used for IRQ # <-> DEV name mapping samples */
-    PROC_MAP, /* Used for PID <-> PROC name mapping samples */
-    S_RESIDENCY, /* Used for S residency counter samples */
-    S_STATE, /* Used for S state samples */
-    D_RESIDENCY, /* Used for D residency counter samples */
-    D_STATE, /* Used for D state samples in north or south complex */
-    TIMER_SAMPLE,
-    IRQ_SAMPLE,
-    WORKQUEUE_SAMPLE,
-    SCHED_SAMPLE,
-    IPI_SAMPLE,
-    TPE_SAMPLE, /*  Used for 'trace_power_end' samples */
-    W_STATE, /* Used for kernel wakelock samples */
-    DEV_MAP, /* Used for NC and SC device # <-> DEV name mapping samples */
-    C_STATE_MSR_SET, /* Used to send an initial snapshot of the various C-state MSRs */
-    U_STATE, /* Used for user wakelock samples */
-    TSC_POSIX_MONO_SYNC, /* Used to sync TSC <-> posix CLOCK_MONOTONIC timers; REQUIRED for AXE support */ 
-    CONSTANT_POOL_ENTRY, /* Used to send constant pool information */
-    PKG_MAP, /* Used to send UID and package name mappings used for Android */
-    CPUHOTPLUG_SAMPLE, /* Used to note when a CPU goes online or offline in ARM systems */
-    C_MULTI_MSG, /* Used for c-state samples when multiple C-state MSRs have counted */
-    THERMAL, // Needs Meta Data???
-    POWER_METER, // Needs Meta Data
-    GRAPHICS, // Needs Meta Data + Subtypes (GFX_C_STATE, GFX_P_STATE)
-    BANDWIDTH, // Needs Meta Data + Subtypes(???)
-    MODEM, // Needs Meta Data
-    U_CALL_STACK, // Needs subtypes for Windows
-    TIMER_RESOLUTION, // Needs input from Windows team
-    SYSTEM, // ??? for meta data only
-    META_DATA, // Needs subtypes
-    SUMMARY, /* For summary and timeline trace samples; will have sub types */
+    FREE_SAMPLE = 0, /* Used (internally) to indicate a FREE entry */
+    C_STATE = 1, /* Used for c-state samples */
+    P_STATE = 2, /* Used for p-state samples */
+    K_CALL_STACK = 3, /* Used for kernel-space call trace entries */
+    M_MAP = 4, /* Used for module map info samples */
+    IRQ_MAP = 5, /* Used for IRQ # <-> DEV name mapping samples */
+    PROC_MAP = 6, /* Used for PID <-> PROC name mapping samples */
+    S_RESIDENCY = 7, /* Used for S residency counter samples */
+    S_STATE = 8, /* Used for S state samples */
+    D_RESIDENCY = 9, /* Used for D residency counter samples */
+    D_STATE = 10, /* Used for D state samples in north or south complex */
+    TIMER_SAMPLE = 11,
+    IRQ_SAMPLE = 12,
+    WORKQUEUE_SAMPLE = 13,
+    SCHED_SAMPLE = 14,
+    IPI_SAMPLE = 15,
+    TPE_SAMPLE = 16, /*  Used for 'trace_power_end' samples */
+    W_STATE = 17, /* Used for kernel wakelock samples */
+    DEV_MAP = 18, /* Used for NC and SC device # <-> DEV name mapping samples */
+    C_STATE_MSR_SET = 19, /* Used to send an initial snapshot of the various C-state MSRs */
+    U_STATE = 20, /* Used for user wakelock samples */
+    TSC_POSIX_MONO_SYNC = 21, /* Used to sync TSC <-> posix CLOCK_MONOTONIC timers; REQUIRED for AXE support */ 
+    CONSTANT_POOL_ENTRY = 22, /* Used to send constant pool information */
+    PKG_MAP = 23, /* Used to send UID and package name mappings used for Android */
+    CPUHOTPLUG_SAMPLE = 24, /* Used to note when a CPU goes online or offline in ARM systems */
+    C_MULTI_MSG = 25, /* Used for c-state samples when multiple C-state MSRs have counted */
+    THERMAL = 26, // Needs Meta Data???
+    POWER_METER = 27, // Needs Meta Data
+    GRAPHICS = 28, // Needs Meta Data + Subtypes (GFX_C_STATE, GFX_P_STATE)
+    BANDWIDTH = 29, // Needs Meta Data + Subtypes(???)
+    MODEM = 30, // Needs Meta Data
+    U_CALL_STACK = 31, // Needs subtypes for Windows
+    TIMER_RESOLUTION = 32, // Needs input from Windows team
+    SYSTEM = 33, // ??? for meta data only
+    META_DATA = 34, // Needs subtypes
+    SUMMARY = 35, /* For summary and timeline trace samples; will have sub types */
+    ACPI_S3 = 36, /* Used for ACPI S3 residency counter samples */
+    GPUFREQ = 37, /* Used for GPU P-state metadata */
+    THERMAL_COMP = 38, /* HACK! (GEH) Used for thermal component metadata for fixed-length samples only */
+    BANDWIDTH_COMP = 39, /* HACK! (GEH) Used for bandwidth component/pathway metadata for fixed-length samples only */
+    GPU_P_STATE = 40, /* HACK! (GEH) Used for GPU P-state for fixed-length samples only (temporary) */
     SAMPLE_TYPE_END
 } sample_type_t;
 #define FOR_EACH_SAMPLE_TYPE(idx) for ( idx = C_STATE; idx < SAMPLE_TYPE_END; ++idx )
@@ -319,16 +332,18 @@ typedef enum {
  */
 
 typedef enum{
-    PW_BREAK_TYPE_I=0, // interrupt
-    PW_BREAK_TYPE_T, // timer
-    PW_BREAK_TYPE_S, // sched-switch
-    PW_BREAK_TYPE_IPI, // {LOC, RES, CALL, TLB}
-    PW_BREAK_TYPE_W, // workqueue
-    PW_BREAK_TYPE_B, // begin
-    PW_BREAK_TYPE_N, // Not-a-break: used exclusively for CLTP support: DEBUGGING ONLY!
-    PW_BREAK_TYPE_A, // Abort
-    PW_BREAK_TYPE_U // unknown
+    PW_BREAK_TYPE_I = 0, // interrupt
+    PW_BREAK_TYPE_T = 1, // timer
+    PW_BREAK_TYPE_S = 2, // sched-switch
+    PW_BREAK_TYPE_IPI = 3, // (LOC, RES, CALL, TLB)
+    PW_BREAK_TYPE_W = 4, // workqueue
+    PW_BREAK_TYPE_B = 5, // begin
+    PW_BREAK_TYPE_N = 6, // Not-a-break: used exclusively for CLTP support: DEBUGGING ONLY!
+    PW_BREAK_TYPE_A = 7, // Abort
+    PW_BREAK_TYPE_U = 8,  // unknown
+    PW_BREAK_TYPE_END = 9 // EOF
 }c_break_type_t;
+#define FOR_EACH_WAKEUP_TYPE(idx) for ( idx = PW_BREAK_TYPE_I; idx < PW_BREAK_TYPE_END; ++idx )
 
 #pragma pack(push) /* Store current alignment */
 #pragma pack(2) /* Set new alignment -- 2 byte boundaries */
@@ -337,10 +352,10 @@ typedef enum{
  * (Examples: PC2 on Saltwell is a "Package" MSR, MC4 on SLM is a "Module" MSR)
  */
 typedef enum pw_msr_type {
-    PW_MSR_THREAD,
-    PW_MSR_CORE,
-    PW_MSR_MODULE,
-    PW_MSR_PACKAGE
+    PW_MSR_THREAD = 0,
+    PW_MSR_CORE = 1,
+    PW_MSR_MODULE = 2,
+    PW_MSR_PACKAGE = 3
 } pw_msr_type_t;
 
 static const char *s_pw_msr_type_names[] = {"Thread", "Core", "Module", "Package"};
@@ -377,11 +392,15 @@ typedef struct pw_msr_info {
 
 #define PW_MSR_INFO_HEADER_SIZE() ( sizeof(pw_msr_info_t) - sizeof(char[1]) )
 
+// #pragma pack(pop) /* Restore previous alignment */
+
 /*
  * A c-state msg.
  */
+#if 0
 #pragma pack(push) /* Store current alignment */
 #pragma pack(2) /* Set new alignment -- 2 byte boundaries */
+#endif
 /*
  * GU: moved "c_msg" to "c_multi_msg". Replaced with older version of "c_msg".
  * This is temporary ONLY!
@@ -482,8 +501,8 @@ typedef struct p_msg {
  * 'u_sample'.
  */
 typedef enum{
-    PW_WAKE_ACQUIRE, // Wake lock
-    PW_WAKE_RELEASE // Wake unlock
+    PW_WAKE_ACQUIRE = 0, // Wake lock
+    PW_WAKE_RELEASE = 1 // Wake unlock
 }u_sample_type_t;
 
 /*
@@ -491,11 +510,11 @@ typedef enum{
  * 'u_sample'.
  */
 typedef enum{
-    PW_WAKE_PARTIAL, // PARTIAL_WAKE_LOCK 
-    PW_WAKE_FULL, // FULL_WAKE_LOCK
-    PW_WAKE_SCREEN_DIM, // SCREEN_DIM_WAKE_LOCK
-    PW_WAKE_SCREEN_BRIGHT, // SCREEN_BRIGHT_WAKE_LOCK
-    PW_WAKE_PROXIMITY_SCREEN_OFF  // PROXIMITY_SCREEN_OFF_WAKE_LOCK
+    PW_WAKE_PARTIAL = 0, // PARTIAL_WAKE_LOCK 
+    PW_WAKE_FULL = 1, // FULL_WAKE_LOCK
+    PW_WAKE_SCREEN_DIM = 2, // SCREEN_DIM_WAKE_LOCK
+    PW_WAKE_SCREEN_BRIGHT = 3, // SCREEN_BRIGHT_WAKE_LOCK
+    PW_WAKE_PROXIMITY_SCREEN_OFF = 4  // PROXIMITY_SCREEN_OFF_WAKE_LOCK
 }u_sample_flag_t;
 
 /*
@@ -521,9 +540,9 @@ typedef struct event_sample {
  * 'd_residency_sample'.
  */
 typedef enum {
-    PW_NORTH_COMPLEX, // North complex
-    PW_SOUTH_COMPLEX,  // South complex
-    PW_NOT_APPLICALBE  // Not applicable
+    PW_NORTH_COMPLEX = 0, // North complex
+    PW_SOUTH_COMPLEX = 1,  // South complex
+    PW_NOT_APPLICABLE = 2  // Not applicable
 } device_type_t;
 
 /*
@@ -569,6 +588,7 @@ struct d_state_meta_data {
     pw_string_type_t *names; // The list of state names e.g. D0i0_AON, D0i0_ACG, D0i1, D0i3, D3_hot ...
                              // The order must be same as the order of values stored in residencies
 };
+#define D_STATE_META_MSG_HEADER_SIZE (sizeof(d_state_meta_data_t) - sizeof(pw_string_type_t *))
 
 /*
  * 'D-state' information. Used for both residency and state samples.
@@ -580,9 +600,9 @@ typedef struct d_state_msg {
     u64 *values;            // Array of Device residencies or states depending on sample type (sample_type_t). 
                             // If the sample type is D_RESIDENCY, 
                             // Array size is determined by num_devices * num_states (defined in metadata)
-			    // Array have values in the following order in the unit of TSC ticks
-			    // {D0 in Dev0, D1 in Dev0, D2 in Dev0, D0 in Dev1, D1 in Dev1 ...}
-			    // Or the other way? Which one is better?
+                            // Array have values in the following order in the unit of TSC ticks
+                            // {D0 in Dev0, D1 in Dev0, D2 in Dev0, D0 in Dev1, D1 in Dev1 ...}
+                            // Or the other way? Which one is better?
                             // If the sample type is D_STATE, 
                             // Array size is determined by num_devices * log(num_states) / 64 
 } d_res_msg_t;
@@ -592,7 +612,7 @@ typedef struct d_state_msg {
  */
 typedef enum {
     PW_FAHRENHEIT = 0, 
-    PW_CELCIUS         
+    PW_CELCIUS = 1 
 } thermal_unit_t;
 
 /*
@@ -604,15 +624,33 @@ struct thermal_meta_data {
     thermal_unit_t thermal_unit;  // 0 is Fahrenheit and 1 is Celcius.
     pw_string_type_t *names;      // Names of components like Core, Skin, MSIC Die, SOC, ...
 };
+#define THERMAL_META_MSG_HEADER_SIZE (sizeof(thermal_meta_data_t) - sizeof(pw_string_type_t *))
 
 /*
  * Thermal state sample
  */
 typedef struct thermal_msg {
-    u16 index;         // Array index to components defined in thermal_meta_data.
-                       // Index must be [0, num_components}
-    u16 temperatures;  // Thermal value in the unit defined in thermal_unit
+    u16 index;         // Array index to components defined in thermal_meta_data. Index must be [0, num_components)
+    u16 temperature;  // Thermal value in the unit defined in thermal_unit
 } thermal_msg_t;
+
+/*
+ * Meta data used to describe GPU Frequency.
+ */
+typedef struct gpufreq_meta_data gpufreq_meta_data_t;
+struct gpufreq_meta_data {
+    u16 num_available_freqs; // Number of available gpu frequencies.
+    u16 *available_freqs;    // List of all available frequncies. Max Length will be equal to the num_available_freq.
+                             // The unit of frequency here is Mhz.
+};
+
+#define GPUFREQ_META_MSG_HEADER_SIZE (sizeof(gpufreq_meta_data_t) - sizeof(u16 *))
+/*
+ * GPU Frequency state sample
+ */
+typedef struct gpufreq_msg {
+    u16 gpufrequencies; // GPU frequency is stored here. Unit is MHz
+} gpufreq_msg_t;
 
 /*
  * Meta data used to describe Power-states.
@@ -622,13 +660,14 @@ struct power_meta_data {
     u16 num_components;      // The number of components.
     pw_string_type_t *names; // Names of components like IA Pkg, Gfx, SOC, ...
 };
+#define BANDWIDTH_META_MSG_HEADER_SIZE (sizeof(bw_meta_data_t) - sizeof(pw_string_type_t *))
 
 /*
  * Power state sample
  */
 typedef struct power_msg {
-    u16 index;    // Array index to components defined in power_meta_data. index must be [0, num_components}
-    u32 currnt;  // Assume the unit is uA: GU: changed name from "current" to "currnt" to get the driver to compile
+    u16 index;    // Array index to components defined in power_meta_data. index must be [0, num_components)
+    u32 currnt;   // Assume the unit is uA: GU: changed name from "current" to "currnt" to get the driver to compile
     u32 voltage;  // Assume the unit is uV
     u32 power;    // Assume the unit is uW
 } power_msg_t;
@@ -636,24 +675,22 @@ typedef struct power_msg {
 /*
  * Meta data used to describe bandwidths.
  */
-typedef struct bw_meta_data bw_meta_data_t;
-struct bw_meta_data {
+typedef struct bw_meta_data {
     u16 num_components;      // The number of components.
-    pw_string_type_t *names; // Names of components like Core to Mem 32, Core 64, ISP, Gfx, ...
-};
+    pw_string_type_t *names; // Names of components like Core to DDR0, Core to DDR1, ISP, GFX, IO, DISPLAY ...
+} bw_meta_data_t;
 
 /*
  * Bandwidth sample
  */
 typedef struct bw_msg {
-    u16 index;       // Array index to components defined in bw_meta_data. index must be [0, num_components}	
-    u32 in_bytes;  // Total number of READ32 bytes for duration
-    u32 out_bytes; // Total number of WRITE32 bytes for duration   
-//    u32 read32_bytes;  // Total number of READ32 bytes for duration
-//    u32 write32_bytes; // Total number of WRITE32 bytes for duration   
-//    u32 read64_bytes;  // Total number of READ64 bytes for duration
-//    u32 write64_bytes; // Total number of WRITE64 bytes for duration   
-    u64 duration;      // I don't know what the unit should be. in the unit of TSC ticks.
+    u16 index;         // Array index to components defined in bw_meta_data. 
+                       // Index must be [0, num_components)
+    u64 read32_bytes;  // Total number of READ32 bytes for duration
+    u64 write32_bytes; // Total number of WRITE32 bytes for duration   
+    u64 read64_bytes;  // Total number of READ64 bytes for duration
+    u64 write64_bytes; // Total number of WRITE64 bytes for duration   
+    u64 duration;      // The unit should be TSC ticks.
 } bw_msg_t;
 
 /*
@@ -702,6 +739,81 @@ typedef struct tsc_posix_sync_msg {
     pw_u64_t tsc_val;
     pw_u64_t posix_mono_val;
 } tsc_posix_sync_msg_t;
+
+/*
+ * Temp struct to hold C_STATE_MSR_SET samples.
+ * Required only until we move away from using PWCollector_sample
+ * instances to using PWCollector_msg instances in the power lib.
+ * *********************************************************************
+ * RESTRICTIONS: struct size MUST be LESS THAN or EQUAL to 112 bytes!!!
+ * *********************************************************************
+ */
+typedef struct tmp_c_state_msr_set_sample {
+    u16 num_msrs;
+    pw_msr_val_t msr_vals[11]; // Each 'pw_msr_val_t' instance is 10 bytes wide.
+} tmp_c_state_msr_set_sample_t;
+
+/*
+ * Summary structs: structs used for summary and trace timeline information.
+ */
+typedef struct c_state_summary_msg c_state_summary_msg_t;
+struct c_state_summary_msg {
+    float res_percent;
+    pw_u32_t abort_count;
+    pw_u32_t promotion_count;
+    pw_msr_identifier_t id;
+    pw_u16_t num_wakeups; // The number of elements in the 'wakeup_counts' array, below
+    pw_u32_t *wakeup_counts;
+};
+
+typedef struct c_node_summary_msg c_node_summary_msg_t;
+struct c_node_summary_msg {
+    pw_msr_type_t node_type; // Thread/Core/Module/Package
+    pw_u16_t node_id;
+    pw_u16_t num_c_states; // The number of elements in the 'c_states' array, below
+    c_state_summary_msg_t *c_states;
+};
+
+typedef struct c_summary_msg c_summary_msg_t;
+struct c_summary_msg {
+    pw_u16_t num_c_nodes; // The number of elements in the 'c_nodes' array, below
+    c_node_summary_msg_t *c_nodes;
+};
+
+typedef struct p_state_summary_msg p_state_summary_msg_t;
+struct p_state_summary_msg {
+    pw_u16_t freq_mhz; // The frequency, in MHz, whose residency rate is encoded in 'res_rate', below
+    pw_u16_t res_rate; // The residency rate, obtained by multiplying the residency fraction by 1e4 i.e. 100% == 10000, 99.99% == 9999 etc.
+};
+/*
+ * Macros to encode and decode P-state residency rates. Used in
+ * P-state "summary" structures.
+ */
+#define ENCODE_P_STATE_RES_RATE(r) (pw_u16_t)( (r) * 1e4 )
+#define DECODE_P_STATE_RES_RATE(r) ( (float)(r) / 1e4 )
+
+
+typedef struct p_node_summary_msg p_node_summary_msg_t;
+struct p_node_summary_msg {
+    pw_msr_type_t node_type; // Thread/Core/Module/Package
+    pw_u16_t node_id;
+    pw_u16_t num_p_states; // The number of elements in the 'p_states' array, below
+    p_state_summary_msg_t *p_states;
+};
+
+typedef struct p_summary_msg p_summary_msg_t;
+struct p_summary_msg {
+    pw_u16_t num_p_nodes; // The number of elements in the 'p_nodes' array, below.
+    p_node_summary_msg_t *p_nodes;
+};
+
+typedef struct summary_msg summary_msg_t;
+struct summary_msg {
+    pw_u64_t start_tsc, stop_tsc; // The start and stop of the interval being summarized.
+    pw_u16_t data_type; // The type of the payload; one of 'sample_type_t'
+    pw_u16_t data_len; // The size of the payload
+    void *p_data; // Pointer to the payload
+};
 
 /*
  * Meta-data specifiers, data structures etc.
@@ -1056,9 +1168,9 @@ typedef struct i_sample {
  * 'r_sample'.
  */
 typedef enum r_sample_type {
-    PW_PROC_FORK, /* Sample encodes a process FORK */
-    PW_PROC_EXIT, /* Sample encodes a process EXIT */
-    PW_PROC_EXEC /* Sample encodes an EXECVE system call */
+    PW_PROC_FORK = 0, /* Sample encodes a process FORK */
+    PW_PROC_EXIT = 1, /* Sample encodes a process EXIT */
+    PW_PROC_EXEC = 2  /* Sample encodes an EXECVE system call */
 } r_sample_type_t;
 
 typedef struct r_sample {
@@ -1106,11 +1218,11 @@ typedef struct d_state_sample {
  * 'w_sample'.
  */
 typedef enum w_sample_type {
-    PW_WAKE_LOCK, // Wake lock
-    PW_WAKE_UNLOCK, // Wake unlock
-    PW_WAKE_LOCK_TIMEOUT, // Wake lock with timeout
-    PW_WAKE_LOCK_INITIAL, // Wake locks acquired before collection
-    PW_WAKE_UNLOCK_ALL // All previously held wakelocks have been unlocked -- used in ACPI S3 notifications
+    PW_WAKE_LOCK = 0, // Wake lock
+    PW_WAKE_UNLOCK = 1, // Wake unlock
+    PW_WAKE_LOCK_TIMEOUT = 2, // Wake lock with timeout
+    PW_WAKE_LOCK_INITIAL = 3, // Wake locks acquired before collection
+    PW_WAKE_UNLOCK_ALL = 4 // All previously held wakelocks have been unlocked -- used in ACPI S3 notifications
 } w_sample_type_t;
 
 /*
@@ -1129,7 +1241,7 @@ typedef struct w_sample {
  * Structure to return Dev # <-> Dev Name mappings.
  */
 typedef struct dev_sample {
-    u16 dev_id;  // Device ID
+    u16 dev_num;  // Device ID
     device_type_t dev_type; // one of "device_type_t"
                             // The pair (dev_num, dev_type) is a unique ID for each device
     char dev_short_name[PW_MAX_DEV_SHORT_NAME_SIZE];
@@ -1144,22 +1256,62 @@ typedef struct pkg_sample {
     char pkg_name[PW_MAX_PKG_NAME_SIZE];
 } pkg_sample_t;
 
-#pragma pack(push) /* Store current alignment */
-#pragma pack(2) /* Set new alignment -- 2 byte boundaries */
 /*
- * Temp struct to hold C_STATE_MSR_SET samples.
- * Required only until we move away from using PWCollector_sample
- * instances to using PWCollector_msg instances in the power lib.
- * *********************************************************************
- * RESTRICTIONS: struct size MUST be LESS THAN or EQUAL to 112 bytes!!!
- * *********************************************************************
+ * HACK! (GEH)
+ * Temporary fixed-length structure used to describe a single GPU frequency (p-state) sample.
+ * (Plan to switch to variable length samples for everything later.)
  */
-typedef struct tmp_c_state_msr_set_sample {
-    u16 num_msrs;
-    pw_msr_val_t msr_vals[11]; // Each 'pw_msr_val_t' instance is 10 bytes wide.
-} tmp_c_state_msr_set_sample_t;
+typedef gpufreq_msg_t gpu_p_sample_t;
 
-#pragma pack(pop) /* Restore previous alignment */
+/*
+ * HACK! (GEH)
+ * Temporary fixed-length structure used to describe a single Thermal state sample.
+ * (Plan to switch to variable length samples for everything later.)
+ */
+typedef thermal_msg_t thermal_sample_t;
+
+/*
+ * HACK! (GEH)
+ * Temporary fixed-length structure used to describe a single Bandwidth sample.
+ * (Plan to switch to variable length samples for everything later.)
+ */
+typedef bw_msg_t bw_sample_t;
+// Number of 8-byte data fields in a bandwidth sample:  (subtract out index and duration fields)
+#define PW_NUM_BANDWIDTH_COUNT_FIELDS  ( (sizeof(bw_sample_t) - sizeof(u16) - sizeof(u64) ) >> 3 )
+
+/*
+ * HACK! (GEH)
+ * Temporary fixed-length Structure used to describe a single Thermal component.
+ * (Plan to switch to variable length samples for everything later.)
+ * Multiple fixed-length samples may be chained to increase the available frequencies beyond PW_MAX_GPU_FREQ_SAMPLE
+ * In this case, sample order determines frequency order for visualization.
+ */
+typedef struct gpu_freq_sample {
+    u16 num_available_freqs; // Number of available gpu frequencies given in this sample.
+    u16 available_freqs[PW_MAX_GPU_FREQ_PER_SAMPLE];    // List of all available frequencies.
+                             // The unit of frequency here is Mhz.
+} gpu_freq_sample_t;
+
+/*
+ * HACK! (GEH)
+ * Temporary fixed-length Structure used to describe a single Thermal component.
+ * (Plan to switch to variable length samples for everything later.)
+ */
+typedef struct thermal_comp_sample {
+    u16 thermal_comp_num;         // index used for matching thermal component index in thermal_sample
+    thermal_unit_t thermal_unit;  // 0 is Fahrenheit and 1 is Celcius.
+    char thermal_comp_name[PW_MAX_POLLING_COMP_NAME];  // Name of component like Core, Skin, MSIC Die, SOC, ...
+} thermal_comp_sample_t;
+
+/*
+ * HACK! (GEH)
+ * Temporary fixed-length Structure used to describe a single Bandwidth component/pathway.
+ * (Plan to switch to variable length samples for everything later.)
+ */
+typedef struct bw_comp_sample {
+    u16 bw_comp_num;                        // Index used for matching bandwidth component index in bw_sample
+    char bw_comp_name[PW_MAX_POLLING_COMP_NAME]; // Names of component/pathway like Core to DDR0, Core to DDR1, ISP, GFX, IO, DISPLAY ...
+} bw_comp_sample_t;
 
 /*
  * The C/P/K/S sample structure.
@@ -1178,21 +1330,31 @@ typedef struct PWCollector_sample {
     u16 sample_len;
     u64 tsc; // The TSC at which the measurement was taken
     union {
-	c_sample_t c_sample;
-	p_sample_t p_sample;
-	k_sample_t k_sample;
-	m_sample_t m_sample;
-	i_sample_t i_sample;
-	r_sample_t r_sample;
-	s_residency_sample_t s_residency_sample;
-	s_state_sample_t s_state_sample;
-	d_state_sample_t d_state_sample;
-	d_residency_sample_t d_residency_sample;
-	w_sample_t w_sample;
-	u_sample_t u_sample;
-	event_sample_t e_sample;
+        c_sample_t c_sample;
+        p_sample_t p_sample;
+        k_sample_t k_sample;
+        m_sample_t m_sample;
+        i_sample_t i_sample;
+        r_sample_t r_sample;
+        s_residency_sample_t s_residency_sample;
+        s_state_sample_t s_state_sample;
+        d_state_sample_t d_state_sample;
+        d_residency_sample_t d_residency_sample;
+        w_sample_t w_sample;
+        u_sample_t u_sample;
+        event_sample_t e_sample;
         dev_sample_t dev_sample;
         pkg_sample_t pkg_sample;
+        /*
+         * HACK!! (GEH)
+         * Added bandwidth & thermal samples temporarily until switch entirely to variable-length msgs
+         */
+        thermal_sample_t thermal_sample;
+        thermal_comp_sample_t thermal_comp_sample;
+        bw_sample_t bw_sample;
+        bw_comp_sample_t bw_comp_sample;
+        gpu_p_sample_t gpu_p_sample;
+        gpu_freq_sample_t gpu_freq_sample;
         /*
          * HACK HACK HACK!!!
          * Added for SLM compatibility.
@@ -1206,28 +1368,39 @@ typedef struct PWCollector_sample {
 
 
 typedef enum PWCollector_cmd {
-    PW_START=1,
-    PW_DETACH,
-    PW_PAUSE,
-    PW_RESUME,
-    PW_STOP,
-    PW_CANCEL,
-    PW_SNAPSHOT,
-    PW_STATUS,
-    PW_MARK
+    PW_START = 1,
+    PW_DETACH = 2,
+    PW_PAUSE = 3,
+    PW_RESUME = 4,
+    PW_STOP = 5,
+    PW_CANCEL = 6,
+    PW_SNAPSHOT = 7,
+    PW_STATUS = 8,
+    PW_MARK = 9
 } PWCollector_cmd_t;
 
 typedef enum power_data {
-    PW_SLEEP=0, /* DD should register all timer and sleep-related tracepoints */
-    PW_KTIMER, /* DD should collect kernel call stacks */
-    PW_FREQ, /* DD should collect P-state transition information */
-    PW_PLATFORM_RESIDENCY, /* DD should collect S-state residency information */
-    PW_PLATFORM_STATE, /* DD should collect S-state samples */
-    PW_DEVICE_SC_RESIDENCY, /* DD should collect South-Complex D-state residency information */
-    PW_DEVICE_NC_STATE, /* DD should collect North-Complex D-state samples */
-    PW_DEVICE_SC_STATE, /* DD should collect South-Complex D-state samples */
-    PW_WAKELOCK_STATE, /* DD should collect wakelock samples */
-    PW_POWER_C_STATE, /* DD should collect C-state samples */
+    PW_SLEEP = 0, /* DD should register all timer and sleep-related tracepoints */
+    PW_KTIMER = 1, /* DD should collect kernel call stacks */
+    PW_FREQ = 2, /* DD should collect P-state transition information */
+    PW_PLATFORM_RESIDENCY = 3, /* DD should collect S-state residency information */
+    PW_PLATFORM_STATE = 4, /* DD should collect S-state samples */
+    PW_DEVICE_SC_RESIDENCY = 5, /* DD should collect South-Complex D-state residency information */
+    PW_DEVICE_NC_STATE = 6, /* DD should collect North-Complex D-state samples */
+    PW_DEVICE_SC_STATE = 7, /* DD should collect South-Complex D-state samples */
+    PW_WAKELOCK_STATE = 8, /* DD should collect wakelock samples */
+    PW_POWER_C_STATE = 9, /* DD should collect C-state samples */
+    PW_THERMAL_CORE = 10, /* DD should collect Core temperature samples */
+    PW_THERMAL_SOC_DTS = 11, /* DD should collect SOC_DTS readings samples */
+    PW_THERMAL_SKIN = 12, /* DD should collect SKIN temperature samples */
+    PW_THERMAL_MSIC = 13, /* DD should collect MSIC die temperature samples */
+    PW_GPU_FREQ = 14,  /* DD should collect GPU Frequency samples */
+    PW_BANDWIDTH_DRAM = 15, /* DD should collect DDR bandwidth samples */
+    PW_BANDWIDTH_CORE = 16, /* DD should collect Core to DDR bandwidth samples */
+    PW_BANDWIDTH_GPU = 17, /* DD should collect GPU to DDR bandwidth samples */
+    PW_BANDWIDTH_DISP = 18, /* DD should collect Display to DDR bandwidth samples */
+    PW_BANDWIDTH_ISP = 19, /* DD should collect ISP to DDR bandwidth samples */
+    PW_BANDWIDTH_IO = 20, /* DD should collect IO bandwidth samples */
     PW_MAX_POWER_DATA_MASK /* Marker used to indicate MAX valid 'power_data_t' enum value -- NOT used by DD */
 } power_data_t;
 
@@ -1241,6 +1414,17 @@ typedef enum power_data {
 #define POWER_D_NC_STATE_MASK (1 << PW_DEVICE_NC_STATE)
 #define POWER_WAKELOCK_MASK (1 << PW_WAKELOCK_STATE)
 #define POWER_C_STATE_MASK ( 1 << PW_POWER_C_STATE )
+#define POWER_THERMAL_CORE_MASK (1 << PW_THERMAL_CORE)
+#define POWER_THERMAL_SOC_DTS_MASK (1 << PW_THERMAL_SOC_DTS)
+#define POWER_THERMAL_SKIN_MASK (1 << PW_THERMAL_SKIN)
+#define POWER_THERMAL_MSIC_MASK (1 << PW_THERMAL_MSIC)
+#define POWER_GPU_FREQ_MASK (1 << PW_GPU_FREQ)
+#define POWER_BANDWIDTH_DRAM_MASK (1 << PW_BANDWIDTH_DRAM )
+#define POWER_BANDWIDTH_CORE_MASK (1 << PW_BANDWIDTH_CORE )
+#define POWER_BANDWIDTH_GPU_MASK (1 << PW_BANDWIDTH_GPU )
+#define POWER_BANDWIDTH_DISP_MASK (1 << PW_BANDWIDTH_DISP )
+#define POWER_BANDWIDTH_ISP_MASK (1 << PW_BANDWIDTH_ISP )
+#define POWER_BANDWIDTH_IO_MASK (1 << PW_BANDWIDTH_IO )
 
 #define SET_COLLECTION_SWITCH(m,s) ( (m) |= (1 << (s) ) )
 #define RESET_COLLECTION_SWITCH(m,s) ( (m) &= ~(1 << (s) ) )
@@ -1333,40 +1517,40 @@ struct PWCollector_micro_patch_info {
  * Helper struct for IRQ <-> DEV name mappings.
  */
 typedef struct PWCollector_irq_mapping {
-	int irq_num;
-	char irq_name[PW_MAX_IRQ_NAME_SIZE];
+        int irq_num;
+        char irq_name[PW_MAX_IRQ_NAME_SIZE];
 } PWCollector_irq_mapping_t;
 /*
  * Structure to return IRQ <-> DEV name mappings.
  */
 struct PWCollector_irq_mapping_block {
-	/*
-	 * INPUT param: if >= 0 ==> indicates
-	 * the client wants information for
-	 * a SPECIFIC IRQ (and does not want
-	 * ALL mappings).
-	 */
-	int requested_irq_num;
-	/*
-	 * OUTPUT param: records number of
-	 * valid entries in the 'mappings'
-	 * array.
-	 */
-	int size;
-	/*
-	 * INPUT/OUTPUT param: records from which IRQ
-	 * entry the client wants mapping info.
-	 * Required because the driver
-	 * may return LESS than the total number
-	 * of IRQ mappings, in which case the client
-	 * is expected to call this IOCTL
-	 * again, specifying the offset.
-	 */
-	int offset;
-	/*
-	 * The array of mappings.
-	 */
-	PWCollector_irq_mapping_t mappings[PW_MAX_NUM_IRQ_MAPPINGS_PER_BLOCK];
+        /*
+         * INPUT param: if >= 0 ==> indicates
+         * the client wants information for
+         * a SPECIFIC IRQ (and does not want
+         * ALL mappings).
+         */
+        int requested_irq_num;
+        /*
+         * OUTPUT param: records number of
+         * valid entries in the 'mappings'
+         * array.
+         */
+        int size;
+        /*
+         * INPUT/OUTPUT param: records from which IRQ
+         * entry the client wants mapping info.
+         * Required because the driver
+         * may return LESS than the total number
+         * of IRQ mappings, in which case the client
+         * is expected to call this IOCTL
+         * again, specifying the offset.
+         */
+        int offset;
+        /*
+         * The array of mappings.
+         */
+        PWCollector_irq_mapping_t mappings[PW_MAX_NUM_IRQ_MAPPINGS_PER_BLOCK];
 };
 
 

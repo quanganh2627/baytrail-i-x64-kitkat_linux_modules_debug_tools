@@ -58,38 +58,41 @@
   ***********************************************************************************************
 */
 
+#ifndef _PW_VERSION_H_
+#define _PW_VERSION_H_ 1
+
 /*
- * Description: file containing locking routines
- * used by the power driver.
+ * SOCWatch driver version
+ * Current driver version is 1.0.0
  */
+#define PW_DRV_VERSION_MAJOR 1
+#define PW_DRV_VERSION_MINOR 1
+#define PW_DRV_VERSION_OTHER 0
+#define PW_DRV_VERSION_STRING "1.0" // used by matrix
+#define PW_DRV_NAME "socwatch1_0"
 
-#ifndef _PW_LOCK_H_
-#define _PW_LOCK_H_ 1
+/*
+ * Every SOCWatch component shares the same version number.
+ */
+#define SOCWATCH_VERSION_MAJOR 1
+#define SOCWATCH_VERSION_MINOR 1
+#define SOCWATCH_VERSION_OTHER 0
 
+/*
+ * Every wuwatch component shares the same version number.
+ * THIS WILL BE REMOVED WHEN NOT USED IN WUWATCH
+ */
+#define WUWATCH_VERSION_VERSION 3
+#define WUWATCH_VERSION_INTERFACE 1
+#define WUWATCH_VERSION_OTHER 4
 
-#define LOCK(l) {				\
-    unsigned long _tmp_l_flags;			\
-    spin_lock_irqsave(&(l), _tmp_l_flags);
+/*
+ * Power interface version
+ * Current interface version is 0.1.0
+ * Current interface version is 0.2.0
+ */
+#define PW_INT_VERSION_VERSION 0
+#define PW_INT_VERSION_INTERFACE 2
+#define PW_INT_VERSION_OTHER 0
 
-#define UNLOCK(l)				\
-    spin_unlock_irqrestore(&(l), _tmp_l_flags); \
-    }
-
-#define READ_LOCK(l) {				\
-    unsigned long _tmp_l_flags;			\
-    read_lock_irqsave(&(l), _tmp_l_flags);
-
-#define READ_UNLOCK(l)				\
-    read_unlock_irqrestore(&(l), _tmp_l_flags);	\
-    }
-
-#define WRITE_LOCK(l) {				\
-    unsigned long _tmp_l_flags;			\
-    write_lock_irqsave(&(l), _tmp_l_flags);
-
-#define WRITE_UNLOCK(l)					\
-    write_unlock_irqrestore(&(l), _tmp_l_flags);	\
-    }
-
-
-#endif // _PW_LOCK_H_
+#endif // _PW_VERSION_H_
