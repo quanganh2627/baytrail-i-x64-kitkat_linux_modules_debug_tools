@@ -5,7 +5,7 @@
 
    GPL LICENSE SUMMARY
 
-   Copyright(c) 2011 Intel Corporation. All rights reserved.
+   Copyright(c) 2013 Intel Corporation. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify 
    it under the terms of version 2 of the GNU General Public License as
@@ -27,7 +27,7 @@
 
    BSD LICENSE 
 
-   Copyright(c) 2011 Intel Corporation. All rights reserved.
+   Copyright(c) 2013 Intel Corporation. All rights reserved.
    All rights reserved.
 
    Redistribution and use in source and binary forms, with or without 
@@ -102,6 +102,9 @@
 #include <asm/delay.h> // for "udelay"
 #include <linux/suspend.h> // for "pm_notifier"
 #include <linux/pci.h>
+#if DO_ANDROID
+#include <asm/intel-mid.h>
+#endif
 
 #if DO_WAKELOCK_SAMPLE 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
@@ -285,8 +288,11 @@ static unsigned long startJIFF, stopJIFF;
  * for MFLD now.
  * GU: changed to zero, because matrix will handle this
  */
-#define DO_S_RESIDENCY_SAMPLE 1
-// #define DO_S_RESIDENCY_SAMPLE 0
+#define DO_S_RESIDENCY_SAMPLE 0
+/*
+ * Collect ACPI S3 state residency counters
+ */
+#define DO_ACPI_S3_SAMPLE 1
 /*
  * Collect S states
  * By default, S-state sample collection is intentionally 
@@ -305,7 +311,7 @@ static unsigned long startJIFF, stopJIFF;
  * Collect D states in north complex
  */
 // #define DO_D_NC_STATE_SAMPLE 1
-#define DO_D_NC_STATE_SAMPLE 1 
+#define DO_D_NC_STATE_SAMPLE 0
 /*
  * Collect D states in south complex
  * By default, South complex D-state sample collection is 
@@ -367,7 +373,7 @@ static unsigned long startJIFF, stopJIFF;
     #define pw_pr_error(...)
 #endif
 
-#define CPU() (smp_processor_id())
+#define CPU() (raw_smp_processor_id())
 #define RAW_CPU() (raw_smp_processor_id())
 #define TID() (current->pid)
 #define PID() (current->tgid)
@@ -609,22 +615,22 @@ static void *mmio_ipc1_base = NULL;
 // memory mapped io base address for Cumulative Residency counter
 static void *mmio_cumulative_residency_base = NULL;
 #endif
-#if DO_S_RESIDENCY_SAMPLE 
 // memory mapped io base address for S0ix Residency counters
 static void *mmio_s_residency_base = NULL;
-#endif
 #if DO_D_SC_RESIDENCY_SAMPLE 
 // memory mapped io base address for D0ix Residency counters
 static void *mmio_d_residency_base = NULL;
 #endif
 
 // Lock used to prevent multiple call to SCU
+#if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
 #if !USE_PREDEFINED_SCU_IPC
 static DEFINE_SPINLOCK(ipclock);
 #endif
+#endif
 
 // Required to calculate S0i0 residency counter from non-zero S state counters
-#if DO_S_RESIDENCY_SAMPLE 
+#if DO_S_RESIDENCY_SAMPLE || DO_ACPI_S3_SAMPLE
 static u64 startJIFF_s_residency;
 static u64 startTSC_s_residency;
 #endif
@@ -633,13 +639,15 @@ static u64 startJIFF_d_sc_residency;
 #endif
 
 // Keep track of jiffies when previously D-state sampled
-static unsigned long long prev_sample_usec = 0;
+// static unsigned long long prev_sample_usec = 0;
 
+#if DO_D_NC_STATE_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
 // Hold bits for interesting device residency counters 
 // The first LSB indicates that the residency counter for LSS0 is collected.
 static u64 d_sc_mask = 0xFFFFFFFFULL;
 // By default, 31 south complex LSSs are available in MFD now.
 static u32 d_sc_device_num = MAX_LSS_NUM_IN_SC;
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
 #define SMP_CALL_FUNCTION(func,ctx,retry,wait)    smp_call_function((func),(ctx),(wait))
@@ -1054,6 +1062,7 @@ static bool pw_did_mmap = false;
 DECLARE_OVERHEAD_VARS(timer_init); // for the "timer_init" family of probes
 DECLARE_OVERHEAD_VARS(timer_expire); // for the "timer_expire" family of probes
 DECLARE_OVERHEAD_VARS(tps); // for TPS
+DECLARE_OVERHEAD_VARS(tps_lite); // for TPS_lite
 DECLARE_OVERHEAD_VARS(tpf); // for TPF
 DECLARE_OVERHEAD_VARS(timer_insert); // for "timer_insert"
 DECLARE_OVERHEAD_VARS(timer_delete); // for "timer_delete"
@@ -2260,6 +2269,7 @@ static pw_mapping_type_t wlock_insert(size_t wlock_name_len, const char *wlock_n
  * INTERNAL HELPER: retrieve number of
  * mappings in the wlock mappings list.
  */
+#if 0
 #ifndef __arm__
 static int get_num_wlock_mappings(void)
 {
@@ -2277,7 +2287,8 @@ static int get_num_wlock_mappings(void)
     return retVal;
 
 };
-#endif
+#endif // __arm__
+#endif // 0
 #endif // DO_USE_CONSTANT_POOL_FOR_WAKELOCK_NAMES
 
 /*
@@ -2756,7 +2767,7 @@ static inline void producer_template(int cpu)
 };
 
 
-#if DO_S_RESIDENCY_SAMPLE 
+#if DO_S_RESIDENCY_SAMPLE || DO_ACPI_S3_SAMPLE
 /*
  * Insert a S Residency counter sample into a (per-cpu) output buffer.
  */
@@ -2787,7 +2798,7 @@ static inline void produce_s_residency_sample(u64 usec)
     if (usec) {
         int i=0;
         for (i=0; i<3; ++i) {
-            sres.data[i+1] = ((u32 *)mmio_s_residency_base)[i];
+            sres.data[i+1] = (pw_is_atm)?((u32 *)mmio_s_residency_base)[i]:0;
         }
     } else {
         memset(&sres.data[1], 0, sizeof(u64) * 3);
@@ -3457,7 +3468,7 @@ static void handle_irq_wakeup_i(int cpu, int irq_num, const char *irq_name, bool
      * Send a sample to Ring-3
      * (but only if collecting).
      */
-    u64 sample_tsc;
+    u64 sample_tsc = 0;
     if (IS_COLLECTING()) {
         tscval(&sample_tsc);
         record_wakeup_cause(sample_tsc, PW_BREAK_TYPE_I, irq_num, -1, -1, -1);
@@ -3958,10 +3969,10 @@ static int pw_read_msr_info_set_i(struct pw_msr_info_set *info_set)
 {
     int num_res = 0;
 #ifndef __arm__
-    int i=0, cpu = CPU(), curr_index = 0;
+    int i=0, curr_index = 0;
     u64 val = 0;
     s32 msr_addr = -1;
-    bool init_msr_set_sent = info_set->init_msr_set_sent == 1;
+    // bool init_msr_set_sent = info_set->init_msr_set_sent == 1;
     int num_msrs = INTERNAL_STATE.num_msrs;
     struct pw_msr_addr *msr_addrs = INTERNAL_STATE.msr_addrs;
 
@@ -4002,13 +4013,82 @@ static int pw_read_msr_info_set_i(struct pw_msr_info_set *info_set)
     return num_res;
 };
 
-static void tps(unsigned int type, unsigned int state)
+static void tps_lite(bool is_boundary_sample)
+{
+    /*
+     * (1) Read APERF, MPERF.
+     * (2) Produce a "C_LITE_MSG" instance.
+     */
+    u64 tsc = 0x0;
+    u64 aperf = 0x0, mperf = 0x0;
+    u32 l = 0, h = 0;
+    int cpu = get_cpu();
+    {
+
+        tscval(&tsc);
+
+        WARN_ON(rdmsr_safe_on_cpu(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
+        aperf = (u64)h << 32 | (u64)l;
+
+        WARN_ON(rdmsr_safe_on_cpu(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
+        mperf = (u64)h << 32 | (u64)l;
+    }
+    put_cpu();
+    /*
+     * Data collected. Now enqueue it.
+     */
+    {
+        c_multi_msg_t cm;
+        struct PWCollector_msg sample;
+
+        sample.cpuidx = cpu;
+        sample.tsc = tsc;
+
+#ifndef __arm__
+        cm.mperf = mperf;
+#else
+        // TODO
+        cm.mperf = c0_time;
+#endif
+
+        cm.req_state = (u8)APERF;
+
+
+        cm.wakeup_tsc = 0x0; // don't care
+        cm.wakeup_data = 0x0; // don't care
+        cm.timer_init_cpu = 0x0; // don't care
+        cm.wakeup_pid = -1; // don't care
+        cm.wakeup_tid = -1; // don't care
+        cm.wakeup_type = 0x0; // don't care
+        /*
+         * The only field of interest is the 'num_msrs' value.
+         */
+        cm.num_msrs = 0x0;
+
+
+#if DO_TPS_EPOCH_COUNTER
+        /*
+         * We're entering a new TPS "epoch".
+         * Increment our counter.
+         */
+        cm.tps_epoch = inc_tps_epoch_i();
+#endif // DO_TPS_EPOCH_COUNTER
+
+        sample.data_type = C_STATE;
+        sample.data_len = C_MULTI_MSG_HEADER_SIZE();
+        sample.p_data = (u64)((unsigned long)&cm);
+
+        if (IS_COLLECTING() || is_boundary_sample) {
+            pw_produce_generic_msg(&sample, true);
+        }
+    }
+};
+
+static void tps(unsigned int type, unsigned int state, bool is_boundary_sample)
 {
     int cpu = CPU(), epoch = 0;
     u64 tsc = 0;
     PWCollector_msg_t sample;
-    int which_cx = APERF;
-    u64 cx_val = 0;
     pw_msr_info_set_t *info_set = NULL;
     bool local_apic_fired = false;
     u32 prev_req_cstate = 0;
@@ -4285,7 +4365,7 @@ static void tps(unsigned int type, unsigned int state)
                 printk(KERN_INFO "[%d]: TSC = %llu, 1 Cx MSR counted: id = %u, val = %llu\n", cpu, sample.tsc, info_set->curr_msr_count[1].id.depth, info_set->curr_msr_count[1].val);
             }
 
-            if (IS_COLLECTING()) {
+            if (IS_COLLECTING() || is_boundary_sample) {
                 pw_produce_generic_msg(&sample, true);
             }
         }
@@ -4399,7 +4479,7 @@ static void probe_power_end(void *ignore)
 static void probe_power_start(unsigned int type, unsigned int state, unsigned int cpu_id)
 {
     // tps_i(type, state);
-    DO_PER_CPU_OVERHEAD_FUNC(tps, type, state);
+    DO_PER_CPU_OVERHEAD_FUNC(tps, type, state, false /* boundary */);
 };
 #else
 #if LINUX_VERSION_CODE  < KERNEL_VERSION(2,6,38)
@@ -4411,8 +4491,12 @@ static void probe_power_start(void *ignore, unsigned int type, unsigned int stat
 static void probe_power_start(void *ignore, unsigned int type, unsigned int state, unsigned int cpu_id)
 #endif
 {
-    // tps_i(type, state);
-    DO_PER_CPU_OVERHEAD_FUNC(tps, type, state);
+    if (likely(IS_C_STATE_MODE())) {
+        // tps_i(type, state);
+        DO_PER_CPU_OVERHEAD_FUNC(tps, type, state, false /* boundary */);
+    } else {
+        DO_PER_CPU_OVERHEAD_FUNC(tps_lite, false /* boundary */);
+    }
 };
 #else // version >= 2.6.38
 static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id)
@@ -4425,7 +4509,11 @@ static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id
    }
 
     // tps_i(type, state);
-   DO_PER_CPU_OVERHEAD_FUNC(tps, 0 /*type*/, state);
+   if (likely(IS_C_STATE_MODE())) {
+       DO_PER_CPU_OVERHEAD_FUNC(tps, 0 /*type*/, state, false /* boundary */);
+   } else {
+       DO_PER_CPU_OVERHEAD_FUNC(tps_lite, false /* boundary */);
+   }
 };
 #endif // version
 #endif // APWR_RED_HAT
@@ -4961,11 +5049,9 @@ static void probe_wakeup_source_activate(void *ignore, const char *name, unsigne
     w_sample_type_t wtype;
 
     if (name == NULL) {
-        printk("wake_lock: name=UNKNOWNs, state=%u\n", name, state);
+        printk(KERN_INFO "wake_lock: name=UNKNOWNs, state=%u\n", state);
         return; 
     }
-
-    printk("wake_lock: name=%s, state=%u\n", name, state);
 
     /*
      * Track task exits ONLY IF COLLECTION
@@ -4988,11 +5074,9 @@ static void probe_wakeup_source_deactivate(void *ignore, const char *name, unsig
     u64 tsc;
 
     if (name == NULL) {
-        printk("wake_unlock: name=UNKNOWNs, state=%u\n", name, state);
+        printk(KERN_INFO "wake_unlock: name=UNKNOWNs, state=%u\n", state);
         return; 
     }
-
-    printk("wake_unlock: name=%s, state=%u\n", name, state);
 
     /*
      * Track task exits ONLY IF COLLECTION
@@ -5198,22 +5282,29 @@ static int register_non_pausable_probes(void)
     /*
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
-    if(IS_SLEEP_MODE()){
-        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-        {
-            OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
-            ret = register_trace_timer_expire_entry(probe_timer_expire_entry);
-            WARN_ON(ret);
-            ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
-            WARN_ON(ret);
-            ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
-            WARN_ON(ret);
-            ret = register_trace_irq_handler_entry(probe_irq_handler_entry);
-            WARN_ON(ret);
-            ret = register_trace_softirq_entry(probe_softirq_entry);
-            WARN_ON(ret);
-            ret = register_trace_sched_wakeup(probe_sched_wakeup);
-            WARN_ON(ret);
+    if (IS_SLEEP_MODE() || IS_C_STATE_MODE()) {
+        if(IS_C_STATE_MODE()){
+            OUTPUT(0, KERN_INFO "C_STATE MODE REQUESTED\n");
+            {
+                OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
+                ret = register_trace_timer_expire_entry(probe_timer_expire_entry);
+                WARN_ON(ret);
+                ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
+                WARN_ON(ret);
+                ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
+                WARN_ON(ret);
+                ret = register_trace_irq_handler_entry(probe_irq_handler_entry);
+                WARN_ON(ret);
+                ret = register_trace_softirq_entry(probe_softirq_entry);
+                WARN_ON(ret);
+                ret = register_trace_sched_wakeup(probe_sched_wakeup);
+                WARN_ON(ret);
+                ret = register_trace_workqueue_execution(probe_workqueue_execution);
+                if (ret) {
+                    printk(KERN_INFO "WARNING: trace_workqueue_execute_start did NOT succeed!\n");
+                }
+                // WARN_ON(ret);
+            }
         }
         {
             OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
@@ -5227,10 +5318,6 @@ static int register_non_pausable_probes(void)
             WARN_ON(ret);
         }
 #endif // __arm__
-        {
-            ret = register_trace_workqueue_execution(probe_workqueue_execution);
-            WARN_ON(ret);
-        }
     }
 
 
@@ -5239,22 +5326,41 @@ static int register_non_pausable_probes(void)
     /*
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
-    if(IS_SLEEP_MODE()){
-        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-        {
-            OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
-            ret = register_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
-            WARN_ON(ret);
-            ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
-            WARN_ON(ret);
-            ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
-            WARN_ON(ret);
-            ret = register_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
-            WARN_ON(ret);
-            ret = register_trace_softirq_entry(probe_softirq_entry, NULL);
-            WARN_ON(ret);
-            ret = register_trace_sched_wakeup(probe_sched_wakeup, NULL);
-            WARN_ON(ret);
+    if (IS_SLEEP_MODE() || IS_C_STATE_MODE()) {
+        if(IS_C_STATE_MODE()){
+            OUTPUT(0, KERN_INFO "C_STATE MODE REQUESTED\n");
+            {
+                OUTPUT(0, KERN_INFO "\tTRACE_BREAK_EVENTS");
+                ret = register_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
+                WARN_ON(ret);
+                ret = register_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
+                WARN_ON(ret);
+                ret = register_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
+                WARN_ON(ret);
+                ret = register_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
+                WARN_ON(ret);
+                ret = register_trace_softirq_entry(probe_softirq_entry, NULL);
+                WARN_ON(ret);
+                ret = register_trace_sched_wakeup(probe_sched_wakeup, NULL);
+                WARN_ON(ret);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+                {
+                    ret = register_trace_workqueue_execution(probe_workqueue_execution, NULL);
+                    if (ret) {
+                        printk(KERN_INFO "WARNING: trace_workqueue_execute_start did NOT succeed!\n");
+                    }
+                    // WARN_ON(ret);
+                }
+#else // 2.6.36 <= version < 2.6.38
+                {
+                    ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+                    if (ret) {
+                        printk(KERN_INFO "WARNING: trace_workqueue_execute_start did NOT succeed!\n");
+                    }
+                    // WARN_ON(ret);
+                }
+#endif // version < 2.6.36
+            }
         }
         /*
          * ONLY required for "SLEEP" mode i.e. C-STATES
@@ -5272,17 +5378,6 @@ static int register_non_pausable_probes(void)
             WARN_ON(ret);
         }
 #endif // __arm__
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
-        {
-            ret = register_trace_workqueue_execution(probe_workqueue_execution, NULL);
-            WARN_ON(ret);
-        }
-#else // 2.6.36 <= version < 2.6.38
-        {
-            ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
-            WARN_ON(ret);
-        }
-#endif // version < 2.6.36
 #else // version >= 2.6.38
         {
             OUTPUT(0, KERN_INFO "\tCSTATE_EVENTS");
@@ -5298,9 +5393,12 @@ static int register_non_pausable_probes(void)
         }
 #endif // TRACE_CPU_HOTPLUG
 #endif // __arm__
-        {
+        if (IS_C_STATE_MODE()) {
             ret = register_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
-            WARN_ON(ret);
+            if (ret) {
+                printk(KERN_INFO "WARNING: trace_workqueue_execute_start did NOT succeed!\n");
+            }
+            // WARN_ON(ret);
         }
 #endif // LINUX_VERSION_CODE < 2.6.38
     }
@@ -5317,33 +5415,30 @@ static void unregister_non_pausable_probes(void)
     /*
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
-    if(IS_SLEEP_MODE()){
-        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-        {
-            unregister_trace_timer_expire_entry(probe_timer_expire_entry);
-            unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
-            unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
-            unregister_trace_irq_handler_entry(probe_irq_handler_entry);
-            unregister_trace_softirq_entry(probe_softirq_entry);
-            unregister_trace_sched_wakeup(probe_sched_wakeup);
+    if (IS_SLEEP_MODE() || IS_C_STATE_MODE()) {
+        if(IS_C_STATE_MODE()){
+            OUTPUT(0, KERN_INFO "C_STATE MODE REQUESTED\n");
+            {
+                unregister_trace_timer_expire_entry(probe_timer_expire_entry);
+                unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry);
+                unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit);
+                unregister_trace_irq_handler_entry(probe_irq_handler_entry);
+                unregister_trace_softirq_entry(probe_softirq_entry);
+                unregister_trace_sched_wakeup(probe_sched_wakeup);
+                unregister_trace_workqueue_execution(probe_workqueue_execution);
 
-            tracepoint_synchronize_unregister();
-        }
-        /*
-         * ONLY required for "SLEEP" mode i.e. C-STATES
-         */
-        {
-            unregister_trace_power_start(probe_power_start);
+                tracepoint_synchronize_unregister();
+            }
+            /*
+             * ONLY required for "SLEEP" mode i.e. C-STATES
+             */
+            {
+                unregister_trace_power_start(probe_power_start);
 #ifdef __arm__
-            unregister_trace_power_end(probe_power_end);
+                unregister_trace_power_end(probe_power_end);
 #endif // __arm__
-            tracepoint_synchronize_unregister();
-        }
-
-        {
-            unregister_trace_workqueue_execution(probe_workqueue_execution);
-
-            tracepoint_synchronize_unregister();
+                tracepoint_synchronize_unregister();
+            }
         }
     }
 
@@ -5353,17 +5448,32 @@ static void unregister_non_pausable_probes(void)
     /*
      * ONLY required for "SLEEP" mode i.e. C-STATES
      */
-    if(IS_SLEEP_MODE()){
-        OUTPUT(0, KERN_INFO "SLEEP MODE REQUESTED\n");
-        {
-            unregister_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
-            unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
-            unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
-            unregister_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
-            unregister_trace_softirq_entry(probe_softirq_entry, NULL);
-            unregister_trace_sched_wakeup(probe_sched_wakeup, NULL);
+    if (IS_SLEEP_MODE() || IS_C_STATE_MODE()) {
+        if(IS_C_STATE_MODE()){
+            OUTPUT(0, KERN_INFO "C_STATE MODE REQUESTED\n");
+            {
+                unregister_trace_timer_expire_entry(probe_timer_expire_entry, NULL);
+                unregister_trace_hrtimer_expire_entry(probe_hrtimer_expire_entry, NULL);
+                unregister_trace_hrtimer_expire_exit(probe_hrtimer_expire_exit, NULL);
+                unregister_trace_irq_handler_entry(probe_irq_handler_entry, NULL);
+                unregister_trace_softirq_entry(probe_softirq_entry, NULL);
+                unregister_trace_sched_wakeup(probe_sched_wakeup, NULL);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+                {
+                    unregister_trace_workqueue_execution(probe_workqueue_execution, NULL);
 
-            tracepoint_synchronize_unregister();
+                    tracepoint_synchronize_unregister();
+                }
+#else // 2.6.36 <= version < 2.6.38
+                {
+                    unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
+
+                    tracepoint_synchronize_unregister();
+                }
+#endif // version < 2.6.36
+
+                tracepoint_synchronize_unregister();
+            }
         }
         /*
          * ONLY required for "SLEEP" mode i.e. C-STATES
@@ -5376,19 +5486,6 @@ static void unregister_non_pausable_probes(void)
 #endif // __arm__
             tracepoint_synchronize_unregister();
         }
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
-        {
-            unregister_trace_workqueue_execution(probe_workqueue_execution, NULL);
-
-            tracepoint_synchronize_unregister();
-        }
-#else // 2.6.36 <= version < 2.6.38
-        {
-            unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
-
-            tracepoint_synchronize_unregister();
-        }
-#endif // version < 2.6.36
 #else // version >= 2.6.38
         {
             unregister_trace_cpu_idle(probe_cpu_idle, NULL);
@@ -5404,7 +5501,7 @@ static void unregister_non_pausable_probes(void)
         }
 #endif // TRACE_CPU_HOTPLUG
 #endif // __arm__
-        {
+        if (IS_C_STATE_MODE()) {
             unregister_trace_workqueue_execute_start(probe_workqueue_execute_start, NULL);
 
             tracepoint_synchronize_unregister();
@@ -5953,7 +6050,7 @@ int set_config(struct PWCollector_config *remote_config, int size)
     int i=0;
     struct PWCollector_config local_config;
 
-    if( (i = copy_from_user(&local_config, remote_config, size))) // "copy_from_user" returns number of bytes that COULD NOT be copied
+    if( (i = copy_from_user(&local_config, remote_config, sizeof(local_config) /*size*/))) // "copy_from_user" returns number of bytes that COULD NOT be copied
 	return i;
     /*
      * Copy Core/Pkg MSR addresses
@@ -6220,9 +6317,9 @@ int get_version(struct PWCollector_version_info *remote_version, int size)
 {
     struct PWCollector_version_info local_version;
 
-    local_version.version = PW_VERSION_VERSION;
-    local_version.inter = PW_VERSION_INTERFACE;
-    local_version.other = PW_VERSION_OTHER;
+    local_version.version = PW_DRV_VERSION_MAJOR;
+    local_version.inter = PW_DRV_VERSION_MINOR;
+    local_version.other = PW_DRV_VERSION_OTHER;
 
     /*
      * Copy everything back to user address space.
@@ -6553,7 +6650,18 @@ static void generate_end_tps_sample_per_cpu(void *tsc)
     /*
      * UPDATE: do this ONLY if we've sent at least one tps sample in the past!
      */
-    if (unlikely(__get_cpu_var(pw_pcpu_msr_sets).init_msr_set_sent == 0x0)) {
+    if (false && unlikely(pw_pcpu_msr_info_sets[cpu].init_msr_set_sent == 0x0))
+    // if (unlikely(__get_cpu_var(pw_pcpu_msr_sets).init_msr_set_sent == 0x0))
+    {
+        return;
+    }
+
+    if (true) {
+        if (IS_C_STATE_MODE()) {
+            tps(0 /* type, don't care */, MPERF /* state, don't care at collection end */, true /* boundary */);
+        } else {
+            tps_lite(true /* boundary */);
+        }
         return;
     }
 
@@ -6677,6 +6785,12 @@ int start_collection(PWCollector_cmd_t cmd)
     if(likely(IS_FREQ_MODE())){
 	get_current_cpu_frequency(true); // "true" ==> collection START
     }
+    /*
+     * Get START C-state samples.
+     */
+    if (likely(IS_SLEEP_MODE() || IS_C_STATE_MODE())) {
+        generate_end_tps_samples();
+    }
 
     /*
      * Take a snapshot of the TSC on collection start -- required for ACPI S3 support.
@@ -6707,6 +6821,15 @@ int start_collection(PWCollector_cmd_t cmd)
 	    start_s_residency_counter();
             startTSC_s_residency = 0;
             //do_gettimeofday(cur_time); 
+            produce_s_residency_sample(0);
+            startJIFF_s_residency = CURRENT_TIME_IN_USEC();
+    }
+#endif
+
+#if DO_ACPI_S3_SAMPLE 
+    //struct timeval cur_time;
+    if(pw_is_slm && IS_S_RESIDENCY_MODE()){
+            startTSC_s_residency = 0;
             produce_s_residency_sample(0);
             startJIFF_s_residency = CURRENT_TIME_IN_USEC();
     }
@@ -6762,6 +6885,15 @@ int stop_collection(PWCollector_cmd_t cmd)
             produce_s_residency_sample(usec);
         }
         stop_s_residency_counter();
+    }
+#endif
+
+#if DO_ACPI_S3_SAMPLE 
+    if(pw_is_slm && IS_S_RESIDENCY_MODE()){
+        u64 usec = CURRENT_TIME_IN_USEC() - startJIFF_s_residency;
+        if (usec > 0) {
+            produce_s_residency_sample(usec);
+        }
     }
 #endif
 
@@ -6824,7 +6956,7 @@ int stop_collection(PWCollector_cmd_t cmd)
         /*
          * Get STOP C-state samples.
          */
-        if (likely(IS_C_STATE_MODE())) {
+        if (likely(IS_SLEEP_MODE() || IS_C_STATE_MODE())) {
             generate_end_tps_samples();
         }
         /*
@@ -6988,7 +7120,7 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
     u64 suspend_time_usecs = 0;
     u64 base_operating_freq_mhz = base_operating_freq_khz / 1000;
 
-    if (!pw_is_atm) {
+    if (!pw_is_atm && !pw_is_slm) {
         return NOTIFY_DONE;
     }
     switch (state) {
@@ -7007,8 +7139,12 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                     PWCollector_msg_t msg;
                     s_residency_sample_t sres;
 
-                    usec = dump_s_residency_counter();
-                    pw_suspend_start_s0i3 = (u64)(((u32 *)mmio_s_residency_base)[2]);
+                    usec = CURRENT_TIME_IN_USEC() - startJIFF_s_residency;
+                    if (pw_is_atm) {
+                        pw_suspend_start_s0i3 = (u64)(((u32 *)mmio_s_residency_base)[2]);
+                    } else {
+                        pw_suspend_stop_s0i3 = CURRENT_TIME_IN_USEC();
+                    }
 
                     /*
                      * No residency counters available  
@@ -7082,8 +7218,12 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                 /*
                  * Use the s-residency counters instead of the TSC/RTC hack.
                  */
-                usec = dump_s_residency_counter();
-                pw_suspend_stop_s0i3 = (u64)(((u32 *)mmio_s_residency_base)[2]);
+                usec = CURRENT_TIME_IN_USEC() - startJIFF_s_residency;
+                if (pw_is_atm) {
+                    pw_suspend_stop_s0i3 = (u64)(((u32 *)mmio_s_residency_base)[2]);
+                } else {
+                    pw_suspend_stop_s0i3 = CURRENT_TIME_IN_USEC();
+                }
                 suspend_time_usecs = (pw_suspend_stop_s0i3 - pw_suspend_start_s0i3); 
                 suspend_time_ticks = suspend_time_usecs * base_operating_freq_mhz;
                 printk(KERN_INFO "BASE operating freq_mhz = %llu\n", base_operating_freq_mhz);
@@ -7302,12 +7442,14 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_DO_D_NC_READ)) {
+#if DO_D_NC_STATE_SAMPLE
         pw_pr_debug("PW_IOCTL_DO_D_NC_READ  received!\n");
         // printk(KERN_INFO "PW_IOCTL_DO_D_NC_READ  received!\n");
         if (produce_d_nc_state_sample()) {
             pw_pr_error("ERROR taking NC D-state sample!\n");
             return -ERROR;
         }
+#endif
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_FSB_FREQ)) {
@@ -7423,6 +7565,10 @@ int pw_register_dev(void)
 
     device_create(apwr_class, NULL, apwr_dev, NULL, PW_DEVICE_NAME);
     apwr_cdev = cdev_alloc();
+    if (apwr_cdev == NULL) {
+        printk("Error allocating character device\n");
+        return ret;
+    }
     apwr_cdev->owner = THIS_MODULE;
     apwr_cdev->ops = &Fops;
     if( cdev_add(apwr_cdev, apwr_dev, 1) < 0 )  {
@@ -7445,6 +7591,7 @@ void pw_unregister_dev(void)
     cdev_del(apwr_cdev);
 };
 
+#if 0
 #ifndef __arm__
 static void disable_auto_demote(void *dummy)
 {
@@ -7478,6 +7625,7 @@ static void enable_auto_demote(void *dummy)
     }
 };
 #endif // ifndef __arm__
+#endif
 
 static bool check_auto_demote_flags(int cpu)
 {
@@ -7519,6 +7667,7 @@ static void check_arch_flags(void)
     return;
 };
 
+#if 0
 #ifndef __arm__
 /*
  * Enable CPU_CLK_UNHALTED.REF counting
@@ -7628,6 +7777,8 @@ static void restore_ref(void)
     }
 };
 #endif // ifndef __arm__
+#endif
+
 static void get_fms(unsigned int *family, unsigned int *model, unsigned int *stepping)
 {
     unsigned int ecx, edx;
@@ -7982,6 +8133,11 @@ static int __init init_hooks(void)
 
     printk(KERN_INFO "\n--------------------------------------------------------------------------------------------\n");
     printk(KERN_INFO "START Initialized the SOCWatch driver\n");
+#if DO_ANDROID
+#ifdef CONFIG_X86_INTEL_MID
+    printk(KERN_INFO "SOC Identifier = %u, Stepping = %u\n", intel_mid_identify_cpu(), intel_mid_soc_stepping());
+#endif
+#endif
     printk(KERN_INFO "--------------------------------------------------------------------------------------------\n");
 
     return SUCCESS;
@@ -8135,6 +8291,7 @@ static void __exit cleanup_hooks(void)
         timer_expire_print_cumulative_overhead_params("TIMER_EXPIRE");
         timer_insert_print_cumulative_overhead_params("TIMER_INSERT");
         tps_print_cumulative_overhead_params("TPS");
+        tps_lite_print_cumulative_overhead_params("TPS_LITE");
         tpf_print_cumulative_overhead_params("TPF");
         inter_common_print_cumulative_overhead_params("INTER_COMMON");
         irq_insert_print_cumulative_overhead_params("IRQ_INSERT");

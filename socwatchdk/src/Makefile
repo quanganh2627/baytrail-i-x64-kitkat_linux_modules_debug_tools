@@ -7,7 +7,7 @@
 
   # GPL LICENSE SUMMARY
 
-  # Copyright(c) 2011 Intel Corporation. All rights reserved.
+  # Copyright(c) 2013 Intel Corporation. All rights reserved.
 
   # This program is free software; you can redistribute it and/or modify 
   # it under the terms of version 2 of the GNU General Public License as
@@ -29,7 +29,7 @@
 
   # BSD LICENSE 
 
-  # Copyright(c) 2011 Intel Corporation. All rights reserved.
+  # Copyright(c) 2013 Intel Corporation. All rights reserved.
   # All rights reserved.
 
   # Redistribution and use in source and binary forms, with or without 
@@ -61,7 +61,7 @@
 
 
 # ***************************************************************************************
-#      Copyright (C) 2011 Intel Corporation.  All Rights Reserved.
+#      Copyright (C) 2013 Intel Corporation.  All Rights Reserved.
 
 #      This file is part of the Power Development Kit, and is free software;
 #      you can redistribute it
@@ -92,7 +92,7 @@
 # base name of SOCWatch driver
 DRIVER_BASE=socwatch
 DRIVER_MAJOR=1
-DRIVER_MINOR=0
+DRIVER_MINOR=1
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 

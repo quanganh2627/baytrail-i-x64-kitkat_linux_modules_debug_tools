@@ -4,7 +4,7 @@
 
   GPL LICENSE SUMMARY
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify 
   it under the terms of version 2 of the GNU General Public License as
@@ -26,7 +26,7 @@
 
   BSD LICENSE 
 
-  Copyright(c) 2011 Intel Corporation. All rights reserved.
+  Copyright(c) 2013 Intel Corporation. All rights reserved.
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without 
@@ -60,6 +60,8 @@
 #ifndef _MATRIXIO_H_
 #define _MATRIXIO_H_
 
+#include "pw_version.h"
+
 // #define MATRIX_IO_FILE "/dev/matrix"
 #define SOCWATCH_DRIVER_NAME_ICS "socwatch"
 #define SOCWATCH_DRIVER_NAME SOCWATCH_DRIVER_NAME_ICS
@@ -73,9 +75,6 @@ enum IOCtlType {
 	READ_OP = 0x00000001,
 	WRITE_OP = 0x00000002,
 	ENABLE_OP = 0x00000004,
-	POLL_OS = 0x00000008,
-	POLL_DRV = 0x00000010,
-	POLL_TRACE = 0x00000020,
 	SET_BITS_OP = 0x00000040,
 	RESET_BITS_OP = 0x00000080,
 };
@@ -131,6 +130,20 @@ struct mtx_pci_ops {
 	unsigned long port_island;
 };
 
+struct mtx_visa {
+	char *ptr_data_usr;
+	unsigned long data_size;
+	unsigned long operation;
+};
+
+/* PCI info for a real pci device */
+struct pci_config {
+	unsigned long bus;
+	unsigned long device;
+	unsigned long function;
+	unsigned long offset;
+	unsigned long data; /* This is written to by the ioctl */
+};
 struct scu_config {
 	unsigned long *address;
 	unsigned char *usr_data;
@@ -156,6 +169,10 @@ struct lookup_table {
 	unsigned long cfg_db_init_length;
 	unsigned long cfg_db_init_wb;
 
+	struct mtx_visa *visa_init;
+	unsigned long visa_init_length;
+	unsigned long visa_init_wb;
+
 	/*Poll Data */
 	struct mtx_msr *msrs_poll;
 	unsigned long msr_poll_length;
@@ -178,6 +195,11 @@ struct lookup_table {
 	struct scu_config scu_poll;
 	unsigned long scu_poll_length;
 
+	struct mtx_visa *visa_poll;
+	unsigned long visa_poll_length;
+	unsigned long visa_poll_wb;
+	unsigned long visa_records;
+
 	/*Term Data */
 	struct mtx_msr *msrs_term;
 	unsigned long msr_term_length;
@@ -194,11 +216,21 @@ struct lookup_table {
 	unsigned long *cfg_db_term;
 	unsigned long cfg_db_term_length;
 	unsigned long cfg_db_term_wb;
+
+	struct mtx_visa *visa_term;
+	unsigned long visa_term_length;
+	unsigned long visa_term_wb;
 };
 
 struct msr_buffer {
 	unsigned long eax_LSB;
 	unsigned long edx_MSB;
+};
+
+#define MAX_VISA_VALUES 10
+
+struct visa_buffer {
+	unsigned long long values[MAX_VISA_VALUES];
 };
 
 struct xchange_buffer {
@@ -210,12 +242,17 @@ struct xchange_buffer {
 	unsigned long pci_ops_length;
 	unsigned long *ptr_cfg_db_buff;
 	unsigned long cfg_db_length;
+	struct visa_buffer *ptr_visa_buff;
+	unsigned long visa_length;
 };
 
 struct xchange_buffer_all {
 	unsigned long long init_time_stamp;
 	unsigned long long *poll_time_stamp;
 	unsigned long long term_time_stamp;
+	unsigned long long init_tsc;
+	unsigned long long  term_tsc;
+	unsigned long long *poll_tsc;
 	struct xchange_buffer xhg_buf_init;
 	struct xchange_buffer xhg_buf_poll;
 	struct xchange_buffer xhg_buf_term;
@@ -255,6 +292,9 @@ struct mtx_size_info {
 	unsigned int poll_cfg_db_size;
 	unsigned int poll_scu_drv_size;
 	unsigned int total_mem_bytes_req;
+	unsigned int init_visa_size;
+	unsigned int term_visa_size;
+	unsigned int poll_visa_size;
 };
 
 #define IOCTL_INIT_SCAN _IOR(0xF8, 0x00000001, unsigned long)
@@ -263,6 +303,8 @@ struct mtx_size_info {
 
 #define IOCTL_INIT_MEMORY _IOR(0xF8, 0x00000010, struct xchange_buffer_all *)
 #define IOCTL_FREE_MEMORY _IO(0xF8, 0x00000020)
+
+#define IOCTL_READ_PCI_CONFIG	_IOWR(0xF8, 0x00000001, struct pci_config *)
 
 #define IOCTL_VERSION_INFO _IOW(0xF8, 0x00000001, char *)
 #define IOCTL_COPY_TO_USER _IOW(0xF8, 0x00000002, struct xchange_buffer_all *)
@@ -274,6 +316,7 @@ struct mtx_size_info {
 #define IOCTL_SRAM _IOW(0xF8, 0x00000080, struct memory_map *)
 #define IOCTL_GMCH_RESET _IOW(0xF8, 0x00000003, struct gmch_container *)
 #define IOCTL_GMCH _IOW(0xF8, 0x00000005, struct gmch_container *)
+
 
 #define platform_pci_read32	intel_mid_msgbus_read32_raw
 #define platform_pci_write32	intel_mid_msgbus_write32_raw

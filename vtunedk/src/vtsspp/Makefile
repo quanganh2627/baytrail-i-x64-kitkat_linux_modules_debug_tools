@@ -102,10 +102,10 @@ _KBUILD_CFLAGS := $(call flags,KBUILD_CFLAGS)
 CHECK_BUILD    := $(CC) $(KBUILD_CPPFLAGS) $(CPPFLAGS) $(LINUXINCLUDE) \
                   $(_KBUILD_CFLAGS) $(CFLAGS_KERNEL) $(EXTRA_CFLAGS) $(CFLAGS) \
                   -DKBUILD_BASENAME=\"$(DRIVER_NAME)\" -Werror -S -o /dev/null -xc > /dev/null 2>&1
-autoconf-srcs := $(sort $(wildcard $(obj)/autoconf/*.c))
-.PHONY: $(obj)/vtss_autoconf.h
+autoconf-srcs := $(sort $(wildcard $(KBUILD_SRC)/$(M)/autoconf/*.c))
 $(addprefix $(obj)/,$($(DRIVER_NAME)-objs)): $(obj)/vtss_autoconf.h
-$(obj)/vtss_autoconf.h:
+
+$(obj)/vtss_autoconf.h: $(autoconf-srcs) $(KBUILD_SRC)/$(M)/Makefile
 ifeq ($(VERSION).$(PATCHLEVEL),2.6)
 	@$(if $(CHECK_SUBLEVEL),$(error Linux kernels prior to 2.6.$(REQUIRED_SUBLEVEL) are unsupported.))
 else
@@ -140,7 +140,7 @@ endif
 	@echo "#error \"The kernel should be compiled with CONFIG_KPROBES=y\"" >> $@
 	@echo "#endif /* CONFIG_KPROBES */" >> $@
 	@echo "" >> $@
-	@$(foreach f, $(autoconf-srcs), if $(CHECK_BUILD) $(f); then (echo -n "#define "; echo -n $(subst $(obj)/autoconf/,VTSS_AUTOCONF_,$(basename $(f))) | tr '\-a-z' '_A-Z'; echo " 1") >> $@; fi;)
+	@$(foreach f, $(autoconf-srcs), if $(CHECK_BUILD) $(f); then (echo -n "#define "; echo -n VTSS_AUTOCONF_$(notdir $(f:.c=)) | tr '\-a-z' '_A-Z'; echo " 1") >> $@; fi;)
 	@echo "" >> $@
 	@if [ -f $(obj)/vtss_version.h ]; then \
 		echo "#include \"vtss_version.h\""; \
