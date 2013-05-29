@@ -104,7 +104,11 @@
 #include <linux/suspend.h> // for "pm_notifier"
 #include <linux/pci.h>
 
-#if DO_WAKELOCK_SAMPLE
+#if DO_ANDROID
+#include <asm/intel_scu_ipc.h>
+#endif
+
+#if DO_WAKELOCK_SAMPLE 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
 #include <trace/events/wakelock.h> // Works for the custom kernel enabling wakelock tracepoint event
 #endif
@@ -297,7 +301,7 @@ static unsigned long startJIFF, stopJIFF;
  * Collect D states in north complex
  */
 // #define DO_D_NC_STATE_SAMPLE 1
-#define DO_D_NC_STATE_SAMPLE 1 
+#define DO_D_NC_STATE_SAMPLE 1
 /*
  * Collect D states in south complex
  * By default, South complex D-state sample collection is 
@@ -559,6 +563,7 @@ static unsigned long startJIFF, stopJIFF;
 #define IPC_COMMAND_START_RESIDENCY     0x0
 #define IPC_COMMAND_STOP_RESIDENCY      0x1
 #define IPC_COMMAND_DUMP_RESIDENCY      0x2
+#define IPC_COMMAND_OTHER               0x3
  
 // Address for S state residency counters
 #define S_RESIDENCY_BASE_ADDRESS        0xFFFF71E0
@@ -568,6 +573,7 @@ static unsigned long startJIFF, stopJIFF;
 #define D_RESIDENCY_MAX_COUNTERS        0x78    // 40 LSS * 3 D states = 120
 // Address for cumulative residency counter
 #define CUMULATIVE_RESIDENCY_ADDRESS    0xFFFF71EC
+#define DEV_UNDEFINED_ADDRESS           0xFF11C090
 
 // PCI communication
 #define MTX_ENABLE_PCI                      0x80000000
@@ -588,7 +594,6 @@ static unsigned long startJIFF, stopJIFF;
 #define NC_PM_SSS_REG                      0x10047800
 static unsigned long pci_apm_sts_mem_addr;
 static unsigned long pci_pm_sss_mem_addr;
-struct pci_dev *pci_root = NULL;
 #endif
 
 #if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
@@ -623,6 +628,8 @@ static u64 startTSC_s_residency;
 #if DO_S_RESIDENCY_SAMPLE 
 static u64 startJIFF_d_sc_residency;
 #endif
+
+static u64 undefined_device_list = 0xFFFFFFFFFFFFFFFFULL;
 
 // Keep track of jiffies when previously D-state sampled
 static unsigned long long prev_sample_usec = 0;
@@ -1139,7 +1146,7 @@ static inline void tscval(u64 *v)
  */
 #if DO_D_NC_STATE_SAMPLE 
 static int get_D_NC_states (unsigned long *states)  {
-    if (states == NULL || pci_root == NULL) {
+    if (states == NULL) {
         return -ERROR;
     }
     states[0] = inl(pci_apm_sts_mem_addr + NC_APM_STS_ADDR);
@@ -4873,8 +4880,8 @@ static void probe_wakeup_source_activate(void *ignore, const char *name, unsigne
     w_sample_type_t wtype;
 
     if (name == NULL) {
-        printk("wake_lock: name=UNKNOWNs, state=%u\n", name, state);
-        return;
+        printk("wake_lock: name=UNKNOWNs, state=%u\n", state);
+        return; 
     }
 
     /*
@@ -4898,8 +4905,8 @@ static void probe_wakeup_source_deactivate(void *ignore, const char *name, unsig
     u64 tsc;
 
     if (name == NULL) {
-        printk("wake_unlock: name=UNKNOWNs, state=%u\n", name, state);
-        return;
+        printk("wake_unlock: name=UNKNOWNs, state=%u\n", state);
+        return; 
     }
 
     /*
@@ -5861,7 +5868,7 @@ int set_config(struct PWCollector_config *remote_config, int size)
     int i=0;
     struct PWCollector_config local_config;
 
-    if( (i = copy_from_user(&local_config, remote_config, size))) // "copy_from_user" returns number of bytes that COULD NOT be copied
+    if( (i = copy_from_user(&local_config, remote_config, sizeof(local_config) /*size*/))) // "copy_from_user" returns number of bytes that COULD NOT be copied
 	return i;
     /*
      * Copy Core/Pkg MSR addresses
@@ -6050,6 +6057,21 @@ int get_micro_patch_ver(int *remote_ver, int size)
      * Copy everything back to user address space.
      */
     return copy_to_user(remote_ver, &local_ver, size); // returns number of bytes that could NOT be copiled
+};
+
+/*
+ * Retrieve available device list
+ */
+int get_available_devices(struct PWCollector_device_info *remote_devices, int size)
+{
+    struct PWCollector_device_info local_devices;
+
+    local_devices.undefined_devices = undefined_device_list;
+
+    /*
+     * Copy everything back to user address space.
+     */
+    return copy_to_user(remote_devices, &local_devices, size); // returns number of bytes that could NOT be copiled
 };
 
 int get_status(struct PWCollector_status *remote_status, int size)
@@ -7025,6 +7047,11 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
 	OUTPUT(3, KERN_INFO "OUT len = %d\n", local_out_len);
 	return get_version((struct PWCollector_version_info *)remote_args->out_arg, local_out_len);
     }
+    else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_DEVICES)){
+	OUTPUT(0, KERN_INFO "PW_IOCTL_DEVICES\n");
+	OUTPUT(3, KERN_INFO "OUT len = %d\n", local_out_len);
+	return get_available_devices((struct PWCollector_device_info *)remote_args->out_arg, local_out_len);
+    }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_MICRO_PATCH)){
 	OUTPUT(0, KERN_INFO "PW_IOCTL_MICRO_PATCH\n");
 	return get_micro_patch_ver((int *)remote_args->out_arg, local_out_len);
@@ -7093,10 +7120,12 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_DO_D_NC_READ)) {
         pw_pr_debug("PW_IOCTL_DO_D_NC_READ  received!\n");
         // printk(KERN_INFO "PW_IOCTL_DO_D_NC_READ  received!\n");
+#if DO_D_NC_STATE_SAMPLE 
         if (produce_d_nc_state_sample()) {
             pw_pr_error("ERROR taking NC D-state sample!\n");
             return -ERROR;
         }
+#endif
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_FSB_FREQ)) {
@@ -7593,6 +7622,7 @@ static int __init init_hooks(void)
 
 #if DO_S_RESIDENCY_SAMPLE || DO_D_SC_RESIDENCY_SAMPLE
     if(pw_is_atm){
+        void *mmio_d_map_base = NULL;
         switch(pw_is_atm) {
             case MFD:
             case LEX:
@@ -7633,7 +7663,41 @@ static int __init init_hooks(void)
             ret = -ERROR;
             goto err_ret_post_init;
         }
+
+        // Map the bus memory into CPU space for 4(bytes) * 2 for available devices 
+        if(pw_is_atm == CLV) {
+#if USE_PREDEFINED_SCU_IPC
+            ret = intel_scu_ipc_simple_command(IPC_MESSAGE_D_RESIDENCY, IPC_COMMAND_OTHER, NULL, 0, NULL, 0);
+#else
+            LOCK(ipclock);
+            ipc_command((IPC_COMMAND_OTHER << 12) | IPC_MESSAGE_D_RESIDENCY);
+            ret = busy_loop();
 #endif
+#if !USE_PREDEFINED_SCU_IPC
+            UNLOCK(ipclock);
+#endif
+            mmio_d_map_base = ioremap_nocache(DEV_UNDEFINED_ADDRESS, 8);
+
+            if (mmio_d_map_base == NULL) {
+                printk(KERN_INFO "Device availability check failed! # of devices is set to %d\n", CLV_MAX_LSS_NUM_IN_SC);
+            } else {
+                int i, count = 0;
+                u32 val_lo, val_hi;
+                val_lo = readl(mmio_d_map_base);
+                val_hi = readl(mmio_d_map_base + 4);
+                OUTPUT(3, KERN_INFO "[apwr] LO = 0x%x, 0x%x\n", val_lo, val_hi);
+                undefined_device_list = (((u64)val_hi << 32) | val_lo);
+                iounmap(mmio_d_map_base);
+                for (i=0; i<64; i++) {
+                    if (!(undefined_device_list & ((u64)0x1 << i))) {
+                        count++;
+                    }
+                } 
+                d_sc_device_num = count;
+                OUTPUT(3, KERN_INFO "[apwr] Undefined devices = 0x%llx, # of devices = %d\n", undefined_device_list, d_sc_device_num);
+            }
+#endif
+        }
 
         mmio_cumulative_residency_base = ioremap_nocache(CUMULATIVE_RESIDENCY_ADDRESS, 4);
 
@@ -7642,11 +7706,8 @@ static int __init init_hooks(void)
             ret = -ERROR;
             goto err_ret_post_init;
         }
-
     }
 #endif
-
-
 
 #if DO_S_STATE_SAMPLE || DO_D_SC_STATE_SAMPLE
     if(pw_is_atm){
@@ -7661,22 +7722,16 @@ static int __init init_hooks(void)
     }
 #endif
 
-#if DO_D_NC_STATE_SAMPLE
+#if DO_D_NC_STATE_SAMPLE && DO_ANDROID
      {
         u32 read_value = 0;
-        pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
-        if (pci_root != NULL) {
-            pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_APM_STS_REG);
-            pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
-            pci_apm_sts_mem_addr = read_value & 0xFFFF;
-
-            pci_write_config_dword(pci_root, MTX_PCI_MSG_CTRL_REG, NC_PM_SSS_REG);
-            pci_read_config_dword(pci_root, MTX_PCI_MSG_DATA_REG, &read_value);
-            pci_pm_sss_mem_addr = read_value & 0xFFFF;
-        }
+        read_value = intel_mid_msgbus_read32_raw(NC_APM_STS_REG);
+        pci_apm_sts_mem_addr = read_value & 0xFFFF;
+       
+        read_value = intel_mid_msgbus_read32_raw(NC_PM_SSS_REG);
+        pci_pm_sss_mem_addr = read_value & 0xFFFF;
     } 
 #endif
-
 
     {
         /*
