@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2013 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -325,6 +325,11 @@ UTILITY_Configure_CPU (
             SEP_PRINT_DEBUG("Set up the Core(TM)2 processor dispatch table\n");
             dispatch = &core2_dispatch;
             break;
+        case 6:
+            SEP_PRINT_DEBUG("Set up the Silvermont dispatch table\n");
+            dispatch = &silvermont_dispatch;
+            break;
+
 #if !defined(DRV_ATOM_ONLY)
         case 2:
             dispatch = &corei7_dispatch;
@@ -341,10 +346,6 @@ UTILITY_Configure_CPU (
         case 5:
             SEP_PRINT_DEBUG("Set up the Sandybridge dispatch table\n");
             dispatch = &corei7_dispatch_htoff_mode_2;
-            break;
-        case 6:
-            SEP_PRINT_DEBUG("Set up the Silvermont dispatch table\n");
-            dispatch = &silvermont_dispatch;
             break;
         case 100:
             SEP_PRINT_DEBUG("Set up the Core i7 uncore dispatch table\n");

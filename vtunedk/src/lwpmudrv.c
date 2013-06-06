@@ -80,6 +80,7 @@
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #include "pebs.h"
 #endif
+#include "pci.h"
 
 MODULE_AUTHOR("Copyright(c) 2007-2011 Intel Corporation");
 MODULE_VERSION(SEP_NAME"_"SEP_VERSION_STR);
@@ -223,6 +224,83 @@ lwpmudrv_PWR_Info (
     return OS_SUCCESS;
 }
 #endif
+
+/*
+ * @fn void lwpmudrv_Allocate_Restore_Buffer
+ *
+ * @param    
+ *
+ * @return   OS_STATUE
+ *
+ * @brief    allocate buffer space to save/restore the data (for JKT, QPILL and HA register) before collection
+ */
+static OS_STATUS
+lwpmudrv_Allocate_Restore_Buffer (
+    VOID
+)
+{
+    int i = 0;
+
+    if (!restore_ha_direct2core) {
+        restore_ha_direct2core  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U32 *));
+        if (!restore_ha_direct2core) {
+            return OS_NO_MEM;
+        }
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+            restore_ha_direct2core[i] = CONTROL_Allocate_Memory(MAX_BUSNO * sizeof(U32));
+        }
+    }
+    if (!restore_qpi_direct2core) {
+        restore_qpi_direct2core = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U32 *));
+        if (!restore_qpi_direct2core) {
+            return OS_NO_MEM;
+        }
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+            restore_qpi_direct2core[i] = CONTROL_Allocate_Memory(2 * MAX_BUSNO * sizeof(U32));
+        }
+    }
+    if (!restore_bl_bypass) {
+        restore_bl_bypass  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U64)); 
+        if (!restore_bl_bypass) {
+            return OS_NO_MEM;
+        }
+    }
+    return OS_SUCCESS;
+}
+
+/*
+ * @fn void lwpmudrv_Free_Restore_Buffer
+ *
+ * @param    
+ *
+ * @return   OS_STATUE
+ *
+ * @brief    allocate buffer space to save/restore the data (for JKT, QPILL and HA register) before collection
+ */
+static OS_STATUS
+lwpmudrv_Free_Restore_Buffer (
+    VOID
+)
+{
+    U32  i = 0;
+    if (restore_ha_direct2core) {
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+              restore_ha_direct2core[i]= CONTROL_Free_Memory(restore_ha_direct2core[i]);
+        }
+        restore_ha_direct2core = CONTROL_Free_Memory(restore_ha_direct2core);
+    }
+    if (restore_qpi_direct2core) {
+         for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+              restore_qpi_direct2core[i]= CONTROL_Free_Memory(restore_qpi_direct2core[i]);
+        }
+        restore_qpi_direct2core = CONTROL_Free_Memory(restore_qpi_direct2core);
+    }
+    if (restore_bl_bypass) {
+        restore_bl_bypass = CONTROL_Free_Memory(restore_bl_bypass);
+    }
+    return OS_SUCCESS;
+}
+
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -549,6 +627,7 @@ lwpmudrv_Initialize (
         CPU_STATE_initial_mask(&pcb[cpu_num])     = 1;
         CPU_STATE_group_swap(&pcb[cpu_num])       = 1;
         CPU_STATE_reset_mask(&pcb[cpu_num])       = 0;
+        CPU_STATE_num_samples(&pcb[cpu_num])      = 0;
     }
 
     dispatch = UTILITY_Configure_CPU(DRV_CONFIG_dispatch_id(pcfg));
@@ -1046,6 +1125,9 @@ lwpmudrv_Init_PMU (
         SEP_PRINT_ERROR("Number of em groups is not set.\n");
         return OS_SUCCESS;
     }
+
+    // allocate save/restore space before program the PMU
+    lwpmudrv_Allocate_Restore_Buffer();
 
     // must be done after pcb is created and before PMU is first written to
     CONTROL_Invoke_Parallel(dispatch->init, NULL);
@@ -2195,7 +2277,14 @@ lwpmudrv_Prepare_Stop (
         }
     }
 #endif
-
+    /*
+     * Clean up all the control registers
+     */
+    if (dispatch != NULL) {
+        CONTROL_Invoke_Parallel(dispatch->cleanup, (VOID *)(size_t)CONTROL_THIS_CPU());
+        SEP_PRINT_DEBUG("Stop: Cleanup finished\n");
+    }
+    lwpmudrv_Free_Restore_Buffer();
 #ifdef EMON
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     CONTROL_Invoke_Parallel(lwpmudrv_Clear_CR4_PCE_Bit, (VOID *)(size_t)0);
@@ -3630,21 +3719,6 @@ lwpmu_Unload (
     pcb_size            = 0;
     tsc_info            = CONTROL_Free_Memory(tsc_info);
     core_to_package_map = CONTROL_Free_Memory(core_to_package_map);
-    if (restore_bl_bypass) {
-        restore_bl_bypass = CONTROL_Free_Memory(restore_bl_bypass);
-    }
-    if (restore_qpi_direct2core) {
-        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-              restore_qpi_direct2core[i]= CONTROL_Free_Memory(restore_qpi_direct2core[i]);
-        }
-        restore_qpi_direct2core = CONTROL_Free_Memory(restore_qpi_direct2core);
-    }
-    if (restore_ha_direct2core) {
-        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-              restore_ha_direct2core[i]= CONTROL_Free_Memory(restore_ha_direct2core[i]);
-        }
-        restore_ha_direct2core = CONTROL_Free_Memory(restore_ha_direct2core);
-    }
 
 #if defined (DRV_ANDROID)
     unregister_chrdev(MAJOR(lwpmu_DevNum), SEP_DRIVER_NAME);

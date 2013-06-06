@@ -48,7 +48,6 @@
 #include "output.h"
 
 #define OTHER_C_DEVICES  1     // one for module
-
 /*
  *  Global data: Buffer control structure
  */
@@ -115,12 +114,12 @@ OUTPUT_Reserve_Buffer_Space (
 
     if (OUTPUT_remaining_buffer_size(outbuf) >= size) {
         outloc = (OUTPUT_buffer(outbuf,OUTPUT_current_buffer(outbuf)) + 
-          (OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf)));
+          (OUTPUT_total_buffer_size(outbuf) - OUTPUT_remaining_buffer_size(outbuf)));
     }
     else {
         U32  i, j, start;
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-                OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+                OUTPUT_total_buffer_size(outbuf) - OUTPUT_remaining_buffer_size(outbuf);
 
         //
         // Massive Naive assumption:  Must find a way to fix it.
@@ -136,8 +135,11 @@ OUTPUT_Reserve_Buffer_Space (
 
             if (!OUTPUT_buffer_full(outbuf,j)) {
                 OUTPUT_current_buffer(outbuf) = j;
-                OUTPUT_remaining_buffer_size(outbuf) = OUTPUT_BUFFER_SIZE; 
+                OUTPUT_remaining_buffer_size(outbuf) = OUTPUT_total_buffer_size(outbuf); 
                 outloc = OUTPUT_buffer(outbuf,j);
+            }
+            else {
+                signal_full = FALSE;
             }
         }
     }
@@ -410,6 +412,10 @@ OUTPUT_Sample_Read (
  *  @fn output_Initialized_Buffers()
  *
  *  @result OUTPUT
+ *  @param  BUFFER_DESC desc   - descriptor for the buffer being initialized
+ *  @param  U32         factor - multiplier for OUTPUT_BUFFER_SIZE.
+ *                               1 for cpu buffers, 2 for module buffers.
+ *
  *  @brief  Allocate, initialize, and return an output data structure
  *
  * <I>Special Notes:</I>
@@ -421,7 +427,8 @@ OUTPUT_Sample_Read (
  */
 static BUFFER_DESC
 output_Initialized_Buffers (
-    BUFFER_DESC desc
+    BUFFER_DESC desc,
+    U32         factor
 )
 {
     OUTPUT       outbuf;
@@ -441,7 +448,7 @@ output_Initialized_Buffers (
     spin_lock_init(&OUTPUT_buffer_lock(outbuf));
     for (j = 0; j < OUTPUT_NUM_BUFFERS; j++) {
         if (OUTPUT_buffer(outbuf,j) == NULL) {
-            OUTPUT_buffer(outbuf,j) = CONTROL_Allocate_Memory(OUTPUT_BUFFER_SIZE);
+            OUTPUT_buffer(outbuf,j) = CONTROL_Allocate_Memory(OUTPUT_BUFFER_SIZE * factor);
         }
         OUTPUT_buffer_full(outbuf,j) = 0;
         if (!OUTPUT_buffer(outbuf,j)) {
@@ -454,7 +461,8 @@ output_Initialized_Buffers (
      *  Initialize the remaining fields in the BUFFER_DESC
      */
     OUTPUT_current_buffer(outbuf)        = 0;
-    OUTPUT_remaining_buffer_size(outbuf) = OUTPUT_BUFFER_SIZE;
+    OUTPUT_remaining_buffer_size(outbuf) = OUTPUT_BUFFER_SIZE * factor;
+    OUTPUT_total_buffer_size(outbuf)     = OUTPUT_BUFFER_SIZE * factor;
     init_waitqueue_head(&BUFFER_DESC_queue(desc));
 
     return(desc);
@@ -487,7 +495,7 @@ OUTPUT_Initialize (
 
     flush = 0;
     for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-        unused = output_Initialized_Buffers(&cpu_buf[i]);
+        unused = output_Initialized_Buffers(&cpu_buf[i], 1);
         if (!unused) {
             SEP_PRINT_ERROR("OUTPUT_Initialize: Failed to allocate cpu output buffers\n");
             OUTPUT_Destroy();
@@ -498,7 +506,7 @@ OUTPUT_Initialize (
     /*
      *  Just need one module buffer
      */
-    module_buf = output_Initialized_Buffers(module_buf);
+    module_buf = output_Initialized_Buffers(module_buf, MODULE_BUFF_SIZE);
     if (!module_buf) {
         SEP_PRINT_ERROR("OUTPUT_Initialize: Failed to create module output buffers\n");
         OUTPUT_Destroy();
@@ -542,7 +550,7 @@ OUTPUT_Flush (
         outbuf = &(cpu_buf[i].outbuf);
         writers += 1;
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_total_buffer_size(outbuf) - OUTPUT_remaining_buffer_size(outbuf);
     }
     atomic_set(&flush_writers, writers + OTHER_C_DEVICES);   
     // Flip the switch to terminate the output threads
@@ -554,7 +562,7 @@ OUTPUT_Flush (
         }
         outbuf = &BUFFER_DESC_outbuf(&cpu_buf[i]);
         OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-            OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+            OUTPUT_total_buffer_size(outbuf) - OUTPUT_remaining_buffer_size(outbuf);
         wake_up_interruptible_sync(&BUFFER_DESC_queue(&cpu_buf[i]));
     }
 
@@ -562,7 +570,7 @@ OUTPUT_Flush (
 
     outbuf = &BUFFER_DESC_outbuf(module_buf);
     OUTPUT_buffer_full(outbuf,OUTPUT_current_buffer(outbuf)) = 
-                              OUTPUT_BUFFER_SIZE - OUTPUT_remaining_buffer_size(outbuf);
+                              OUTPUT_total_buffer_size(outbuf) - OUTPUT_remaining_buffer_size(outbuf);
     SEP_PRINT_DEBUG("OUTPUT_Flush - waking up module_queue\n");
     wake_up_interruptible_sync(&BUFFER_DESC_queue(module_buf));
 
@@ -594,12 +602,14 @@ OUTPUT_Destroy (
 )
 {
     int    i, n;
-    output_Free_Buffers(module_buf, OUTPUT_BUFFER_SIZE);
+    OUTPUT outbuf = &BUFFER_DESC_outbuf(module_buf);
+    output_Free_Buffers(module_buf, OUTPUT_total_buffer_size(outbuf));
 
     if (cpu_buf != NULL) {
         n = GLOBAL_STATE_num_cpus(driver_state);
         for (i = 0; i < n; i++) {
-            output_Free_Buffers(&cpu_buf[i], OUTPUT_BUFFER_SIZE);
+            outbuf = &BUFFER_DESC_outbuf(&cpu_buf[i]);
+            output_Free_Buffers(&cpu_buf[i], OUTPUT_total_buffer_size(outbuf));
         }
     }
 

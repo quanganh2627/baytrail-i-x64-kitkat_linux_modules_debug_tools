@@ -43,7 +43,7 @@ static DEFINE_RWLOCK(vtss_task_map_lock);
 #define HASH_TABLE_SIZE (1 << 10)
 
 static struct hlist_head vtss_task_map_hash_table[HASH_TABLE_SIZE] = { {NULL} };
-
+static atomic_t  vtss_map_initialized = ATOMIC_INIT(0);
 /** Compute the map hash */
 static inline u32 vtss_task_map_hash(pid_t key) __attribute__ ((always_inline));
 static inline u32 vtss_task_map_hash(pid_t key)
@@ -62,6 +62,7 @@ vtss_task_map_item_t* vtss_task_map_get_item(pid_t key)
     struct hlist_head *head;
     struct hlist_node *node;
     vtss_task_map_item_t *item;
+    if (atomic_read(&vtss_map_initialized)==0)return NULL;
 
     read_lock_irqsave(&vtss_task_map_lock, flags);
     head = &vtss_task_map_hash_table[vtss_task_map_hash(key)];
@@ -225,6 +226,11 @@ int vtss_task_map_init(void)
         INIT_HLIST_HEAD(head);
     }
     write_unlock_irqrestore(&vtss_task_map_lock, flags);
+    
+    atomic_set(&vtss_map_initialized,1);
+    
+    
+    
     return 0;
 }
 
@@ -236,6 +242,7 @@ void vtss_task_map_fini(void)
     struct hlist_node *node, *temp;
     vtss_task_map_item_t *item;
 
+    atomic_set(&vtss_map_initialized,0);
     write_lock_irqsave(&vtss_task_map_lock, flags);
     for (i = 0; i < HASH_TABLE_SIZE; i++) {
         head = &vtss_task_map_hash_table[i];

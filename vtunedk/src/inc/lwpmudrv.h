@@ -81,7 +81,7 @@ struct DISPATCH_NODE_S {
     VOID (*check_overflow)(DRV_MASKS);
     VOID (*swap_group)(DRV_BOOL);
     VOID (*read_lbrs)(PVOID);
-    VOID (*clean_up)(PVOID);
+    VOID (*cleanup)(PVOID);
     VOID (*hw_errata)(VOID);
     VOID (*read_power)(PVOID);
     U64  (*check_overflow_errata)(ECB, U32, U64);

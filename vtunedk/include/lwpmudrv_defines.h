@@ -187,6 +187,7 @@ extern "C" {
 #define DRV_WFOPEN(fp,name,mode)        _wfopen_s(&(fp),(name),(mode))
 #define DRV_FCLOSE(fp)                   if ((fp) != NULL) { fclose((fp)); }
 #define DRV_WCSCPY                       wcscpy_s
+#define DRV_WCSNCPY                      wcsncpy_s
 #define DRV_WCSCAT                       wcscat_s
 #define DRV_WCSTOK                       wcstok_s
 #define DRV_STRERROR                     strerror_s
@@ -238,6 +239,7 @@ extern "C" {
 #define DRV_FOPEN(fp,name,mode)                  (fp) = fopen((name),(mode))
 #define DRV_FCLOSE(fp)                           if ((fp) != NULL) { fclose((fp)); }
 #define DRV_WCSCPY(dst,dst_size,src)             wcscpy((dst),(src))
+#define DRV_WCSNCPY(dst,dst_size,src,count)      wcsncpy((dst),(src),(count))
 #define DRV_WCSCAT(dst,dst_size,src)             wcscat((dst),(src))
 #define DRV_WCSTOK(tok,delim,context)            wcstok((tok),(delim))
 #define DRV_STRERROR                             strerror
@@ -266,6 +268,19 @@ extern "C" {
 #if defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
 #define DRV_WCSDUP                               solaris_wcsdup
 #endif
+
+/* 
+ * Windows uses wchar_t and linux uses char for strings.
+ * Need an extra level of abstraction to standardize it.
+ */
+#if defined(DRV_OS_WINDOWS)
+#define DRV_STDUP                               DRV_WCSDUP
+#define DRV_PRINT_STRING(stream, ...)           fwprintf((stream), L"%s", __VA_ARGS__)
+#else
+#define DRV_STDUP                               DRV_STRDUP
+#define DRV_PRINT_STRING(stream, ...)           fprintf((stream), "%s", __VA_ARGS__)
+#endif
+
 
 /*
  * OS return types

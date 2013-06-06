@@ -55,15 +55,15 @@
 #define IA32_PMC0            0x0c1
 
 /// SNB power MSRs
-#define MSR_PKG_ENERGY_STATUS  0x611
-#define MSR_PP0_ENERGY_STATUS  0x639
-#define MSR_PP1_ENERGY_STATUS  0x641    /// 06_2a
-#define MSR_DRAM_ENERGY_STATUS 0x619    /// 06_2d
+#define VTSS_MSR_PKG_ENERGY_STATUS  0x611
+#define VTSS_MSR_PP0_ENERGY_STATUS  0x639
+#define VTSS_MSR_PP1_ENERGY_STATUS  0x641    /// 06_2a
+#define VTSS_MSR_DRAM_ENERGY_STATUS 0x619    /// 06_2d
 
 /// NHM/SNB C-state residency MSRs
-#define MSR_CORE_C3_RESIDENCY 0x3fc
-#define MSR_CORE_C6_RESIDENCY 0x3fd
-#define MSR_CORE_C7_RESIDENCY 0x3fe ///SNB
+#define VTSS_MSR_CORE_C3_RESIDENCY 0x3fc
+#define VTSS_MSR_CORE_C6_RESIDENCY 0x3fd
+#define VTSS_MSR_CORE_C7_RESIDENCY 0x3fe ///SNB
 
 /* Knight family, KNC */
 #define KNX_CORE_PMC0                   0x20
@@ -425,24 +425,24 @@ void vtss_cpuevents_quantum_border(cpuevent_t* cpuevent_chain, int flag)
             pcb_cpu.idle_c1_residency = vtss_time_cpu();
 
             if (sysevent_type[vtss_sysevent_idle_c3] != vtss_sysevent_end) {
-                rdmsrl(MSR_CORE_C3_RESIDENCY, pcb_cpu.idle_c3_residency);
-                rdmsrl(MSR_CORE_C6_RESIDENCY, pcb_cpu.idle_c6_residency);
+                rdmsrl(VTSS_MSR_CORE_C3_RESIDENCY, pcb_cpu.idle_c3_residency);
+                rdmsrl(VTSS_MSR_CORE_C6_RESIDENCY, pcb_cpu.idle_c6_residency);
             }
             if (sysevent_type[vtss_sysevent_idle_c7] != vtss_sysevent_end) {
-                rdmsrl(MSR_CORE_C7_RESIDENCY, pcb_cpu.idle_c7_residency);
+                rdmsrl(VTSS_MSR_CORE_C7_RESIDENCY, pcb_cpu.idle_c7_residency);
             }
         } else if (pcb_cpu.idle_c1_residency) {
             pcb_cpu.idle_duration = vtss_time_cpu() - pcb_cpu.idle_c1_residency;
             pcb_cpu.idle_c1_residency = 0;
 
             if (sysevent_type[vtss_sysevent_idle_c3] != vtss_sysevent_end) {
-                rdmsrl(MSR_CORE_C3_RESIDENCY, tmp);
+                rdmsrl(VTSS_MSR_CORE_C3_RESIDENCY, tmp);
                 pcb_cpu.idle_c3_residency = tmp - pcb_cpu.idle_c3_residency;
-                rdmsrl(MSR_CORE_C6_RESIDENCY, tmp);
+                rdmsrl(VTSS_MSR_CORE_C6_RESIDENCY, tmp);
                 pcb_cpu.idle_c6_residency = tmp - pcb_cpu.idle_c6_residency;
             }
             if (sysevent_type[vtss_sysevent_idle_c7] != vtss_sysevent_end) {
-                rdmsrl(MSR_CORE_C7_RESIDENCY, tmp);
+                rdmsrl(VTSS_MSR_CORE_C7_RESIDENCY, tmp);
                 pcb_cpu.idle_c7_residency = tmp - pcb_cpu.idle_c7_residency;
             }
         }

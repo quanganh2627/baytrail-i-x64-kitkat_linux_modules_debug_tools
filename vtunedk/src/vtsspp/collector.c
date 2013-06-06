@@ -90,18 +90,28 @@
 #define VTSS_COLLECTOR_INITING 1
 #define VTSS_COLLECTOR_RUNNING 2
 #define VTSS_COLLECTOR_PAUSED  3
+#define VTSS_COLLECTOR_IS_READY atomic_read(&vtss_collector_state) >= VTSS_COLLECTOR_RUNNING
 static const char* state_str[4] = { "STOPPED", "INITING", "RUNNING", "PAUSED" };
 
 #define VTSS_EVENT_LOST_MODULE_ADDR 2
 static const char VTSS_EVENT_LOST_MODULE_NAME[] = "Events Lost On Trace Overflow";
 
 #define vtss_cpu_active(cpu) cpumask_test_cpu((cpu), &vtss_collector_cpumask)
+
+#define VTSS_RET_CANCEL 1 //Cancel scheduled work
+
 static cpumask_t vtss_collector_cpumask = CPU_MASK_NONE;
 static atomic_t  vtss_collector_state   = ATOMIC_INIT(VTSS_COLLECTOR_STOPPED);
 static atomic_t  vtss_target_count      = ATOMIC_INIT(0);
 static atomic_t  vtss_start_paused      = ATOMIC_INIT(0);
 static uid_t     vtss_session_uid       = 0;
 static gid_t     vtss_session_gid       = 0;
+
+// collector cannot work if transport uninitialized as  pointer "task->trnd" (transport)
+// is not set to NULL  during tranport "fini".
+static atomic_t  vtss_transport_initialized    = ATOMIC_INIT(0); 
+
+
 
 #define VTSS_ST_NEWTASK    (1<<0)
 #define VTSS_ST_SOFTCFG    (1<<1)
@@ -209,8 +219,10 @@ static void vtss_kmap_all(struct vtss_task_data*);
 
 #ifdef CONFIG_PREEMPT_RT
 static DEFINE_RAW_RWLOCK(vtss_recovery_rwlock);
+static DEFINE_RAW_RWLOCK(vtss_transtort_init_rwlock);
 #else
 static DEFINE_RWLOCK(vtss_recovery_rwlock);
+static DEFINE_RWLOCK(vtss_transport_init_rwlock);
 #endif
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct vtss_task_data*, vtss_recovery_tskd);
 
@@ -408,7 +420,12 @@ typedef void (vtss_work_func_t) (void *work);
 
 static int vtss_queue_work(int cpu, vtss_work_func_t* func, void* data, size_t size)
 {
-    struct vtss_work* my_work = (struct vtss_work*)kmalloc(sizeof(struct vtss_work)+size, GFP_ATOMIC);
+    struct vtss_work* my_work = 0;
+
+    if (!VTSS_COLLECTOR_IS_READY){
+        return VTSS_RET_CANCEL;
+    }
+    my_work = (struct vtss_work*)kmalloc(sizeof(struct vtss_work)+size, GFP_ATOMIC);
 
     if (my_work != NULL) {
 #ifdef VTSS_AUTOCONF_INIT_WORK_TWO_ARGS
@@ -459,19 +476,26 @@ static void vtss_profiling_resume(vtss_task_map_item_t* item)
 {
     int trace_flags = reqcfg.trace_cfg.trace_flags;
     struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
+    unsigned long flags;
 
     tskd->state &= ~VTSS_ST_PMU_SET;
-    if (unlikely(!vtss_cpu_active(smp_processor_id()) || VTSS_IS_COMPLETE(tskd))) {
+    read_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    // VTSS_COLLECTOR_IS_READY garantee that transport initialized
+    if (!VTSS_COLLECTOR_IS_READY || unlikely(!vtss_cpu_active(smp_processor_id()) || VTSS_IS_COMPLETE(tskd))) {
         vtss_profiling_pause();
+        read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         return;
     }
 
     switch (atomic_read(&vtss_collector_state)) {
     case VTSS_COLLECTOR_RUNNING:
+        // all calls of "trnd" should be under vtss_transport_initialized_rwlock.
+        // this lock should be in caller function
         if (vtss_transport_is_overflowing(tskd->trnd)) {
 #ifdef VTSS_OVERFLOW_PAUSE
             vtss_cmd_pause();
             vtss_profiling_pause();
+            read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
             return;
 #else
 //            vtss_queue_work(smp_processor_id(), vtss_overflow_work, &(tskd->trnd), sizeof(void*));
@@ -480,13 +504,17 @@ static void vtss_profiling_resume(vtss_task_map_item_t* item)
         break;
 #ifdef VTSS_OVERFLOW_PAUSE
     case VTSS_COLLECTOR_PAUSED:
+        // all calls of with "trnd" should be under vtss_transport_initialized_rwlock.
+        // this lock should be in caller function
         if (!vtss_transport_is_overflowing(tskd->trnd))
             vtss_cmd_resume();
 #endif
     default:
         vtss_profiling_pause();
+        read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         return;
     }
+    read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
 
     /* clear BTS/PEBS buffers */
     vtss_bts_init_dsa();
@@ -541,7 +569,8 @@ static void vtss_target_dtr(vtss_task_map_item_t* item, void* args)
     }
     write_unlock_irqrestore(&vtss_recovery_rwlock, flags);
     /* Finish trace transport */
-    if (tskd->trnd != NULL) {
+    read_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    if (atomic_read(&vtss_transport_initialized) != 0 && tskd->trnd != NULL) {
         if (vtss_record_thread_stop(tskd->trnd, tskd->tid, tskd->pid, tskd->cpu, NOT_SAFE)) {
             TRACE("vtss_record_thread_stop() FAIL");
         }
@@ -557,6 +586,7 @@ static void vtss_target_dtr(vtss_task_map_item_t* item, void* args)
         }
         /* NOTE: tskd->trnd will be destroyed in vtss_transport_fini() */
     }
+    read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
     tskd->stk.destroy(&tskd->stk);
 }
 
@@ -566,7 +596,16 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     size_t size = 0;
     struct task_struct *task;
     struct vtss_task_data *tskd;
-    vtss_task_map_item_t *item = vtss_task_map_alloc(tid, sizeof(struct vtss_task_data), vtss_target_dtr, (GFP_KERNEL | __GFP_ZERO));
+    unsigned long flags;
+    vtss_task_map_item_t *item;
+
+
+    if (atomic_read(&vtss_transport_initialized) == 0){
+        ERROR(" (%d:%d): Transport not initialized", tid, pid);
+        return VTSS_RET_CANCEL;
+    }
+
+    item = vtss_task_map_alloc(tid, sizeof(struct vtss_task_data), vtss_target_dtr, (GFP_KERNEL | __GFP_ZERO));
 
     if (item == NULL) {
         ERROR(" (%d:%d): Unable to allocate", tid, pid);
@@ -577,6 +616,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     tskd->pid        = pid;
     tskd->trnd       = NULL;
     tskd->ppid       = ppid;
+
     tskd->m32        = 0; /* unknown so far, assume native */
     tskd->cpu        = smp_processor_id();
     tskd->ip         = NULL;
@@ -605,6 +645,8 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     }
     tskd->filename[size] = '\0';
     /* Transport initialization */
+    read_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    if (atomic_read(&vtss_transport_initialized) != 0){
     if (tskd->tid == tskd->pid) { /* New process */
         tskd->trnd = vtss_transport_create(tskd->ppid, tskd->pid, vtss_session_uid, vtss_session_gid);
         if (tskd->trnd != NULL) {
@@ -626,6 +668,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
         if (item0 == NULL) {
             ERROR(" (%d:%d): Unable to find main thread", tskd->tid, tskd->pid);
             vtss_task_map_put_item(item);
+            read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
             return -ENOENT;
         }
         tskd0 = (struct vtss_task_data*)&item0->data;
@@ -638,6 +681,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     if (tskd->trnd == NULL) {
         ERROR(" (%d:%d): Unable to create transport", tskd->tid, tskd->pid);
         vtss_task_map_put_item(item);
+        read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         return -ENOMEM;
     }
     /* Create cpuevent chain */
@@ -725,8 +769,12 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
         TRACE(" (%d:%d): u=%d, n=%d, done='%s'",
                 tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
         vtss_target_del(item);
+        read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         return 0;
     }
+    }
+    read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
+
     TRACE(" (%d:%d): u=%d, n=%d, done='%s'",
             tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
     vtss_task_map_put_item(item);
@@ -749,6 +797,10 @@ int vtss_target_del(vtss_task_map_item_t* item)
 
 void vtss_target_fork(struct task_struct *task, struct task_struct *child)
 {
+    if(!VTSS_COLLECTOR_IS_READY){
+         //vtss collector is unitialized
+         return;
+    }
     if (task != NULL && child != NULL) {
         vtss_task_map_item_t* item = vtss_task_map_get_item(TASK_TID(task));
 
@@ -783,6 +835,14 @@ void vtss_target_exec_enter(struct task_struct *task, const char *filename, cons
     vtss_task_map_item_t* item;
 
     vtss_profiling_pause();
+    if(!VTSS_COLLECTOR_IS_READY){
+         //vtss collector is unitialized
+         return;
+    }
+    if (atomic_read(&vtss_transport_initialized)==0) return;
+    if (atomic_read(&vtss_target_count) == 0 ) {
+        return;
+    }
     item = vtss_task_map_get_item(TASK_TID(task));
     if (item != NULL) {
         struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
@@ -803,7 +863,12 @@ void vtss_target_exec_enter(struct task_struct *task, const char *filename, cons
 
 void vtss_target_exec_leave(struct task_struct *task, const char *filename, const char *config, int rc)
 {
-    vtss_task_map_item_t* item = vtss_task_map_get_item(TASK_TID(task));
+    vtss_task_map_item_t* item;
+    if(!VTSS_COLLECTOR_IS_READY){
+         //vtss collector is unitialized
+         return;
+    }
+    item = vtss_task_map_get_item(TASK_TID(task));
 
     if (item != NULL) {
         struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
@@ -863,6 +928,9 @@ void vtss_target_exit(struct task_struct *task)
     vtss_task_map_item_t* item;
 
     vtss_profiling_pause();
+    if (atomic_read(&vtss_target_count) ==0 ) {
+        return;
+    }
     item = vtss_task_map_get_item(TASK_TID(task));
     if (item != NULL) {
         struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
@@ -989,9 +1057,11 @@ static void vtss_kmap_all(struct vtss_task_data* tskd)
 
 void vtss_kmap(struct task_struct* task, const char* name, unsigned long addr, unsigned long pgoff, unsigned long size)
 {
+    unsigned long flags;
     vtss_task_map_item_t* item = vtss_task_map_get_item(TASK_TID(task));
 
-    if (item != NULL) {
+    read_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    if (atomic_read(&vtss_transport_initialized) != 0 && item != NULL) {
         struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
 
         TRACE("addr=0x%lx, size=%lu, name='%s', pgoff=%lu", addr, size, name, pgoff);
@@ -1000,6 +1070,7 @@ void vtss_kmap(struct task_struct* task, const char* name, unsigned long addr, u
         }
         vtss_task_map_put_item(item);
     }
+    read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
 }
 
 static void vtss_mmap_all(struct vtss_task_data* tskd, struct task_struct* task)
@@ -1046,9 +1117,11 @@ static void vtss_mmap_all(struct vtss_task_data* tskd, struct task_struct* task)
 
 void vtss_mmap(struct file *file, unsigned long addr, unsigned long pgoff, unsigned long size)
 {
+    unsigned long flags;
     vtss_task_map_item_t* item = vtss_task_map_get_item(TASK_TID(current));
 
-    if (item != NULL) {
+    read_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    if (atomic_read(&vtss_transport_initialized) != 0 && item != NULL) {
         struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
 
         if (unlikely(VTSS_IS_COMPLETE(tskd)))
@@ -1069,6 +1142,7 @@ void vtss_mmap(struct file *file, unsigned long addr, unsigned long pgoff, unsig
             vtss_task_map_put_item(item);
         }
     }
+    read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
 }
 
 static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struct* task)
@@ -1577,6 +1651,7 @@ int vtss_cmd_set_target(pid_t pid)
 int vtss_cmd_start(void)
 {
     int rc = 0;
+    unsigned long flags;
     int old_state = atomic_cmpxchg(&vtss_collector_state, VTSS_COLLECTOR_STOPPED, VTSS_COLLECTOR_INITING);
 
     if (old_state != VTSS_COLLECTOR_STOPPED) {
@@ -1613,8 +1688,9 @@ int vtss_cmd_start(void)
     cpumask_copy(&vtss_collector_cpumask, vtss_procfs_cpumask());
     current_uid_gid(&vtss_session_uid, &vtss_session_gid);
     vtss_procfs_ctrl_flush();
-    rc |= vtss_task_map_init();
     rc |= vtss_transport_init();
+    atomic_set(&vtss_transport_initialized, 1);
+    rc |= vtss_task_map_init();
     rc |= vtss_dsa_init();
     rc |= vtss_lbr_init();
     rc |= vtss_bts_init(reqcfg.bts_cfg.brcount);
@@ -1636,7 +1712,11 @@ int vtss_cmd_start(void)
         vtss_lbr_fini();
         vtss_dsa_fini();
         vtss_task_map_fini();
+        write_lock_irqsave(&vtss_transport_init_rwlock, flags);
+        atomic_set(&vtss_transport_initialized, 0);
+        write_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         vtss_transport_fini();
+        atomic_set(&vtss_start_paused, 0);
         atomic_set(&vtss_collector_state, VTSS_COLLECTOR_STOPPED);
         TRACE("state: %s => STOPPED (%d)", state_str[old_state], rc);
     }
@@ -1646,6 +1726,7 @@ int vtss_cmd_start(void)
 int vtss_cmd_stop(void)
 {
     int old_state = atomic_cmpxchg(&vtss_collector_state, VTSS_COLLECTOR_RUNNING, VTSS_COLLECTOR_INITING);
+    unsigned long flags;
 
     if (old_state == VTSS_COLLECTOR_STOPPED) {
         TRACE("Already stopped");
@@ -1668,6 +1749,9 @@ int vtss_cmd_stop(void)
     vtss_procfs_ctrl_wake_up(NULL, 0);
     /* NOTE: !!! vtss_transport_fini() should be after vtss_task_map_fini() !!! */
     vtss_task_map_fini();
+    write_lock_irqsave(&vtss_transport_init_rwlock, flags);
+    atomic_set(&vtss_transport_initialized, 0);
+    write_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
     vtss_transport_fini();
     vtss_session_uid = 0;
     vtss_session_gid = 0;

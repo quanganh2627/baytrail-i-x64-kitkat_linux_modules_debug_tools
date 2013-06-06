@@ -15,7 +15,7 @@
 #ifndef _LWPMUDRV_VERSION_H_
 #define _LWPMUDRV_VERSION_H_
 
-// SEP VERSIONING
+// SEP VERSIONING - Make sure to update basic001 DQ to match if version numbers here are changed, otherwise the test will fail.
 
 #define _STRINGIFY(x)     #x
 #define STRINGIFY(x)      _STRINGIFY(x)
@@ -26,8 +26,33 @@
 #define SEP_MINOR_VERSION 10
 #define SEP_API_VERSION   2
 
+#define EMON_MAJOR_VERSION          9
+#define EMON_MINOR_VERSION          0
+#define EMON_PRODUCT_RELEASE_STRING 0
+
+#ifdef EMON_INTERNAL
+#define EMON_PRODUCT_TYPE "Private"
+#else
+#define EMON_PRODUCT_TYPE "Public"
+#endif
+
+#ifndef PRODUCT_BUILDER
+#define PRODUCT_BUILDER "(unknown)"
+#define SEP_PRODUCT_TYPE "(public)"
+#else
+#define SEP_PRODUCT_TYPE "(private)"
+#endif
+
 #define SEP_NAME          "sep"
 #define SEP_NAME_W        L"sep"
+
+#define SEP_PRODUCT_NAME  "Sampling Enabling Product"
+#define EMON_PRODUCT_NAME "EMON"
+
+#define PRODUCT_VERSION_DATE    __DATE__ " at " __TIME__
+
+#define PRODUCT_COPYRIGHT   "Copyright (C) 1993-2013 Intel Corporation. All rights reserved."
+#define PRODUCT_DISCLAIMER  "Warning: This computer program is protected under U.S. and international\ncopyright laws, and may only be used or copied in accordance with the terms\nof the license agreement.  Except as permitted by such license, no part\nof this computer program may be reproduced, stored in a retrieval system,\nor transmitted in any form or by any means without the express written consent\nof Intel Corporation."
 
 #define SEP_MSG_PREFIX    SEP_NAME""STRINGIFY(SEP_MAJOR_VERSION)"_"STRINGIFY(SEP_MINOR_VERSION)":"
 #define SEP_VERSION_STR   STRINGIFY(SEP_MAJOR_VERSION)"."STRINGIFY(SEP_MINOR_VERSION)"."STRINGIFY(SEP_API_VERSION)
