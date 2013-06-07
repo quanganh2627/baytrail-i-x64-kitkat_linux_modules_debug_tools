@@ -880,6 +880,13 @@ struct PWCollector_version_info {
 };
 
 /*
+ * Structure to return device information.
+ */
+struct PWCollector_device_info {
+    u64 undefined_devices;
+};
+
+/*
  * Structure to return specific microcode
  * patch -- for MFLD development steppings.
  */

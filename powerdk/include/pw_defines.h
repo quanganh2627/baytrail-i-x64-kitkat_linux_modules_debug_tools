@@ -86,10 +86,11 @@
  * Current driver version is 3.0.0
  * Current driver version is 3.1.0
  * Current driver version is 3.1.1
+ * Current driver version is 3.1.6
  */
 #define PW_VERSION_VERSION 3
 #define PW_VERSION_INTERFACE 1
-#define PW_VERSION_OTHER 4
+#define PW_VERSION_OTHER 6
 #define PW_DRV_NAME "apwr3_1"
 
 /*
@@ -97,7 +98,7 @@
  */
 #define WUWATCH_VERSION_VERSION 3
 #define WUWATCH_VERSION_INTERFACE 1
-#define WUWATCH_VERSION_OTHER 4
+#define WUWATCH_VERSION_OTHER 6
 
 /*
  * Power interface version
