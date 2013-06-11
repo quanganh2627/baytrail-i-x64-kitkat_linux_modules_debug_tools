@@ -520,6 +520,7 @@ unsigned long pw_get_buffer_size(void)
 void pw_count_samples_produced_dropped(void)
 {
     int cpu = 0;
+    pw_num_samples_produced = pw_num_samples_dropped = 0;
     if (per_cpu_output_buffers == NULL) {
         return;
     }
