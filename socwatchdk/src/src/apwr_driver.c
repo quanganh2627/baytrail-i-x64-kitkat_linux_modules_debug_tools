@@ -4084,7 +4084,162 @@ static void tps_lite(bool is_boundary_sample)
     }
 };
 
-static void tps(unsigned int type, unsigned int state, bool is_boundary_sample)
+static void bdry_tps(void)
+{
+    u64 tsc = 0;
+    PWCollector_msg_t sample;
+    pw_msr_info_set_t *info_set = NULL;
+    bool local_apic_fired = false;
+    u32 prev_req_cstate = 0;
+    u8 init_msr_set_sent = 1;
+    int num_cx = -1;
+    char *__buffer = NULL;
+    bool did_alloc = false;
+    int num_msrs = 0;
+    pw_msr_val_t *msr_vals = NULL;
+
+#ifdef __arm__
+    u64 *prev_tsc = NULL;
+    u64 c0_time = 0;
+#endif
+
+    tscval(&tsc);
+    int cpu = RAW_CPU();
+    /*
+     * Read all C-state MSRs.
+     */
+    {
+        info_set = pw_pcpu_msr_info_sets + cpu;
+#ifdef __arm__
+        ++state;  // on ARM (Nexus 7 at least) states start with LP3 and no C0
+        prev_tsc = &__get_cpu_var(trace_power_prev_time);
+        c0_time = tsc - *prev_tsc;
+        *prev_tsc = tsc;
+        set->prev_msr_vals[MPERF] += c0_time;
+        c0_time = set->prev_msr_vals[MPERF];
+#endif // __arm__
+        {
+            num_msrs = info_set->num_msrs;
+            init_msr_set_sent = info_set->init_msr_set_sent;
+            prev_req_cstate = info_set->prev_req_cstate;
+            num_cx = pw_read_msr_info_set_i(info_set);
+            info_set->prev_req_cstate = (u32)MPERF; // must be after pw_read_msr_set_i for ARM changes
+            if (unlikely(init_msr_set_sent == 0)) {
+                // memcpy(msr_set, info_set->prev_msr_vals, sizeof(u64) * info_set->num_msrs);
+                info_set->init_msr_set_sent = 1;
+            }
+            if (unlikely(num_cx > 1)) {
+                // memcpy(msr_vals, info_set->curr_msr_count, sizeof(u64) * info_set->num_msrs);
+            }
+        }
+    }
+
+    if (num_cx > 1) {
+        OUTPUT(0, KERN_INFO "WARNING: [%d]: # cx = %d\n", cpu, num_cx);
+    }
+
+    /*
+     * Get wakeup cause(s).
+     * Only required if we're capturing C-state samples.
+     */
+    if (IS_C_STATE_MODE()) {
+        u64 event_tsc = 0, event_val = 0;
+        pid_t event_tid = -1, event_pid = -1;
+        c_break_type_t event_type = PW_BREAK_TYPE_U;
+        s32 event_init_cpu = -1;
+
+        if (unlikely(init_msr_set_sent == 0)) {
+            /*
+             * OK, this is the first TPS for this thread during the current collection.
+             * Send a "POSIX_TIME_SYNC" message to allow Ring-3 to correlate the TSC used by wuwatch with 
+             * the "clock_gettime()" used by TPSS.
+             */
+            {
+                struct timespec ts;
+                tsc_posix_sync_msg_t tsc_msg;
+                u64 tmp_tsc = 0, tmp_nsecs = 0;
+                ktime_get_ts(&ts);
+                tscval(&tmp_tsc);
+                tmp_nsecs = (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+                tsc_msg.tsc_val = tmp_tsc; tsc_msg.posix_mono_val = tmp_nsecs;
+
+                sample.tsc = tsc;
+                sample.cpuidx = cpu;
+                sample.data_type = TSC_POSIX_MONO_SYNC;
+                sample.data_len = sizeof(tsc_msg);
+                sample.p_data = (u64)((unsigned long)&tsc_msg);
+
+                pw_produce_generic_msg(&sample, true);
+                pw_pr_debug(KERN_INFO "[%d]: SENT POSIX_TIME_SYNC\n", cpu);
+                pw_pr_debug(KERN_INFO "[%d]: tsc = %llu posix mono = %llu\n", cpu, tmp_tsc, tmp_nsecs);
+            }
+            /*
+             * 2. Second, the initial MSR 'set' for this (logical) CPU.
+             */
+            {
+                sample.tsc = tsc;
+                sample.cpuidx = cpu;
+                sample.data_type = C_STATE_MSR_SET;
+                // sample.data_len = sizeof(msr_set);
+                sample.data_len = num_msrs * sizeof(pw_msr_val_t);
+                // sample.p_data = (u64)((unsigned long)msr_set);
+                sample.p_data = (u64)((unsigned long)info_set->prev_msr_vals);
+
+                // Why "true"? Document!
+                pw_produce_generic_msg(&sample, true);
+                pw_pr_debug(KERN_INFO "[%d]: SENT init msr set\n", cpu);
+            }
+        }
+
+        /*
+         * Send the actual TPS message here.
+         */
+        {
+            c_multi_msg_t *cm = (c_multi_msg_t *)info_set->c_multi_msg_mem;
+            BUG_ON(!cm);
+
+            sample.cpuidx = cpu;
+            sample.tsc = tsc;
+
+            msr_vals = (pw_msr_val_t *)cm->data;
+
+#ifndef __arm__
+            cm->mperf = info_set->curr_msr_count[0].val;
+#else
+            // TODO
+            cm->mperf = c0_time;
+#endif
+
+            cm->req_state = (u8)MPERF;
+
+
+            cm->req_state = (u8)APERF;
+
+
+            cm->wakeup_tsc = 0x0; // don't care
+            cm->wakeup_data = 0x0; // don't care
+            cm->timer_init_cpu = 0x0; // don't care
+            cm->wakeup_pid = -1; // don't care
+            cm->wakeup_tid = -1; // don't care
+            cm->wakeup_type = 0x0; // don't care
+            cm->num_msrs = num_cx;
+
+            /*
+             * 'curr_msr_count[0]' contains the MPERF value, which is encoded separately. 
+             * We therefore read from 'curr_msr_count[1]'
+             */
+            memcpy(msr_vals, &info_set->curr_msr_count[1], sizeof(pw_msr_val_t) * num_cx);
+
+            sample.data_type = C_STATE;
+            sample.data_len = sizeof(pw_msr_val_t) * num_cx + C_MULTI_MSG_HEADER_SIZE();
+            sample.p_data = (u64)((unsigned long)cm);
+
+            pw_produce_generic_msg(&sample, true);
+        }
+    }
+};
+
+static void tps(unsigned int type, unsigned int state)
 {
     int cpu = CPU(), epoch = 0;
     u64 tsc = 0;
@@ -4136,6 +4291,8 @@ static void tps(unsigned int type, unsigned int state, bool is_boundary_sample)
         }
     }
     put_cpu();
+
+    BUG_ON(init_msr_set_sent == 0);
 
     if (num_cx > 1) {
         OUTPUT(0, KERN_INFO "WARNING: [%d]: # cx = %d\n", cpu, num_cx);
@@ -4365,7 +4522,7 @@ static void tps(unsigned int type, unsigned int state, bool is_boundary_sample)
                 printk(KERN_INFO "[%d]: TSC = %llu, 1 Cx MSR counted: id = %u, val = %llu\n", cpu, sample.tsc, info_set->curr_msr_count[1].id.depth, info_set->curr_msr_count[1].val);
             }
 
-            if (IS_COLLECTING() || is_boundary_sample) {
+            if (IS_COLLECTING()) {
                 pw_produce_generic_msg(&sample, true);
             }
         }
@@ -4479,7 +4636,7 @@ static void probe_power_end(void *ignore)
 static void probe_power_start(unsigned int type, unsigned int state, unsigned int cpu_id)
 {
     // tps_i(type, state);
-    DO_PER_CPU_OVERHEAD_FUNC(tps, type, state, false /* boundary */);
+    DO_PER_CPU_OVERHEAD_FUNC(tps, type, state);
 };
 #else
 #if LINUX_VERSION_CODE  < KERNEL_VERSION(2,6,38)
@@ -4493,7 +4650,7 @@ static void probe_power_start(void *ignore, unsigned int type, unsigned int stat
 {
     if (likely(IS_C_STATE_MODE())) {
         // tps_i(type, state);
-        DO_PER_CPU_OVERHEAD_FUNC(tps, type, state, false /* boundary */);
+        DO_PER_CPU_OVERHEAD_FUNC(tps, type, state);
     } else {
         DO_PER_CPU_OVERHEAD_FUNC(tps_lite, false /* boundary */);
     }
@@ -4508,9 +4665,8 @@ static void probe_cpu_idle(void *ignore, unsigned int state, unsigned int cpu_id
        return;
    }
 
-    // tps_i(type, state);
    if (likely(IS_C_STATE_MODE())) {
-       DO_PER_CPU_OVERHEAD_FUNC(tps, 0 /*type*/, state, false /* boundary */);
+       DO_PER_CPU_OVERHEAD_FUNC(tps, 0 /*type*/, state);
    } else {
        DO_PER_CPU_OVERHEAD_FUNC(tps_lite, false /* boundary */);
    }
@@ -6658,7 +6814,8 @@ static void generate_end_tps_sample_per_cpu(void *tsc)
 
     if (true) {
         if (IS_C_STATE_MODE()) {
-            tps(0 /* type, don't care */, MPERF /* state, don't care at collection end */, true /* boundary */);
+            //tps(0 /* type, don't care */, MPERF /* state, don't care at collection end */, true /* boundary */);
+            bdry_tps();
         } else {
             tps_lite(true /* boundary */);
         }

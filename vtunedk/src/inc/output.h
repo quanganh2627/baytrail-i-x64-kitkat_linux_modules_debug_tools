@@ -42,6 +42,11 @@
 extern  U32                   output_buffer_size;
 #define OUTPUT_BUFFER_SIZE    output_buffer_size
 #define OUTPUT_NUM_BUFFERS    2
+#if defined (DRV_ATOM_ONLY)
+#define MODULE_BUFF_SIZE      1
+#else
+#define MODULE_BUFF_SIZE      2
+#endif
 
 /*
  *  Data type declarations and accessors macros
@@ -50,6 +55,7 @@ typedef struct {
     spinlock_t    buffer_lock;
     U32           remaining_buffer_size;
     U32           current_buffer;
+    U32           total_buffer_size;
     U32           next_buffer[OUTPUT_NUM_BUFFERS];
     U32           buffer_full[OUTPUT_NUM_BUFFERS];
     U8           *buffer[OUTPUT_NUM_BUFFERS];
@@ -57,7 +63,7 @@ typedef struct {
 
 #define OUTPUT_buffer_lock(x)            (x)->buffer_lock
 #define OUTPUT_remaining_buffer_size(x)  (x)->remaining_buffer_size
-#define OUTPUT_total_buffer_size(x)      OUTPUT_BUFFER_SIZE
+#define OUTPUT_total_buffer_size(x)      (x)->total_buffer_size
 #define OUTPUT_buffer(x,y)               (x)->buffer[(y)]
 #define OUTPUT_buffer_full(x,y)          (x)->buffer_full[(y)]
 #define OUTPUT_current_buffer(x)         (x)->current_buffer

@@ -58,6 +58,9 @@ extern LBR            lbr;
 extern DRV_CONFIG     pcfg;
 extern PWR            pwr;
 
+static U32            direct2core_data_saved = 0;
+static U32            bl_bypass_data_saved   = 0;
+
 /* ------------------------------------------------------------------------- */
 /*!
  * @fn void core2_Disable_Direct2core(ECB)
@@ -78,36 +81,75 @@ core2_Disable_Direct2core (
 #if !defined(DRV_ATOM_ONLY)
     U32            busno       = 0;
     U32            dev_idx     = 0;
+    U32            base_idx    = 0;
     U32            pci_address = 0;
     U32            device_id   = 0;
     U32            value       = 0;
     U32            vendor_id   = 0;
     U32 core2_qpill_dev_no[2]  = {8,9};
-    S32            index       = 0;
     U32            this_cpu    = CONTROL_THIS_CPU();
-    CPU_STATE      pcpu        = &pcb[this_cpu];
 
-    if (!CPU_STATE_socket_master(pcpu)) {
-        return;
+    // Discover the bus # for HA
+    for (busno = 0; busno < MAX_BUSNO; busno++) {
+        pci_address = FORM_PCI_ADDR(busno,
+                                    JKTUNC_HA_DEVICE_NO,
+                                    JKTUNC_HA_D2C_FUNC_NO,
+                                    0);
+        value = PCI_Read_Ulong(pci_address);
+        vendor_id = value & VENDOR_ID_MASK;
+        device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
+            
+        if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+            continue;
+        }
+        if (device_id != JKTUNC_HA_D2C_DID) {
+            continue;
+        }
+        value=0;
+        // now program at the offset
+        pci_address = FORM_PCI_ADDR(busno,
+                                    JKTUNC_HA_DEVICE_NO,
+                                    JKTUNC_HA_D2C_FUNC_NO,
+                                    JKTUNC_HA_D2C_OFFSET);
+        value   = PCI_Read_Ulong(pci_address);
+        restore_ha_direct2core[this_cpu][busno]   = 0;
+        restore_ha_direct2core[this_cpu][busno]   = value;
+        SEP_PRINT_DEBUG(" System value before :ha d2c B:D:F  %d:%d :%d offset 0x%x value = 0x%x\n",busno,JKTUNC_HA_DEVICE_NO,JKTUNC_HA_D2C_FUNC_NO,JKTUNC_HA_D2C_OFFSET, value); 
     }
-    if (ECB_flags(pecb) && ECB_direct2core_bit) {
-        if (!restore_ha_direct2core) {
-            restore_ha_direct2core  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(VOID*));
-            for (index = 0; index < GLOBAL_STATE_num_cpus(driver_state); index++) {
-                 restore_ha_direct2core[index] = CONTROL_Allocate_Memory(MAX_BUSNO * sizeof(U32));
-            }
+    for (busno = 0; busno < MAX_BUSNO; busno++) {
+        pci_address = FORM_PCI_ADDR(busno,
+                                    JKTUNC_HA_DEVICE_NO,
+                                    JKTUNC_HA_D2C_FUNC_NO,
+                                    0);
+        value = PCI_Read_Ulong(pci_address);
+        vendor_id = value & VENDOR_ID_MASK;
+        device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
+        
+        if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+            continue;
         }
-        if (!restore_qpi_direct2core) {      
-            restore_qpi_direct2core = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(VOID*));
-            for (index = 0; index < GLOBAL_STATE_num_cpus(driver_state); index++) {
-                 restore_qpi_direct2core[index] = CONTROL_Allocate_Memory(MAX_BUSNO * sizeof(U32));
-            }
+        if (device_id != JKTUNC_HA_D2C_DID) {
+            continue;
         }
-        // Discover the bus # for HA
+        value = 0;
+        // now program at the offset
+        pci_address = FORM_PCI_ADDR(busno,
+                                    JKTUNC_HA_DEVICE_NO,
+                                    JKTUNC_HA_D2C_FUNC_NO,
+                                    JKTUNC_HA_D2C_OFFSET);
+        value   = PCI_Read_Ulong(pci_address);
+        value  |= value | JKTUNC_HA_D2C_BITMASK;
+        PCI_Write_Ulong(pci_address, value);
+        value = PCI_Read_Ulong(pci_address);
+        SEP_PRINT_DEBUG(" System value after apply wkrd :ha d2c B:D:F  %d:%d :%d offset 0x%x value = 0x%x\n",busno,JKTUNC_HA_DEVICE_NO,JKTUNC_HA_D2C_FUNC_NO,JKTUNC_HA_D2C_OFFSET, value);
+    }
+    // Discover the bus # for QPI
+    for (dev_idx = 0; dev_idx < 2; dev_idx++) {
+        base_idx = dev_idx * MAX_BUSNO;
         for (busno = 0; busno < MAX_BUSNO; busno++) {
             pci_address = FORM_PCI_ADDR(busno,
-                                        JKTUNC_HA_DEVICE_NO,
-                                        JKTUNC_HA_D2C_FUNC_NO,
+                                        core2_qpill_dev_no[dev_idx],
+                                        JKTUNC_QPILL_D2C_FUNC_NO,
                                         0);
             value = PCI_Read_Ulong(pci_address);
             vendor_id = value & VENDOR_ID_MASK;
@@ -116,98 +158,51 @@ core2_Disable_Direct2core (
             if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
                 continue;
             }
-            if (device_id != JKTUNC_HA_D2C_DID) {
+            if ((device_id != JKTUNC_QPILL0_D2C_DID) &&
+                (device_id != JKTUNC_QPILL1_D2C_DID)) {
                 continue;
             }
-
-            // now program at the offset
+            value=0;
+            // now program at the corresponding offset
             pci_address = FORM_PCI_ADDR(busno,
-                                        JKTUNC_HA_DEVICE_NO,
-                                        JKTUNC_HA_D2C_FUNC_NO,
-                                        JKTUNC_HA_D2C_OFFSET);
+                                        core2_qpill_dev_no[dev_idx],
+                                        JKTUNC_QPILL_D2C_FUNC_NO,
+                                        JKTUNC_QPILL_D2C_OFFSET);
             value   = PCI_Read_Ulong(pci_address);
-            restore_ha_direct2core[this_cpu][busno]   = 0;
-            restore_ha_direct2core[this_cpu][busno]   = value;
+            restore_qpi_direct2core[this_cpu][base_idx + busno]   = 0;
+            restore_qpi_direct2core[this_cpu][base_idx + busno]   = value;
+            SEP_PRINT_DEBUG(" System value before QPILL B:D:F  %d:%d:%d offset 0x%x value = 0x%x\n", busno, core2_qpill_dev_no[dev_idx], JKTUNC_QPILL_D2C_FUNC_NO, JKTUNC_QPILL_D2C_OFFSET, value);
         }
+    }
+    for (dev_idx = 0; dev_idx < 2; dev_idx++) {
+        base_idx = dev_idx * MAX_BUSNO;
         for (busno = 0; busno < MAX_BUSNO; busno++) {
             pci_address = FORM_PCI_ADDR(busno,
-                                        JKTUNC_HA_DEVICE_NO,
-                                        JKTUNC_HA_D2C_FUNC_NO,
+                                        core2_qpill_dev_no[dev_idx],
+                                        JKTUNC_QPILL_D2C_FUNC_NO,
                                         0);
             value = PCI_Read_Ulong(pci_address);
             vendor_id = value & VENDOR_ID_MASK;
             device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
-            
+             
             if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
                 continue;
             }
-            if (device_id != JKTUNC_HA_D2C_DID) {
+            if ((device_id != JKTUNC_QPILL0_D2C_DID) &&
+                (device_id != JKTUNC_QPILL1_D2C_DID)) {
                 continue;
             }
-
-            // now program at the offset
+            value =0;
+            // now program at the corresponding offset
             pci_address = FORM_PCI_ADDR(busno,
-                                        JKTUNC_HA_DEVICE_NO,
-                                        JKTUNC_HA_D2C_FUNC_NO,
-                                        JKTUNC_HA_D2C_OFFSET);
+                                        core2_qpill_dev_no[dev_idx],
+                                        JKTUNC_QPILL_D2C_FUNC_NO,
+                                        JKTUNC_QPILL_D2C_OFFSET);
             value   = PCI_Read_Ulong(pci_address);
-            value  |= value | JKTUNC_HA_D2C_BITMASK;
+            value  |= value | JKTUNC_QPILL_D2C_BITMASK;
             PCI_Write_Ulong(pci_address, value);
-        }
-        // Discover the bus # for QPI
-        for (dev_idx = 0; dev_idx < 2; dev_idx++) {
-            for (busno = 0; busno < MAX_BUSNO; busno++) {
-                pci_address = FORM_PCI_ADDR(busno,
-                                            core2_qpill_dev_no[dev_idx],
-                                            JKTUNC_QPILL_D2C_FUNC_NO,
-                                            0);
-                value = PCI_Read_Ulong(pci_address);
-                vendor_id = value & VENDOR_ID_MASK;
-                device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
-                
-                if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
-                    continue;
-                }
-                if ((device_id != JKTUNC_QPILL0_D2C_DID) &&
-                    (device_id != JKTUNC_QPILL1_D2C_DID)) {
-                    continue;
-                }
-                // now program at the corresponding offset
-                pci_address = FORM_PCI_ADDR(busno,
-                                            core2_qpill_dev_no[dev_idx],
-                                            JKTUNC_QPILL_D2C_FUNC_NO,
-                                            JKTUNC_QPILL_D2C_OFFSET);
-                value   = PCI_Read_Ulong(pci_address);
-                restore_qpi_direct2core[this_cpu][busno]   = 0;
-                restore_qpi_direct2core[this_cpu][busno]   = value;
-            }
-        }
-        for (dev_idx = 0; dev_idx < 2; dev_idx++) {
-            for (busno = 0; busno < MAX_BUSNO; busno++) {
-                pci_address = FORM_PCI_ADDR(busno,
-                                            core2_qpill_dev_no[dev_idx],
-                                            JKTUNC_QPILL_D2C_FUNC_NO,
-                                            0);
-                value = PCI_Read_Ulong(pci_address);
-                vendor_id = value & VENDOR_ID_MASK;
-                device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
-                
-                if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
-                    continue;
-                }
-                if ((device_id != JKTUNC_QPILL0_D2C_DID) &&
-                    (device_id != JKTUNC_QPILL1_D2C_DID)) {
-                    continue;
-                }
-                // now program at the corresponding offset
-                pci_address = FORM_PCI_ADDR(busno,
-                                            core2_qpill_dev_no[dev_idx],
-                                            JKTUNC_QPILL_D2C_FUNC_NO,
-                                            JKTUNC_QPILL_D2C_OFFSET);
-                value   = PCI_Read_Ulong(pci_address);
-                value  |= value | JKTUNC_QPILL_D2C_BITMASK;
-                PCI_Write_Ulong(pci_address, value);
-            }
+            value   = PCI_Read_Ulong(pci_address);
+            SEP_PRINT_DEBUG("Value after applying wkrd QPILL B:D:F %d:%d:%d offset 0x%x value 0x%x\n",busno,core2_qpill_dev_no[dev_idx],JKTUNC_QPILL_D2C_FUNC_NO,JKTUNC_QPILL_D2C_OFFSET,value);
         }
     }
 #endif
@@ -233,21 +228,12 @@ core2_Disable_BL_Bypass (
 #if !defined(DRV_ATOM_ONLY)
     U64            value;
     U32            this_cpu    = CONTROL_THIS_CPU();
-    CPU_STATE      pcpu        = &pcb[this_cpu];
 
-    if (!CPU_STATE_socket_master(pcpu)) {
-        return;
-    }
-    if (ECB_flags(pecb) & ECB_bl_bypass_bit) {
-        if (!restore_bl_bypass) {
-            restore_bl_bypass  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U32));
-        }
-        value = SYS_Read_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR);
-        restore_bl_bypass[this_cpu] = 0;
-        restore_bl_bypass[this_cpu] = value;
-        value |= CORE2UNC_BLBYPASS_BITMASK;
-        SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, value);
-    }
+    value = SYS_Read_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR);
+    restore_bl_bypass[this_cpu] = 0;
+    restore_bl_bypass[this_cpu] = value;
+    value |= CORE2UNC_BLBYPASS_BITMASK;
+    SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, value);
 
 #endif
 }
@@ -277,11 +263,6 @@ core2_Write_PMU (
     U32            this_cpu = CONTROL_THIS_CPU();
     CPU_STATE      pcpu     = &pcb[this_cpu];
 
-#if !defined(DRV_ATOM_ONLY)
-    // JKT workarounds 
-    core2_Disable_Direct2core(PMU_register_data[CPU_STATE_current_group(pcpu)]);
-    core2_Disable_BL_Bypass(PMU_register_data[CPU_STATE_current_group(pcpu)]);
-#endif
     
     if (CPU_STATE_current_group(pcpu) == 0) {
         if (EVENT_CONFIG_mode(global_ec) != EM_DISABLED) {
@@ -319,7 +300,8 @@ core2_Write_PMU (
         /*
          *  PEBS is enabled for this collection session
          */
-        if (ECB_entries_reg_id(pecb,i) == IA32_PEBS_ENABLE &&
+        if (DRV_CONFIG_pebs_mode(pcfg)                     &&
+            ECB_entries_reg_id(pecb,i) == IA32_PEBS_ENABLE &&
             ECB_entries_reg_value(pecb,i)) {
             SYS_Write_MSR(ECB_entries_reg_id(pecb,i), 0LL);
             continue;
@@ -360,7 +342,9 @@ core2_Disable_PMU (
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_RUNNING) {
         SEP_PRINT_DEBUG("driver state = %d\n", GLOBAL_STATE_current_phase(driver_state));
         SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, 0LL);
-        SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+        if (DRV_CONFIG_pebs_mode(pcfg)) {
+            SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+        }
         FOR_EACH_CCCR_REG(pecb,i) {
             if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
                 SYS_Write_MSR(COMPOUND_CTR_CTL,0LL);
@@ -410,7 +394,9 @@ core2_Enable_PMU (
         if (CPU_STATE_group_swap(pcpu)) {
             CPU_STATE_group_swap(pcpu) = 0;
             SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL, ECB_entries_reg_value(pecb,0));
-            SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
+            if (DRV_CONFIG_pebs_mode(pcfg)) {
+                SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
+            }
             SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
             FOR_EACH_CCCR_REG(pecb,i) {
                 if (ECB_entries_is_compound_ctr_bit_set(pecb, i)) {
@@ -462,12 +448,14 @@ corei7_Enable_PMU_2 (
         APIC_Enable_Pmi();
         if (CPU_STATE_group_swap(pcpu)) {
             CPU_STATE_group_swap(pcpu) = 0;
-            pebs_val = SYS_Read_MSR(IA32_PEBS_ENABLE);
-            if (ECB_entries_reg_value(pecb,2) != 0) {
-                SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
-            }
-            else if (pebs_val != 0) {
-                SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+            if (DRV_CONFIG_pebs_mode(pcfg)) {
+                pebs_val = SYS_Read_MSR(IA32_PEBS_ENABLE);
+                if (ECB_entries_reg_value(pecb,2) != 0) {
+                    SYS_Write_MSR(IA32_PEBS_ENABLE, ECB_entries_reg_value(pecb,2));
+                }
+                else if (pebs_val != 0) {
+                    SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+                }
             }
             SYS_Write_MSR(IA32_DEBUG_CTRL, ECB_entries_reg_value(pecb,3));
             FOR_EACH_CCCR_REG(pecb,i) {
@@ -803,6 +791,10 @@ core2_Initialize (
 {
     U32        this_cpu = CONTROL_THIS_CPU();
     CPU_STATE  pcpu;
+#if !defined(DRV_ATOM_ONLY)
+    U32        i        = 0;
+    ECB        pecb     = NULL;
+#endif
 
     SEP_PRINT_DEBUG("Inside core2_Initialize\n");
 
@@ -821,10 +813,43 @@ core2_Initialize (
     CPU_STATE_pmu_state(pcpu)[0] = SYS_Read_MSR(IA32_DEBUG_CTRL);
     CPU_STATE_pmu_state(pcpu)[1] = SYS_Read_MSR(IA32_PERF_GLOBAL_CTRL);
 
+    if (DRV_CONFIG_ds_area_available(pcfg)) {
+        SYS_Write_MSR(IA32_PEBS_ENABLE, 0LL);
+    }
+
     SEP_PRINT_DEBUG("Saving PMU state on CPU %d :\n", this_cpu);
     SEP_PRINT_DEBUG("    msr_val(IA32_DEBUG_CTRL)=0x%llx \n", CPU_STATE_pmu_state(pcpu)[0]);
     SEP_PRINT_DEBUG("    msr_val(IA32_PERF_GLOBAL_CTRL)=0x%llx \n", CPU_STATE_pmu_state(pcpu)[1]);
 
+#if !defined(DRV_ATOM_ONLY)
+    if (!CPU_STATE_socket_master(pcpu)) {
+        return;
+    }
+
+    direct2core_data_saved = 0;
+    bl_bypass_data_saved = 0;
+
+    if (restore_ha_direct2core && restore_qpi_direct2core) {
+        for (i = 0; i < GLOBAL_STATE_num_em_groups(driver_state); i++) {
+            pecb  = PMU_register_data[i];
+            if (pecb && (ECB_flags(pecb) & ECB_direct2core_bit)) {
+                core2_Disable_Direct2core(PMU_register_data[CPU_STATE_current_group(pcpu)]);
+                direct2core_data_saved = 1;
+                break;
+            }
+        }
+    }
+    if (restore_bl_bypass) {
+        for (i = 0; i < GLOBAL_STATE_num_em_groups(driver_state); i++) {
+            pecb  = PMU_register_data[i];
+            if (pecb && (ECB_flags(pecb) &  ECB_bl_bypass_bit)) {
+                core2_Disable_BL_Bypass(PMU_register_data[CPU_STATE_current_group(pcpu)]);
+                bl_bypass_data_saved = 1;
+                break;
+            }
+        }
+    }
+#endif
     return;
 }
 
@@ -918,14 +943,14 @@ core2_Clean_Up (
 #if !defined(DRV_ATOM_ONLY)
     U32            busno       = 0;
     U32            dev_idx     = 0;
+    U32            base_idx    = 0;
     U32            pci_address = 0;
     U32            device_id   = 0;
     U32            value       = 0;
     U32            vendor_id   = 0;
     U32 core2_qpill_dev_no[2]  = {8,9};
-    ECB            pecb        = PMU_register_data[CPU_STATE_current_group(pcpu)];
 #endif
-
+    
     FOR_EACH_REG_ENTRY(pecb, i) {
         if (ECB_entries_clean_up_get(pecb,i)) {
             SEP_PRINT_DEBUG("clean up set --- RegId --- %x\n", ECB_entries_reg_id(pecb,i));
@@ -938,8 +963,7 @@ core2_Clean_Up (
         return;
     }
 
-    if (ECB_flags(pecb) && ECB_direct2core_bit) {
-
+    if (restore_ha_direct2core && restore_qpi_direct2core && direct2core_data_saved) {
         // Discover the bus # for HA
         for (busno = 0; busno < MAX_BUSNO; busno++) {
             pci_address = FORM_PCI_ADDR(busno,
@@ -964,10 +988,12 @@ core2_Clean_Up (
                                         JKTUNC_HA_D2C_OFFSET);
             PCI_Write_Ulong(pci_address, restore_ha_direct2core[this_cpu][busno]);
             value = PCI_Read_Ulong(pci_address);
+            SEP_PRINT_DEBUG("Restored value HA B:D:F %d:%d:%d offset = 0x%x value = 0x%x\n",busno,JKTUNC_HA_DEVICE_NO,JKTUNC_HA_D2C_FUNC_NO,JKTUNC_HA_D2C_OFFSET,value);
         }
 
         // Discover the bus # for QPI
         for (dev_idx = 0; dev_idx < 2; dev_idx++) {
+            base_idx = dev_idx * MAX_BUSNO;
             for (busno = 0; busno < MAX_BUSNO; busno++) {
                 pci_address = FORM_PCI_ADDR(busno,
                                             core2_qpill_dev_no[dev_idx],
@@ -984,20 +1010,23 @@ core2_Clean_Up (
                     (device_id != JKTUNC_QPILL1_D2C_DID)) {
                     continue;
                 }
+                value = 0;
                 // now program at the corresponding offset
                 pci_address = FORM_PCI_ADDR(busno,
                                             core2_qpill_dev_no[dev_idx],
                                             JKTUNC_QPILL_D2C_FUNC_NO,
                                             JKTUNC_QPILL_D2C_OFFSET);
                 
-                PCI_Write_Ulong(pci_address,restore_qpi_direct2core[this_cpu][busno] );
+                PCI_Write_Ulong(pci_address,restore_qpi_direct2core[this_cpu][base_idx + busno] );
                 value = PCI_Read_Ulong(pci_address);
+                SEP_PRINT_DEBUG("Restored value QPILL B:D::F %d:%d:%d offset = 0x%x value = 0x%x\n", (base_idx + busno), core2_qpill_dev_no[dev_idx],JKTUNC_QPILL_D2C_FUNC_NO,JKTUNC_QPILL_D2C_OFFSET, value);
             }
         }
     }
-    if (ECB_flags(pecb) && ECB_bl_bypass_bit) {
+    if (restore_bl_bypass && bl_bypass_data_saved) {
         SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, restore_bl_bypass[this_cpu]);
     }
+
 #endif
     return;
 }
@@ -1015,7 +1044,9 @@ corei7_Errata_Fix (
     rat_event = 0x4300D2LL;
     siu_event = 0x4300B1LL;
 
-    SYS_Write_MSR(IA32_PEBS_ENABLE, clr);
+    if (DRV_CONFIG_pebs_mode(pcfg)) {
+        SYS_Write_MSR(IA32_PEBS_ENABLE, clr);
+    }
     SYS_Write_MSR(IA32_PERF_GLOBAL_CTRL,clr);
     SYS_Write_MSR(0x186,mlc_event);
     SYS_Write_MSR(0xC1, clr);

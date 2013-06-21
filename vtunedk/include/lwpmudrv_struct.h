@@ -90,6 +90,7 @@ struct DRV_CONFIG_NODE_S {
         S8      *cpu_mask;
         U64      dummy2;
     } u2;
+    DRV_BOOL     ds_area_available;
 };
 
 #define DRV_CONFIG_size(cfg)                      (cfg)->size
@@ -128,6 +129,7 @@ struct DRV_CONFIG_NODE_S {
 #define DRV_CONFIG_use_pcl(cfg)                   (cfg)->use_pcl
 #define DRV_CONFIG_event_based_counts(cfg)        (cfg)->enable_ebc
 #define DRV_CONFIG_timer_based_counts(cfg)        (cfg)->enable_tbc
+#define DRV_CONFIG_ds_area_available(cfg)         (cfg)->ds_area_available
 
 /*
  *    X86 processor code descriptor

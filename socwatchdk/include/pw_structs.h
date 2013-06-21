@@ -591,9 +591,30 @@ struct d_state_meta_data {
 #define D_STATE_META_MSG_HEADER_SIZE (sizeof(d_state_meta_data_t) - sizeof(pw_string_type_t *))
 
 /*
+ * Structure to return Dev # <-> Dev Name mappings.
+ */
+typedef struct dev_map_msg dev_map_msg_t;
+struct dev_map_msg {
+    u16 dev_num;  // Device ID
+    u16 dev_type; // one of "device_type_t"
+                  // The pair (dev_num, dev_type) is a unique ID for each device
+    pw_string_type_t dev_short_name;
+    pw_string_type_t dev_long_name;
+};
+
+typedef struct dev_map_meta_data dev_map_meta_data_t;
+struct dev_map_meta_data {
+    u16 num_devices; // The number of 'dev_map_msg_t' instances in the 'device_mappings' array, below
+    dev_map_msg_t *device_mappings; // A mapping of dev num <-> dev names; size is governed by 'num_devices'
+    };
+#define DEV_MAP_MSG_META_MSG_HEADER_SIZE (sizeof(dev_map_meta_data_t) - sizeof(dev_map_msg_t *))
+
+/*
  * 'D-state' information. Used for both residency and state samples.
  */
-typedef struct d_state_msg {
+typedef struct d_state_msg d_state_msg_t;
+typedef struct d_state_msg d_res_msg_t;
+struct d_state_msg {
     u16 num_devices;        // Number of devices profiled (a subset of devices can be monitored)
     device_type_t dev_type; // one of "device_type_t"
     u16 *deviceIDs;         // Array of Device IDs profiled. Array size is determined by num_devices
@@ -605,7 +626,7 @@ typedef struct d_state_msg {
                             // Or the other way? Which one is better?
                             // If the sample type is D_STATE, 
                             // Array size is determined by num_devices * log(num_states) / 64 
-} d_res_msg_t;
+};
 
 /*
  * The 'unit' of thermal data.

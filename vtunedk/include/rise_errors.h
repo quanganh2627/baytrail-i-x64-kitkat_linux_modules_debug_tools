@@ -234,6 +234,7 @@
 #define VT_NMI_WATCHDOG_FOUND           188
 #define VT_NO_PMU_RESOURCES             189
 #define VT_MIC_CARD_NOT_ONLINE          190
+#define VT_FREEZE_ON_PMI_NOT_AVAIL      191
 
 /*
  * define error code for checking on async marker request

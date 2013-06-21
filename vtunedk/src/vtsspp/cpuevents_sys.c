@@ -56,22 +56,22 @@ static void vf_sys_restart(cpuevent_t* this)
         break;
 
     case vtss_sysevent_energy_core:
-        rdmsrl(MSR_PP0_ENERGY_STATUS, this->frozen_count);
+        rdmsrl(VTSS_MSR_PP0_ENERGY_STATUS, this->frozen_count);
         this->frozen_count &= 0xffffffffLL;
         break;
 
     case vtss_sysevent_energy_gfx:
-        rdmsrl(MSR_PP1_ENERGY_STATUS, this->frozen_count);
+        rdmsrl(VTSS_MSR_PP1_ENERGY_STATUS, this->frozen_count);
         this->frozen_count &= 0xffffffffLL;
         break;
 
     case vtss_sysevent_energy_pack:
-        rdmsrl(MSR_PKG_ENERGY_STATUS, this->frozen_count);
+        rdmsrl(VTSS_MSR_PKG_ENERGY_STATUS, this->frozen_count);
         this->frozen_count &= 0xffffffffLL;
         break;
 
     case vtss_sysevent_energy_dram:
-        rdmsrl(MSR_DRAM_ENERGY_STATUS, this->frozen_count);
+        rdmsrl(VTSS_MSR_DRAM_ENERGY_STATUS, this->frozen_count);
         this->frozen_count &= 0xffffffffLL;
         break;
 
@@ -104,7 +104,7 @@ static void vf_sys_freeze_read(cpuevent_t* this)
 
     case vtss_sysevent_energy_core:
 
-        rdmsrl(MSR_PP0_ENERGY_STATUS, tmp);
+        rdmsrl(VTSS_MSR_PP0_ENERGY_STATUS, tmp);
         tmp &= 0xffffffffLL;
 
         if (tmp < this->frozen_count) {
@@ -115,7 +115,7 @@ static void vf_sys_freeze_read(cpuevent_t* this)
 
     case vtss_sysevent_energy_gfx:
 
-        rdmsrl(MSR_PP1_ENERGY_STATUS, tmp);
+        rdmsrl(VTSS_MSR_PP1_ENERGY_STATUS, tmp);
         tmp &= 0xffffffffLL;
 
         if (tmp < this->frozen_count) {
@@ -126,7 +126,7 @@ static void vf_sys_freeze_read(cpuevent_t* this)
 
     case vtss_sysevent_energy_pack:
 
-        rdmsrl(MSR_PKG_ENERGY_STATUS, tmp);
+        rdmsrl(VTSS_MSR_PKG_ENERGY_STATUS, tmp);
         tmp &= 0xffffffffLL;
 
         if (tmp < this->frozen_count) {
@@ -137,7 +137,7 @@ static void vf_sys_freeze_read(cpuevent_t* this)
 
     case vtss_sysevent_energy_dram:
 
-        rdmsrl(MSR_DRAM_ENERGY_STATUS, tmp);
+        rdmsrl(VTSS_MSR_DRAM_ENERGY_STATUS, tmp);
         tmp &= 0xffffffffLL;
 
         if (tmp < this->frozen_count) {
