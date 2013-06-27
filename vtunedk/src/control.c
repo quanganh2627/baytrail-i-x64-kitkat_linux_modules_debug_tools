@@ -1,21 +1,21 @@
 /*COPYRIGHT**
     Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
- 
+
     This file is part of SEP Development Kit
- 
+
     SEP Development Kit is free software; you can redistribute it
     and/or modify it under the terms of the GNU General Public License
     version 2 as published by the Free Software Foundation.
- 
+
     SEP Development Kit is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
- 
+
     You should have received a copy of the GNU General Public License
     along with SEP Development Kit; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- 
+
     As a special exception, you may use this file as part of a free software
     library without restriction.  Specifically, if other files instantiate
     templates or use macros or inline functions from this file, or you compile
@@ -74,10 +74,10 @@ U32                **restore_qpi_direct2core = NULL;
  * <I>Special Notes:</I>
  *
  */
-extern VOID 
+extern VOID
 CONTROL_Invoke_Cpu (
-    int     cpu_idx, 
-    VOID    (*func)(PVOID), 
+    int     cpu_idx,
+    VOID    (*func)(PVOID),
     PVOID   ctx
 )
 {
@@ -107,9 +107,9 @@ CONTROL_Invoke_Cpu (
  *           or CONTROL_Invoke_Parallel_XS().
  *
  */
-extern VOID 
+extern VOID
 CONTROL_Invoke_Parallel_Service (
-    VOID   (*func)(PVOID), 
+    VOID   (*func)(PVOID),
     PVOID  ctx,
     int    blocking,
     int    exclude
@@ -167,7 +167,7 @@ control_Memory_Tracker_Delete_Node (
 
     // update the linked list
     prev_tr = MEM_TRACKER_prev(mem_tr);
-    next_tr = MEM_TRACKER_next(mem_tr); 
+    next_tr = MEM_TRACKER_next(mem_tr);
     if (prev_tr) {
         MEM_TRACKER_next(prev_tr) = next_tr;
     }
@@ -229,7 +229,7 @@ control_Memory_Tracker_Create_Node (
     MEM_TRACKER_prev(mem_tr) = NULL;
     MEM_TRACKER_next(mem_tr) = NULL;
 
-    // if mem_el array allocation failed, then remove node 
+    // if mem_el array allocation failed, then remove node
     if (!MEM_TRACKER_mem(mem_tr)) {
         control_Memory_Tracker_Delete_Node(mem_tr);
         SEP_PRINT_ERROR("control_Memory_Tracker_Create_Node: failed to allocate mem_el array in tracker node ... deleting node\n");
@@ -426,7 +426,7 @@ CONTROL_Memory_Tracker_Free (
  *           node entries are full starting from mem_tr_head
  *           up until the first empty node is detected, after
  *           which nodes up to mem_tr_tail will be empty.
- *           At end of collection (or at other safe sync point), 
+ *           At end of collection (or at other safe sync point),
  *           we reclaim/compact space used by mem tracker.
  */
 extern VOID
@@ -443,7 +443,7 @@ CONTROL_Memory_Tracker_Compaction (
     mem_tr1 = mem_tr_head;
     mem_tr2 = mem_tr_tail;
 
-    // if memory tracker was never used, then no need to compact 
+    // if memory tracker was never used, then no need to compact
     if (!mem_tr1 || !mem_tr2) {
         goto finish_compact;
     }
@@ -512,11 +512,11 @@ CONTROL_Memory_Tracker_Compaction (
 
         // swap empty node with non-empty node so that "holes" get bubbled towards the end of list
         MEM_TRACKER_mem_address(mem_tr1,i) = MEM_TRACKER_mem_address(mem_tr2,j);
-        MEM_TRACKER_mem_size(mem_tr1,i) = MEM_TRACKER_mem_size(mem_tr2,j);
+        MEM_TRACKER_mem_size(mem_tr1,i)    = MEM_TRACKER_mem_size(mem_tr2,j);
         MEM_TRACKER_mem_vmalloc(mem_tr1,i) = MEM_TRACKER_mem_vmalloc(mem_tr2,j);
 
         MEM_TRACKER_mem_address(mem_tr2,j) = NULL;
-        MEM_TRACKER_mem_size(mem_tr2,j) = 0;
+        MEM_TRACKER_mem_size(mem_tr2,j)    = 0;
         MEM_TRACKER_mem_vmalloc(mem_tr2,j) = FALSE;
 
         // keep track of number of memory compactions performed
@@ -679,7 +679,7 @@ CONTROL_Free_Memory (
 {
     S32         i;
     DRV_BOOL    found;
-    MEM_TRACKER mem_tr;    
+    MEM_TRACKER mem_tr;
 
     if (!location) {
         return NULL;
@@ -699,7 +699,7 @@ CONTROL_Free_Memory (
                     vfree(location);
                 }
                 else {
-                free_pages((unsigned long)location, get_order(MEM_TRACKER_mem_size(mem_tr,i)));
+                    free_pages((unsigned long)location, get_order(MEM_TRACKER_mem_size(mem_tr,i)));
                 }
                 MEM_TRACKER_mem_address(mem_tr,i) = NULL;
                 MEM_TRACKER_mem_size(mem_tr,i)    = 0;

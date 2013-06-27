@@ -5,7 +5,7 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2007-2012 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2007-2013 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
@@ -95,7 +95,7 @@ extern "C" {
 #define LWPMUDRV_IOCTL_GET_NUM_SAMPLES              LWPMUDRV_CTL_READ_CODE(76)
 #define LWPMUDRV_IOCTL_SET_PWR_EVENT                LWPMUDRV_CTL_READ_CODE(77)
 #define LWPMUDRV_IOCTL_SET_DEVICE_NUM_UNITS         LWPMUDRV_CTL_READ_CODE(78)
-#define LWPMUDRV_IOCTL_CHIPSET_TRIGGER_READ         LWPMUDRV_CTL_READ_CODE(79)
+#define LWPMUDRV_IOCTL_TIMER_TRIGGER_READ           LWPMUDRV_CTL_READ_CODE(79)
 
 #elif defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined (DRV_OS_ANDROID)
 // IOCTL_ARGS
@@ -171,7 +171,7 @@ struct IOCTL_ARGS_NODE_S {
 #define LWPMUDRV_IOCTL_GET_NUM_SAMPLES        _IOR(LWPMU_IOC_MAGIC, 76, IOCTL_ARGS) 
 #define LWPMUDRV_IOCTL_SET_PWR_EVENT          _IOW(LWPMU_IOC_MAGIC, 77, IOCTL_ARGS)
 #define LWPMUDRV_IOCTL_SET_DEVICE_NUM_UNITS   _IOW(LWPMU_IOC_MAGIC, 78, IOCTL_ARGS)
-#define LWPMUDRV_IOCTL_CHIPSET_TRIGGER_READ   _IO (LWPMU_IOC_MAGIC, 79)
+#define LWPMUDRV_IOCTL_TIMER_TRIGGER_READ   _IO (LWPMU_IOC_MAGIC, 79)
 
 #elif defined(DRV_OS_FREEBSD)
 
@@ -257,7 +257,7 @@ struct IOCTL_ARGS_NODE_S {
 #define LWPMUDRV_IOCTL_GET_NUM_SAMPLES        _IOW(LWPMU_IOC_MAGIC, 76, IOCTL_ARGS_NODE)
 #define LWPMUDRV_IOCTL_SET_PWR_EVENT          _IOW(LWPMU_IOC_MAGIC, 77, IOCTL_ARGS_NODE)
 #define LWPMUDRV_IOCTL_SET_DEVICE_NUM_UNITS   _IOW(LWPMU_IOC_MAGIC, 78, IOCTL_ARGS_NODE)
-#define LWPMUDRV_IOCTL_CHIPSET_TRIGGER_READ   _IO (LWPMU_IOC_MAGIC, 79)
+#define LWPMUDRV_IOCTL_TIMER_TRIGGER_READ     _IO (LWPMU_IOC_MAGIC, 79)
 
 #elif defined(DRV_OS_MAC)
 
@@ -362,7 +362,7 @@ struct CPU_ARGS_NODE_S {
 #define LWPMUDRV_IOCTL_GET_NUM_SAMPLES        76
 #define LWPMUDRV_IOCTL_SET_PWR_EVENT          77
 #define LWPMUDRV_IOCTL_GET_ASLR_OFFSET        78
-#define LWPMUDRV_IOCTL_CHIPSET_TRIGGER_READ   79
+#define LWPMUDRV_IOCTL_TIMER_TRIGGER_READ     79
 
 // This is only for MAC OSX
 #define LWPMUDRV_IOCTL_SET_OSX_VERSION        998

@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2013 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -43,6 +43,9 @@
 #include "lwpmudrv_defines.h"
 #include "lwpmudrv.h"
 #include "lwpmudrv_types.h"
+#if defined(BUILD_CHIPSET)
+#include "lwpmudrv_chipset.h"
+#endif
 
 // large memory allocation will be used if the requested size (in bytes) is
 // above this threshold
@@ -125,6 +128,14 @@ struct CPU_STATE_NODE_S {
     U32         initial_mask;
     U32         accept_interrupt;
 
+#if defined(BUILD_CHIPSET)
+    // Chipset counter stuff
+    U32         chipset_count_init;  // flag to initialize the last MCH and ICH arrays below.
+    U64         last_mch_count[8];
+    U64         last_ich_count[8];
+    U64         last_gmch_count[MAX_CHIPSET_COUNTERS];
+    U64         last_mmio_count[32]; // it's only 9 now but the next generation may have 29.
+#endif
 
     U64        *pmu_state;           // holds PMU state (e.g., MSRs) that will be
                                      // saved before and restored after collection
@@ -188,8 +199,8 @@ struct MSR_DATA_NODE_S {
 typedef struct MEM_EL_NODE_S  MEM_EL_NODE;
 typedef        MEM_EL_NODE   *MEM_EL;
 struct MEM_EL_NODE_S {
-    char     *address;    // pointer to piece of memory we're tracking
-    S32       size;       // size (bytes) of the piece of memory
+    char     *address;         // pointer to piece of memory we're tracking
+    S32       size;            // size (bytes) of the piece of memory
     DRV_BOOL  is_addr_vmalloc; // flag to check if the memory is allocated using vmalloc
 };
 

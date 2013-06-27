@@ -68,9 +68,17 @@
 #include "poulson.h"
 #endif
 #include "utility.h"
+#if defined(BUILD_CHIPSET)
+#include "lwpmudrv_chipset.h"
+#include "chap.h"
+#include "gmch.h"
+#endif
 
 volatile int config_done;
 
+#if defined(BUILD_CHIPSET)
+extern CHIPSET_CONFIG pma;
+#endif
 
 #if defined(DRV_IA64)
 
@@ -455,5 +463,42 @@ SYS_Read_MSR (
 }
 
 
+#if defined(BUILD_CHIPSET)
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn       VOID UTILITY_Configure_Chipset
+ *
+ * @brief    Configures the chipset information
+ *
+ * @param    none
+ *
+ * @return   none
+ *
+ * <I>Special Notes:</I>
+ *              <NONE>
+ */
+extern  CS_DISPATCH
+UTILITY_Configure_Chipset (
+    void
+)
+{
+    if (CHIPSET_CONFIG_gmch_chipset(pma)) {
+        cs_dispatch = &gmch_dispatch;
+        SEP_PRINT_DEBUG("UTLITY_Configure_Chipset: using GMCH dispatch table!\n");
+    }
+    else if (CHIPSET_CONFIG_mch_chipset(pma) || CHIPSET_CONFIG_ich_chipset(pma)) {
+        cs_dispatch = &chap_dispatch;
+        SEP_PRINT_DEBUG("UTLITY_Configure_Chipset: using CHAP dispatch table!\n");
+    }
+    else {
+        SEP_PRINT_ERROR("UTLITY_Configure_Chipset: unable to map chipset dispatch table!\n");
+    }
+
+    SEP_PRINT_DEBUG("UTLITY_Configure_Chipset: exiting with cs_dispatch=0x%p\n", cs_dispatch);
+
+    return cs_dispatch;
+}
+
+#endif
 
 #endif

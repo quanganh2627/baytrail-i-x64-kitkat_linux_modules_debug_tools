@@ -24,7 +24,7 @@
 
 #define SEP_MAJOR_VERSION 3
 #define SEP_MINOR_VERSION 10
-#define SEP_API_VERSION   2
+#define SEP_API_VERSION   3
 
 #define EMON_MAJOR_VERSION          9
 #define EMON_MINOR_VERSION          0
