@@ -50,9 +50,11 @@ MACH ?= i686
 export MACH
 ifeq ($(MACH),x86_64)
 PLATFORM=x32_64
+BUILD_CHIPSET=YES
 endif
 ifeq ($(PLATFORM),)
 PLATFORM=x32
+BUILD_CHIPSET=YES
 endif
 
 # eventual filename of SEP driver
@@ -90,6 +92,13 @@ ifeq ($(EMON),YES)
 endif
 EXTRA_CFLAGS += -DDRV_ANDROID -DDRV_ATOM_ONLY
 
+ifeq ($(BUILD_CHIPSET),YES)
+    EXTRA_CFLAGS += -DBUILD_CHIPSET
+	chipset-objs := pci.o     \
+			chap.o    \
+			gmch.o
+endif
+
 	$(DRIVER_NAME)-objs :=    \
 			lwpmudrv.o        \
 			control.o         \
@@ -100,6 +109,7 @@ EXTRA_CFLAGS += -DDRV_ANDROID -DDRV_ATOM_ONLY
 			pmi.o             \
 			sys_info.o        \
 			utility.o         \
+			$(chipset-objs)   \
 			$(arch-objs)
 
 # targets ...

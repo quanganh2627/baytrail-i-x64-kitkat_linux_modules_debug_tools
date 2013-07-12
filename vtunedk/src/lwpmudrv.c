@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2013 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -55,6 +55,9 @@
 #include "inc/ecb_iterators.h"
 
 
+#if defined(BUILD_CHIPSET)
+#include "lwpmudrv_chipset.h"
+#endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #include "apic.h"
@@ -145,6 +148,10 @@ volatile int            in_finish_code         = 0;
 #define  PMU_DEVICES            2   // pmu, mod
 #define  OTHER_PMU_DEVICES      1   // mod
 
+#if defined(BUILD_CHIPSET)
+CHIPSET_CONFIG          pma               = NULL;
+CS_DISPATCH             cs_dispatch       = NULL;
+#endif
 static S8              *cpu_mask_bits     = NULL;
 
 /*
@@ -228,7 +235,7 @@ lwpmudrv_PWR_Info (
 /*
  * @fn void lwpmudrv_Allocate_Restore_Buffer
  *
- * @param    
+ * @param
  *
  * @return   OS_STATUE
  *
@@ -240,7 +247,7 @@ lwpmudrv_Allocate_Restore_Buffer (
 )
 {
     int i = 0;
-
+ 
     if (!restore_ha_direct2core) {
         restore_ha_direct2core  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U32 *));
         if (!restore_ha_direct2core) {
@@ -260,7 +267,7 @@ lwpmudrv_Allocate_Restore_Buffer (
         }
     }
     if (!restore_bl_bypass) {
-        restore_bl_bypass  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U64)); 
+        restore_bl_bypass  = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) * sizeof(U64));
         if (!restore_bl_bypass) {
             return OS_NO_MEM;
         }
@@ -271,7 +278,7 @@ lwpmudrv_Allocate_Restore_Buffer (
 /*
  * @fn void lwpmudrv_Free_Restore_Buffer
  *
- * @param    
+ * @param
  *
  * @return   OS_STATUE
  *
@@ -494,7 +501,7 @@ lwpmudrv_Clean_Up (
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     if (devices) {
-        U32 id;
+        U32           id;
         for (id = 0; id < num_devices; id++) {
             if (LWPMU_DEVICE_PMU_register_data(&devices[id])) {
                 for (i = 0; i < EVENT_CONFIG_num_groups_unc(global_ec); i++) {
@@ -623,10 +630,10 @@ lwpmudrv_Initialize (
     }
 
     for (cpu_num = 0; cpu_num < GLOBAL_STATE_num_cpus(driver_state); cpu_num++) {
-        CPU_STATE_accept_interrupt(&pcb[cpu_num]) = 1;
-        CPU_STATE_initial_mask(&pcb[cpu_num])     = 1;
-        CPU_STATE_group_swap(&pcb[cpu_num])       = 1;
-        CPU_STATE_reset_mask(&pcb[cpu_num])       = 0;
+        CPU_STATE_accept_interrupt(&pcb[cpu_num])   = 1;
+        CPU_STATE_initial_mask(&pcb[cpu_num])       = 1;
+        CPU_STATE_group_swap(&pcb[cpu_num])         = 1;
+        CPU_STATE_reset_mask(&pcb[cpu_num])         = 0;
         CPU_STATE_num_samples(&pcb[cpu_num])      = 0;
     }
 
@@ -817,7 +824,7 @@ lwpmudrv_Terminate (
     VOID
 )
 {
-    U32  previous_state;
+    U32            previous_state;
 
     if (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_UNINITIALIZED) {
         return OS_SUCCESS;
@@ -1089,6 +1096,52 @@ lwpmudrv_Switch_Group (
 
     return status;
 }
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn static OS_STATUS lwpmudrv_Trigger_Read(void)
+ *
+ * @param - none
+ *
+ * @return - OS_STATUS
+ *
+ * @brief Read the Counter Data.
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Trigger_Read (
+    VOID
+)
+{
+#if defined(DRV_IA32) || defined(DRV_EM64T)
+    DRV_CONFIG pcfg_unc     = NULL;
+    DISPATCH   dispatch_unc = NULL;
+    U32        i;
+
+#if defined(BUILD_CHIPSET)
+    if (cs_dispatch && cs_dispatch->Trigger_Read) {
+        cs_dispatch->Trigger_Read();
+    }
+#endif
+
+    if (pcfg && DRV_CONFIG_use_pcl(pcfg) == TRUE) {
+        return OS_SUCCESS;
+    }
+
+    for (i = 0; i < num_devices; i++) {
+        pcfg_unc = (DRV_CONFIG)LWPMU_DEVICE_pcfg(&devices[i]);
+        dispatch_unc = LWPMU_DEVICE_dispatch(&devices[i]);
+        if (pcfg_unc  && dispatch_unc && dispatch_unc->trigger_read ) {
+            dispatch_unc->trigger_read();
+        }
+    }
+
+#endif
+
+    return OS_SUCCESS;
+}
+
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -1389,11 +1442,11 @@ lwpmudrv_Read_MSRs (
     U32         dev_idx;
     U32         pkg_idx;
     DRV_CONFIG  pcfg_unc;
-    U32         evt_index       = 0;
+    U32         evt_index          = 0;
     U32         prev_ei         = 0;
     U32         cur_ei          = 0;
-    U32         num_inst_idx    = 0;
-    U32         num_units       = 0;
+    U32         num_inst_idx       = 0;
+    U32         num_units          = 0;
 #endif
     if (arg->r_len == 0 || arg->r_buf == NULL ) {
         return status;
@@ -1410,7 +1463,7 @@ lwpmudrv_Read_MSRs (
     if (!read_unc_ctr_info) {
          return OS_NO_MEM;
     }
-
+    
     CONTROL_Invoke_Parallel(dispatch->read_data, (VOID *)(size_t)0);
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
@@ -1431,7 +1484,7 @@ lwpmudrv_Read_MSRs (
                  if (ECB_entries_is_multi_pkg_bit_set(pecb_unc,k)) { 
                     for(pkg_idx = 0; pkg_idx < num_packages; pkg_idx++) {
                         for (num_inst_idx = 0; num_inst_idx < num_units; num_inst_idx++){
-                         j                = start_index + 
+                          j                = start_index + 
                                              evt_index * num_packages * num_units +
                                              ECB_entries_event_id_index(pecb_unc,k) + 
                                              num_inst_idx + 
@@ -1444,9 +1497,9 @@ lwpmudrv_Read_MSRs (
                  }
                  else {
                     j                = start_index + ECB_entries_event_id_index(pecb_unc,k) + ECB_entries_emon_event_id_index_local(pecb_unc,k);
-                    read_counter_info[j] = read_unc_ctr_info[j];
+                            read_counter_info[j] = read_unc_ctr_info[j];
                     SEP_PRINT_DEBUG("j = %d value =0x%llx in final\n",j, read_counter_info[j]);
-                 }
+                        }
              } END_FOR_EACH_DATA_REG_UNC_VER2 ;
         }
     }
@@ -1813,11 +1866,11 @@ lwpmudrv_Configure_Events_UNC (
     IOCTL_ARGS arg
 )
 {
-    VOID **PMU_register_data_unc;
-    S32    em_groups_count_unc;
-    ECB    ecb;
-    S32    i;
-    U32    j;
+    VOID              **PMU_register_data_unc;
+    S32               em_groups_count_unc;
+    ECB               ecb;
+    S32               i;
+    U32               j;
 
     if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
         return OS_IN_PROGRESS;
@@ -1825,7 +1878,7 @@ lwpmudrv_Configure_Events_UNC (
 
     em_groups_count_unc = LWPMU_DEVICE_em_groups_count(&devices[cur_device]);
     PMU_register_data_unc = LWPMU_DEVICE_PMU_register_data(&devices[cur_device]);
-      
+
     if (em_groups_count_unc >= GLOBAL_STATE_num_em_groups(driver_state)) {
         SEP_PRINT_DEBUG("Number of Uncore EM groups exceeded the initial configuration.");
         return OS_SUCCESS;
@@ -1849,23 +1902,23 @@ lwpmudrv_Configure_Events_UNC (
 
     // at this point, we know the number of uncore events for this device, 
     // so allocate the results buffer per thread for uncore
-    ecb = PMU_register_data_unc[0];
-    LWPMU_DEVICE_num_events(&devices[cur_device]) = ECB_num_events(ecb);
+        ecb = PMU_register_data_unc[0];
+        LWPMU_DEVICE_num_events(&devices[cur_device]) = ECB_num_events(ecb);
 
-    LWPMU_DEVICE_acc_per_thread(&devices[cur_device]) = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) *
+        LWPMU_DEVICE_acc_per_thread(&devices[cur_device]) = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) *
                                                                                 sizeof(VOID *));
-    LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device]) = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) *
+        LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device]) = CONTROL_Allocate_Memory(GLOBAL_STATE_num_cpus(driver_state) *
                                                                                      sizeof(VOID *));
-    for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
-        LWPMU_DEVICE_acc_per_thread(&devices[cur_device])[i]      = CONTROL_Allocate_Memory((ECB_num_events(ecb) + 1)*sizeof(U64));
-        LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device])[i] = CONTROL_Allocate_Memory((ECB_num_events(ecb) + 1)*sizeof(U64));
-        // initialize all values to 0
-        for (j = 0; j < ECB_num_events(ecb) + 1; j++) {
-            LWPMU_DEVICE_acc_per_thread(&devices[cur_device])[i][j]      = 0LL;
-            LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device])[i][j] = 0LL;
+        for (i = 0; i < GLOBAL_STATE_num_cpus(driver_state); i++) {
+             LWPMU_DEVICE_acc_per_thread(&devices[cur_device])[i]      = CONTROL_Allocate_Memory((ECB_num_events(ecb) + 1)*sizeof(U64));
+             LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device])[i] = CONTROL_Allocate_Memory((ECB_num_events(ecb) + 1)*sizeof(U64));
+             // initialize all values to 0
+             for (j = 0; j < ECB_num_events(ecb) + 1; j++) {
+                  LWPMU_DEVICE_acc_per_thread(&devices[cur_device])[i][j]      = 0LL;
+                  LWPMU_DEVICE_prev_val_per_thread(&devices[cur_device])[i][j] = 0LL;
+             }
         }
-    }
-    
+ 
     LWPMU_DEVICE_em_groups_count(&devices[cur_device])++;
 
         
@@ -2178,6 +2231,11 @@ lwpmudrv_Start (
         CONTROL_Invoke_Parallel(dispatch->restart, (PVOID)(size_t)0);
     }
 
+#if defined(BUILD_CHIPSET)
+    if (DRV_CONFIG_enable_chipset(pcfg)) {
+        cs_dispatch->start_chipset();
+    }
+#endif
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)
     for (i = 0; i < num_devices; i++) {
@@ -2253,8 +2311,13 @@ lwpmudrv_Prepare_Stop (
         CONTROL_Invoke_Parallel(dispatch->freeze, (PVOID)(size_t)0);
         SEP_PRINT_DEBUG("lwpmudrv_Prepare_Stop: Outside of all interrupts\n");
 
+#if defined(BUILD_CHIPSET)
+        if (DRV_CONFIG_enable_chipset(pcfg)) {
+            cs_dispatch->stop_chipset();
+        }
+#endif
 
-    }
+        }
 
     if (pcfg == NULL) {
         return OS_SUCCESS;
@@ -2291,6 +2354,12 @@ lwpmudrv_Prepare_Stop (
 #endif
 #endif
 
+#if defined(BUILD_CHIPSET)
+    if (DRV_CONFIG_enable_chipset(pcfg) &&
+        cs_dispatch && cs_dispatch->fini_chipset) {
+        cs_dispatch->fini_chipset();
+    }
+#endif
 
     return OS_SUCCESS;
 }
@@ -2369,10 +2438,10 @@ lwpmudrv_Get_Normalized_TSC (
     }
 
     if (pcb != NULL) {
-        preempt_disable();
-        UTILITY_Read_TSC(&tsc);
-        tsc -= TSC_SKEW(CONTROL_THIS_CPU());
-        preempt_enable();
+    preempt_disable();
+    UTILITY_Read_TSC(&tsc);
+    tsc -= TSC_SKEW(CONTROL_THIS_CPU());
+    preempt_enable();
     }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,32)
     if (pcfg && DRV_CONFIG_use_pcl(pcfg) == TRUE) {
@@ -2676,6 +2745,351 @@ lwpmudrv_Samp_Read_Num_Of_Core_Counters (
 }
 
 
+#if defined(BUILD_CHIPSET)
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static DRV_BOOL lwpmudrv_Is_Physical_Address_Free(U32 physical_addrss)
+ *
+ * @param physical_address - physical address
+ *
+ * @return DRV_BOOL
+ *
+ * @brief  Check if physical address is available
+ *
+ * <I>Special Notes</I>
+ */
+static DRV_BOOL
+lwpmudrv_Is_Physical_Address_Free (
+    U32 physical_address
+)
+{
+    U32 value;
+    U32 new_value;
+    U32 test_value;
+
+    if (physical_address == 0) {
+        return OS_FAULT;
+    }
+    if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
+        return FALSE;
+    }
+    // First attempt read
+    //
+    PCI_Read_From_Memory_Address(physical_address, &value);
+
+    // Value must be 0xFFFFFFFFF or there is NO chance
+    // that this memory location is available.
+    //
+    if (value != 0xFFFFFFFF) {
+        return FALSE;
+    }
+
+    //
+    // Try to write a bit to a zero (this probably
+    // isn't too safe, but this is just for testing)
+    //
+    new_value = 0xFFFFFFFE;
+    PCI_Write_To_Memory_Address(physical_address, new_value);
+    PCI_Read_From_Memory_Address(physical_address, &test_value);
+
+    // Write back original
+    PCI_Write_To_Memory_Address(physical_address, value);
+
+    if (new_value == test_value) {
+        // The write appeared to change the
+        // memory, it must be mapped already
+        //
+        return FALSE;
+    }
+
+    if (test_value == 0xFFFFFFFF) {
+        // The write did not change the bit, so
+        // apparently, this memory must not be mapped
+        // to anything.
+        //
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Samp_Find_Physical_Address(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Find a free physical address
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Samp_Find_Physical_Address (
+    IOCTL_ARGS    arg
+)
+{
+    CHIPSET_PCI_SEARCH_ADDR_NODE user_addr;
+    CHIPSET_PCI_SEARCH_ADDR      search_addr = (CHIPSET_PCI_SEARCH_ADDR)arg->w_buf;
+    U32                          addr;
+
+    if (arg->r_len == 0 || arg->r_buf == NULL ||
+        arg->w_len == 0 || arg->w_buf == NULL) {
+        return OS_FAULT;
+    }
+
+    if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
+        return OS_IN_PROGRESS;
+    }
+    if (!search_addr) {
+        return OS_FAULT;
+    }
+
+    if (!access_ok(VERIFY_WRITE, search_addr, sizeof(CHIPSET_PCI_SEARCH_ADDR_NODE))) {
+        return OS_FAULT;
+    }
+
+    if (copy_from_user(&user_addr, search_addr, sizeof(CHIPSET_PCI_SEARCH_ADDR_NODE))) {
+        SEP_PRINT_DEBUG("lwpmudrv_Samp_Find_Physical_Address: copy_from_user() failed\n");
+        return OS_FAULT;
+    }
+
+    if (CHIPSET_PCI_SEARCH_ADDR_start(&user_addr) > CHIPSET_PCI_SEARCH_ADDR_stop(&user_addr)) {
+        return OS_INVALID;
+    }
+
+    CHIPSET_PCI_SEARCH_ADDR_address(&user_addr) = 0;
+
+    for (addr = CHIPSET_PCI_SEARCH_ADDR_start(&user_addr);
+        addr <= CHIPSET_PCI_SEARCH_ADDR_stop(&user_addr);
+        addr += CHIPSET_PCI_SEARCH_ADDR_increment(&user_addr)) {
+        SEP_PRINT_DEBUG("lwpmudrv_Samp_Find_Physical_Address: addr=%x:",addr);
+        if (lwpmudrv_Is_Physical_Address_Free(addr)) {
+            CHIPSET_PCI_SEARCH_ADDR_address(&user_addr) = addr;
+            break;
+        }
+    }
+
+    if (copy_to_user(arg->r_buf, (VOID *) &user_addr, sizeof(CHIPSET_PCI_SEARCH_ADDR_NODE))) {
+        SEP_PRINT_DEBUG("lwpmudrv_Samp_Find_Physical_Address: copy_to_user() failed\n");
+    }
+
+    return OS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Samp_Read_PCI_Config(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Read the PCI Configuration Space
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Samp_Read_PCI_Config (
+    IOCTL_ARGS    arg
+)
+{
+    U32                     pci_address;
+    CHIPSET_PCI_CONFIG      rd_pci;
+
+    if (arg->r_len == 0 || arg->r_buf == NULL) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Read_PCI_Config: null read buffer\n");
+        return OS_FAULT;
+    }
+
+    rd_pci = CONTROL_Allocate_Memory(arg->r_len);
+    if (rd_pci == NULL) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Read_PCI_Config: unable to allocate local memory\n");
+        return OS_FAULT;
+    }
+
+    if (copy_from_user(rd_pci, (CHIPSET_PCI_CONFIG)arg->w_buf, sizeof(CHIPSET_PCI_CONFIG_NODE))) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Read_PCI_Config: unable to read into local memory\n");
+        return OS_FAULT;
+    }
+
+    SEP_PRINT_DEBUG("lwpmudrv_Samp_Read_PCI_Config: reading PCI address:0x%x:0x%x:0x%x, offset 0x%x\n",
+                CHIPSET_PCI_CONFIG_bus(rd_pci),
+                CHIPSET_PCI_CONFIG_device(rd_pci),
+                CHIPSET_PCI_CONFIG_function(rd_pci),
+                CHIPSET_PCI_CONFIG_offset(rd_pci));
+
+    pci_address = FORM_PCI_ADDR(CHIPSET_PCI_CONFIG_bus(rd_pci),
+                            CHIPSET_PCI_CONFIG_device(rd_pci),
+                            CHIPSET_PCI_CONFIG_function(rd_pci),
+                            CHIPSET_PCI_CONFIG_offset(rd_pci));
+    CHIPSET_PCI_CONFIG_value(rd_pci) = PCI_Read_Ulong(pci_address);
+
+    if (copy_to_user(arg->r_buf, (VOID *) rd_pci, sizeof(CHIPSET_PCI_CONFIG_NODE))) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Read_PCI_Config: unable to copy to user\n");
+        return OS_FAULT;
+    }
+
+    SEP_PRINT_DEBUG("lwpmudrv_Samp_Read_PCI_Config: value at this PCI address:0x%x\n",
+                    CHIPSET_PCI_CONFIG_value(rd_pci));
+
+    rd_pci = CONTROL_Free_Memory(rd_pci);
+
+    return OS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Samp_Write_PCI_Config(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Write to the PCI Configuration Space
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Samp_Write_PCI_Config (
+    IOCTL_ARGS    arg
+)
+{
+    U32 pci_address;
+    CHIPSET_PCI_CONFIG wr_pci;
+
+    if (arg->w_len == 0 || arg->w_buf == NULL) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Write_PCI_Config: null write buffer\n");
+        return OS_FAULT;
+    }
+
+    // the following allows "sep -el -pc" to work, since the command must access the
+    // the driver ioctls before driver is used for a collection
+    if (! (GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_UNINITIALIZED ||
+           GLOBAL_STATE_current_phase(driver_state) == DRV_STATE_IDLE)) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Write_PCI_Config: driver is non-idle or busy\n");
+        return OS_IN_PROGRESS;
+    }
+
+    wr_pci = (CHIPSET_PCI_CONFIG)arg->w_buf;
+
+    SEP_PRINT_DEBUG("lwpmudrv_Samp_Write_PCI_Config: writing 0x%x to PCI address:0x%x:0x%x:0x%x, offset 0x%x\n",
+                    CHIPSET_PCI_CONFIG_bus(wr_pci),
+                    CHIPSET_PCI_CONFIG_device(wr_pci),
+                    CHIPSET_PCI_CONFIG_function(wr_pci),
+                    CHIPSET_PCI_CONFIG_offset(wr_pci));
+
+    pci_address = FORM_PCI_ADDR(CHIPSET_PCI_CONFIG_bus(wr_pci),
+                            CHIPSET_PCI_CONFIG_device(wr_pci),
+                            CHIPSET_PCI_CONFIG_function(wr_pci),
+                            CHIPSET_PCI_CONFIG_offset(wr_pci));
+    PCI_Write_Ulong(pci_address, CHIPSET_PCI_CONFIG_value(wr_pci));
+
+    return OS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/*!
+ * @fn  static OS_STATUS lwpmudrv_Samp_Chipset_Init(IOCTL_ARGS arg)
+ *
+ * @param arg - Pointer to the IOCTL structure
+ *
+ * @return OS_STATUS
+ *
+ * @brief  Initialize the chipset cnfiguration
+ *
+ * <I>Special Notes</I>
+ */
+static OS_STATUS
+lwpmudrv_Samp_Chipset_Init (
+    IOCTL_ARGS    arg
+)
+{
+    PVOID         in_buf     = arg->w_buf;
+    U32           in_buf_len = arg->w_len;
+
+    if (GLOBAL_STATE_current_phase(driver_state) != DRV_STATE_IDLE) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: driver is currently busy!\n");
+        return OS_IN_PROGRESS;
+    }
+
+    if (in_buf == NULL || in_buf_len == 0) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: Chipset information passed in is null\n");
+        return OS_NO_MEM;
+    }
+
+    // First things first: Make a copy of the data for global use.
+    pma = CONTROL_Allocate_Memory(in_buf_len);
+
+    if (pma == NULL) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: unable to allocate memory\n");
+        return OS_NO_MEM;
+    }
+
+    if (copy_from_user(pma, in_buf, in_buf_len)) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: unable to copy from user\n");
+        return OS_FAULT;
+    }
+
+#if defined(MY_DEBUG)
+
+    SEP_PRINT("lwpmudrv_Samp_Chipset_Init: Chipset Configuration follows...\n");
+    SEP_PRINT("pma->length=%d\n", CHIPSET_CONFIG_length(pma));
+    SEP_PRINT("pma->version=%d\n", CHIPSET_CONFIG_major_version(pma));
+    SEP_PRINT("pma->processor=%d\n", CHIPSET_CONFIG_processor(pma));
+    SEP_PRINT("pma->mch_chipset=%d\n", CHIPSET_CONFIG_mch_chipset(pma));
+    SEP_PRINT("pma->ich_chipset=%d\n", CHIPSET_CONFIG_ich_chipset(pma));
+    SEP_PRINT("pma->gmch_chipset=%d\n", CHIPSET_CONFIG_gmch_chipset(pma));
+    SEP_PRINT("pma->mother_board_time=%d\n", CHIPSET_CONFIG_motherboard_time(pma));
+    SEP_PRINT("pma->host_proc_run=%d\n", CHIPSET_CONFIG_host_proc_run(pma));
+    SEP_PRINT("pma->noa_chipset=%d\n", CHIPSET_CONFIG_noa_chipset(pma));
+    SEP_PRINT("pma->bnb_chipset=%d\n", CHIPSET_CONFIG_bnb_chipset(pma));
+
+    if (CHIPSET_CONFIG_mch_chipset(pma)) {
+        SEP_PRINT("pma->mch->phys_add=0x%llx\n", CHIPSET_SEGMENT_physical_address(&CHIPSET_CONFIG_mch(pma)));
+        SEP_PRINT("pma->mch->size=%d\n", CHIPSET_SEGMENT_size(&CHIPSET_CONFIG_mch(pma)));
+        SEP_PRINT("pma->mch->num_counters=%d\n", CHIPSET_SEGMENT_num_counters(&CHIPSET_CONFIG_mch(pma)));
+        SEP_PRINT("pma->mch->total_events=%d\n", CHIPSET_SEGMENT_total_events(&CHIPSET_CONFIG_mch(pma)));
+    }
+
+    if (CHIPSET_CONFIG_ich_chipset(pma)) {
+        SEP_PRINT("pma->ich->phys_add=0x%llx\n", CHIPSET_SEGMENT_physical_address(&CHIPSET_CONFIG_ich(pma)));
+        SEP_PRINT("pma->ich->size=%d\n", CHIPSET_SEGMENT_size(&CHIPSET_CONFIG_ich(pma)));
+        SEP_PRINT("pma->ich->num_counters=%d\n", CHIPSET_SEGMENT_num_counters(&CHIPSET_CONFIG_ich(pma)));
+        SEP_PRINT("pma->ich->total_events=%d\n", CHIPSET_SEGMENT_total_events(&CHIPSET_CONFIG_ich(pma)));
+    }
+
+    if (CHIPSET_CONFIG_gmch_chipset(pma)) {
+        SEP_PRINT("pma->gmch->phys_add=0x%llx\n", CHIPSET_SEGMENT_physical_address(&CHIPSET_CONFIG_gmch(pma)));
+        SEP_PRINT("pma->gmch->size=%d\n", CHIPSET_SEGMENT_size(&CHIPSET_CONFIG_gmch(pma)));
+        SEP_PRINT("pma->gmch->num_counters=%d\n", CHIPSET_SEGMENT_num_counters(&CHIPSET_CONFIG_gmch(pma)));
+        SEP_PRINT("pma->gmch->total_events=%d\n", CHIPSET_SEGMENT_total_events(&CHIPSET_CONFIG_gmch(pma)));
+        SEP_PRINT("pma->gmch->read_register=0x%x\n", CHIPSET_SEGMENT_read_register(&CHIPSET_CONFIG_gmch(pma)));
+        SEP_PRINT("pma->gmch->write_register=0x%x\n", CHIPSET_SEGMENT_write_register(&CHIPSET_CONFIG_gmch(pma)));
+    }
+
+#endif
+
+    // Set up the global cs_dispatch table
+    cs_dispatch = UTILITY_Configure_Chipset();
+    if (cs_dispatch == NULL) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: unknown chipset family\n");
+        return OS_INVALID;
+    }
+
+    // Initialize chipset configuration
+    if (cs_dispatch->init_chipset()) {
+        SEP_PRINT_ERROR("lwpmudrv_Samp_Chipset_Init: failed to initialize the chipset\n");
+        return OS_INVALID;
+    }
+
+    return OS_SUCCESS;
+}
+
+#endif
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -3318,6 +3732,9 @@ lwpmu_Device_Control (
             }
             status = lwpmudrv_Set_Device_Num_Units(&local_args);
             break;
+        case LWPMUDRV_IOCTL_TIMER_TRIGGER_READ:
+            lwpmudrv_Trigger_Read();
+            break;
 
        /*
         * Graphics IOCTL commands
@@ -3328,6 +3745,98 @@ lwpmu_Device_Control (
         * Chipset IOCTL commands
         */
 
+#if defined(BUILD_CHIPSET)
+        case LWPMUDRV_IOCTL_PCI_READ:
+            {
+                CHIPSET_PCI_ARG_NODE pci_data;
+
+                SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_PCI_READ\n");
+                if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                    status = OS_FAULT;
+                    goto cleanup;
+                }
+                if (copy_from_user(&pci_data, (CHIPSET_PCI_ARG)local_args.w_buf, sizeof(CHIPSET_PCI_ARG_NODE))) {
+                    status = OS_FAULT;
+                    goto cleanup;
+                }
+
+                status = PCI_Read_From_Memory_Address(CHIPSET_PCI_ARG_address(&pci_data),
+                                               &CHIPSET_PCI_ARG_value(&pci_data));
+
+                if (copy_to_user(((IOCTL_ARGS)arg)->r_buf, &pci_data, sizeof(CHIPSET_PCI_ARG_NODE))) {
+                    status =  OS_FAULT;
+                    goto cleanup;
+                }
+
+                break;
+            }
+
+        case LWPMUDRV_IOCTL_PCI_WRITE:
+            {
+                CHIPSET_PCI_ARG_NODE pci_data;
+
+                SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_PCI_WRITE\n");
+
+                if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                    status = OS_FAULT;
+                    goto cleanup;
+                }
+                if (copy_from_user(&pci_data, (CHIPSET_PCI_ARG)local_args.w_buf, sizeof(CHIPSET_PCI_ARG_NODE))) {
+                   status = OS_FAULT;
+                    goto cleanup;
+                }
+
+                status = PCI_Write_To_Memory_Address(CHIPSET_PCI_ARG_address(&pci_data),
+                                                     CHIPSET_PCI_ARG_value(&pci_data));
+                break;
+            }
+
+        case LWPMUDRV_IOCTL_FD_PHYS:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_FD_PHYS\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Samp_Find_Physical_Address(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_READ_PCI_CONFIG:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_READ_PCI_CONFIG\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Samp_Read_PCI_Config(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_WRITE_PCI_CONFIG:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_WRITE_PCI_CONFIG\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Samp_Write_PCI_Config(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_CHIPSET_INIT:
+            SEP_PRINT_DEBUG("DRV_OPERATION_CHIPSET_INIT\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            SEP_PRINT_DEBUG("lwpmudrv_Device_Control: enable_chipset=%d\n", (int)DRV_CONFIG_enable_chipset(pcfg));
+            status = lwpmudrv_Samp_Chipset_Init(&local_args);
+            break;
+
+        case LWPMUDRV_IOCTL_GET_CHIPSET_DEVICE_ID:
+            SEP_PRINT_DEBUG("LWPMUDRV_IOCTL_GET_CHIPSET_DEVICE_ID\n");
+            if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
+                status = OS_FAULT;
+                goto cleanup;
+            }
+            status = lwpmudrv_Samp_Read_PCI_Config(&local_args);
+            break;
+#endif  // BUILD_CHIPSET
 
        /*
         * if none of the above, treat as unknown/illegal IOCTL command
@@ -3379,7 +3888,7 @@ lwpmu_Device_Control_Compat (
             if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
                 status = OS_FAULT;
                 goto cleanup;
-            }
+        }
             status = lwpmudrv_Version(&local_args);
             break;
 
@@ -3388,7 +3897,7 @@ lwpmu_Device_Control_Compat (
             if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
                 status = OS_FAULT;
                 goto cleanup;
-            }
+}
             status = lwpmudrv_Get_Driver_State(&local_args);
             break;
 
@@ -3397,14 +3906,14 @@ lwpmu_Device_Control_Compat (
             if (copy_from_user(&local_args, (IOCTL_ARGS)arg, sizeof(IOCTL_ARGS_NODE))) {
                 status = OS_FAULT;
                 goto cleanup;
-            }
+    }
             status = lwpmudrv_Get_Normalized_TSC(&local_args);
             break;
 
-    }
+        }
 cleanup:
     MUTEX_UNLOCK(ioctl_lock);
-
+    
     return status;
 }
 #endif
@@ -3682,6 +4191,9 @@ lwpmu_Load (
 #endif
 #endif
 
+#if defined(BUILD_CHIPSET)
+    SEP_PRINT("Chipset support is enabled.\n");
+#endif
 
 
 #if defined(DRV_IA32) || defined(DRV_EM64T)

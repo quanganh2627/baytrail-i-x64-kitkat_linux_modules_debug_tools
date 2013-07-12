@@ -199,5 +199,9 @@ UTILITY_Configure_CPU (U32);
 asmlinkage void SYS_Get_CSD (U32, U32 *, U32 *);
 #endif
 
+#if defined(BUILD_CHIPSET)
+extern  CS_DISPATCH
+UTILITY_Configure_Chipset (void);
+#endif
 
 #endif 

@@ -5,7 +5,7 @@
  *  agreement or nondisclosure agreement with Intel Corporation and may not
  *  be copied or disclosed except in accordance with the terms of that
  *  agreement.
- *        Copyright (c) 2007-2012 Intel Corporation.  All Rights Reserved.
+ *        Copyright (c) 2007-2013 Intel Corporation.  All Rights Reserved.
  * -------------------------------------------------------------------------
 **COPYRIGHT*/
 
@@ -595,11 +595,11 @@ struct DRV_TOPOLOGY_INFO_NODE_S {
 #define DRV_TOPOLOGY_INFO_cpu_hw_thread_num(dti)   (dti)->cpu_hw_thread_num
 
 // Definitions for user markers data
-// The instances of these structures will be written to the user markers temp file. 
+// The instances of these structures will be written to the user markers temp file.
 #define MARKER_DEFAULT_TYPE   "Default_Marker"
 #define MARKER_DEFAULT_ID     0
 #define MAX_MARKER_LENGTH     136
- 
+
 #define MARK_ID     4
 #define MARK_DATA   2
 #define THREAD_INFO 8
@@ -613,24 +613,24 @@ typedef enum {
         SMRK_TYPE_ID
 }  SMRK_TYPE;
 */
- 
+
 typedef struct _MarkerType {
         U32      type;               // The type is the SMRK_TYPE - one of SMRK_TYPE_ID or SMRK_WALLCLOCK
                                      // helps in identifying the marker data structure in the temp file
 } MarkerType;
- 
+
 #define MARKER_TYPE_type(pdata)             (pdata)->type
- 
+
 typedef struct _MarkerIdentifierData {
    U32      marker_id;                      // Marker Unique Identifier
    U32      marker_name_length;             // Marker Name length
    char     marker_name[136];               // Marker Name
 } MarkerIdentifierData, *PMarkerIdentifierData;
- 
+
 #define MARKER_ID_id(pdata)               (pdata)->marker_id
 #define MARKER_ID_name_len(pdata)         (pdata)->marker_name_length
 #define MARKER_ID_name(pdata)             (pdata)->marker_name
- 
+
 
 #define MAX_THREAD_NAME       120
 
@@ -669,19 +669,19 @@ struct THREAD_NAME_INFO_NODE_S {
 // The instances of these structures will be written to the user markers temp file.
 typedef struct _MarkerWallClockData {
     U8      end_marker;                     // End Marker Flag in case of continuous or range marker
-    U32     marker_id;                      // Marker Unique Identifier, maps to the marker_id member in MarkerIdentifierData structure 
+    U32     marker_id;                      // Marker Unique Identifier, maps to the marker_id member in MarkerIdentifierData structure
     U64     tsc;                            // tsc at the marker was added
     U64     wallclock;                      // wallclock information
 } MarkerWallClockData, *PMarkerWallClockData;
- 
+
 #define MARKER_DATA_marker_id(pdata)       (pdata)->marker_id
 #define MARKER_DATA_end_marker(pdata)      (pdata)->end_marker
 #define MARKER_DATA_tsc(pdata)             (pdata)->tsc
 #define MARKER_DATA_wallclock(pdata)       (pdata)->wallclock
 
 
-#define OSSNAMELEN      64 
-#define OSNAMELEN       128 
+#define OSSNAMELEN      64
+#define OSNAMELEN       128
 
 typedef struct _SOFTWARE_INFO_NODE_S SOFTWARE_INFO_NODE;
 typedef SOFTWARE_INFO_NODE          *SOFTWARE_INFO;
@@ -695,10 +695,10 @@ struct _SOFTWARE_INFO_NODE_S {
     char machine[OSSNAMELEN];
 };
 
-#define SOFTWARE_INFO_sysname(info)        (info)->sysname    
-#define SOFTWARE_INFO_hostname(info)       (info)->hostname    
+#define SOFTWARE_INFO_sysname(info)        (info)->sysname
+#define SOFTWARE_INFO_hostname(info)       (info)->hostname
 #define SOFTWARE_INFO_ipaddr(info)         (info)->ipaddr
-#define SOFTWARE_INFO_osname(info)         (info)->osname    
+#define SOFTWARE_INFO_osname(info)         (info)->osname
 #define SOFTWARE_INFO_release(info)        (info)->release
 #define SOFTWARE_INFO_machine(info)        (info)->machine
 
@@ -766,7 +766,7 @@ struct _SOFTWARE_INFO_NODE_S {
 
 #endif /* defined(DRV_IA32) || defined(DRV_EM64T) */
 
-/* 
+/*
  * @macro SEP_VERSION_NODE_S
  * @brief
  * This structure supports versioning in Sep. The field major indicates the major version,
@@ -796,7 +796,7 @@ struct SEP_VERSION_NODE_S {
 typedef struct DEVICE_INFO_NODE_S  DEVICE_INFO_NODE;
 typedef        DEVICE_INFO_NODE   *DEVICE_INFO;
 
-struct DEVICE_INFO_NODE_S {    
+struct DEVICE_INFO_NODE_S {
     S8                 *dll_name;
     PVOID               dll_handle;
     S8                 *cpu_name;
@@ -879,15 +879,15 @@ struct DRV_EVENT_MASK_NODE_S {
     union {
         U8 bitFields1;
         struct {
-            U8 precise        : 1;  
-            U8 lbr_capture    : 1;  
-            U8 dear_capture   : 1;  // Indicates which events need to have additional registers read 
+            U8 precise        : 1;
+            U8 lbr_capture    : 1;
+            U8 dear_capture   : 1;  // Indicates which events need to have additional registers read
                                     // because they are DEAR events.
-            U8 iear_capture   : 1;  // Indicates which events need to have additional registers read 
+            U8 iear_capture   : 1;  // Indicates which events need to have additional registers read
                                     // because they are IEAR events.
-            U8 btb_capture    : 1;  // Indicates which events need to have additional registers read 
+            U8 btb_capture    : 1;  // Indicates which events need to have additional registers read
                                     // because they are BTB events.
-            U8 ipear_capture  : 1;  // Indicates which events need to have additional registers read 
+            U8 ipear_capture  : 1;  // Indicates which events need to have additional registers read
                                     // because they are IPEAR events.
             U8 uncore_capture : 1;
             U8 rsvd0          : 2;  
@@ -906,14 +906,14 @@ struct DRV_EVENT_MASK_NODE_S {
 #define DRV_EVENT_MASK_uncore_capture(d)        (d)->u1.s1.uncore_capture
 
 #define MAX_OVERFLOW_EVENTS 11    // This defines the maximum number of overflow events per interrupt.
-                                  // In order to reduce memory footprint, the value should be at least 
+                                  // In order to reduce memory footprint, the value should be at least
                                   // the number of fixed and general PMU registers.
                                   // Sandybridge with HT off has 11 PMUs(3 fixed and 8 generic)
 
 typedef struct DRV_MASKS_NODE_S  DRV_MASKS_NODE;
 typedef        DRV_MASKS_NODE    *DRV_MASKS;
 
-/* 
+/*
  * @macro DRV_EVENT_MASK_NODE_S
  * @brief
  * The structure is used to store overflow events when handling PMU interrupt.
@@ -943,13 +943,13 @@ struct EMON_SCHED_INFO_NODE_S {
      U32   num_units;
 };
 
-#define EMON_SCHED_INFO_max_counters_for_all_pmus(x)  (x)->max_counters_for_all_pmus
-#define EMON_SCHED_INFO_num_cpus(x)                   (x)->num_cpus
+#define EMON_SCHED_INFO_max_counters_for_all_pmus(x)           (x)->max_counters_for_all_pmus
+#define EMON_SCHED_INFO_num_cpus(x)                            (x)->num_cpus
 #define EMON_SCHED_INFO_group_index(x)                (x)->group_index
 #define EMON_SCHED_INFO_offset_for_next_device(x)     (x)->offset_for_next_device
-#define EMON_SCHED_INFO_device_id(x)                  (x)->device_id
-#define EMON_SCHED_INFO_num_packages(x)               (x)->num_packages
-#define EMON_SCHED_INFO_num_units(x)                  (x)->num_units
+#define EMON_SCHED_INFO_device_id(x)                           (x)->device_id
+#define EMON_SCHED_INFO_num_packages(x)                        (x)->num_packages
+#define EMON_SCHED_INFO_num_units(x)                           (x)->num_units
 
 #endif
 

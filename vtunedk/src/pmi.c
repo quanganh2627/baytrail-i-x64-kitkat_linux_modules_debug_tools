@@ -1,5 +1,5 @@
 /*COPYRIGHT**
-    Copyright (C) 2005-2012 Intel Corporation.  All Rights Reserved.
+    Copyright (C) 2005-2013 Intel Corporation.  All Rights Reserved.
 
     This file is part of SEP Development Kit
 
@@ -48,6 +48,10 @@
 #include "utility.h"
 #if defined(DRV_IA32) || defined(DRV_EM64T)
 #include "pebs.h"
+#endif
+
+#if defined(BUILD_CHIPSET)
+#include "lwpmudrv_chipset.h"
 #endif
 
 // Desc id #0 is used for module records
@@ -191,6 +195,11 @@ PMI_Interrupt_Handler (
                 if (DRV_CONFIG_power_capture(pcfg)) {
                     dispatch->read_power(((S8 *)(psamp)+EVENT_DESC_power_offset_in_sample(evt_desc)));
                 }
+#if defined(BUILD_CHIPSET)
+                if (DRV_CONFIG_enable_chipset(pcfg)) {
+                    cs_dispatch->read_counters(((S8 *)(psamp)+DRV_CONFIG_chipset_offset(pcfg)));
+                }
+#endif
                 if (DRV_CONFIG_event_based_counts(pcfg)) {
                     dispatch->read_counts(((S8 *)(psamp)+EVENT_DESC_ebc_offset(evt_desc)), DRV_EVENT_MASK_event_idx(&event_mask.eventmasks[i]));
                 }
@@ -417,6 +426,11 @@ PMI_Interrupt_Handler (
                 if (DRV_CONFIG_power_capture(pcfg)) {
                     dispatch->read_power(((S8 *)(psamp)+EVENT_DESC_power_offset_in_sample(evt_desc)));
                 }
+#if defined(BUILD_CHIPSET)
+                if (DRV_CONFIG_enable_chipset(pcfg)) {
+                    cs_dispatch->read_counters(((S8 *)(psamp)+DRV_CONFIG_chipset_offset(pcfg)));
+                }
+#endif
                 if (DRV_CONFIG_event_based_counts(pcfg)) {
                     dispatch->read_counts(((S8 *)(psamp)+EVENT_DESC_ebc_offset(evt_desc)), DRV_EVENT_MASK_event_idx(&event_mask.eventmasks[i]));
                 }

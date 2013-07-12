@@ -157,8 +157,8 @@ extern "C" {
 #define DRV_RTLD_NOW    RTLD_NOW 
 #endif
 
-#define DRV_STRLEN                       strlen
-#define DRV_WCSLEN                       wcslen
+#define DRV_STRLEN                       (U32)strlen
+#define DRV_WCSLEN                       (U32)wcslen
 #define DRV_STRCSPN                      strcspn
 #define DRV_STRCHR                       strchr
 #define DRV_STRRCHR                      strrchr
@@ -178,6 +178,7 @@ extern "C" {
 #define DRV_VSNPRINTF                   _vsnprintf_s
 #define DRV_SSCANF                       sscanf_s
 #define DRV_STRCAT                       strcat_s
+#define DRV_STRNCAT                      strncat_s
 #define DRV_MEMCPY                       memcpy_s
 #define DRV_STRTOK                       strtok_s
 #define DRV_STRTOUL                      strtoul
@@ -189,6 +190,7 @@ extern "C" {
 #define DRV_WCSCPY                       wcscpy_s
 #define DRV_WCSNCPY                      wcsncpy_s
 #define DRV_WCSCAT                       wcscat_s
+#define DRV_WCSNCAT                      wcsncat_s
 #define DRV_WCSTOK                       wcstok_s
 #define DRV_STRERROR                     strerror_s
 #define DRV_VSPRINTF                     vsprintf_s
@@ -198,15 +200,8 @@ extern "C" {
 #define DRV_PUTENV(name)                _putenv(name)
 #define DRV_USTRCMP(X, Y)                DRV_WCSCMP(X, Y)
 #define DRV_USTRDUP(X)                   DRV_WCSDUP(X)
-#if defined(DRV_EM64T)
-#define DRV_GETENV(buf,buf_size,name)   {(buf)  = getenv((name)); \
-                                         (buf_size) = ((buf) == NULL) ? 0 : DRV_STRLEN((buf));}
-#define DRV_WGETENV(buf,buf_size,name)  {(buf)  = _wgetenv((name)); \
-                                         (buf_size) = ((buf) == NULL) ? 0 : DRV_WCSLEN((buf));}
-#else
 #define DRV_GETENV(buf,buf_size,name)   _dupenv_s(&(buf),&(buf_size),(name))
 #define DRV_WGETENV(buf,buf_size,name)  _wdupenv_s(&(buf),&(buf_size),(name))
-#endif
 #endif
 
 #if defined(DRV_OS_LINUX) || defined(DRV_OS_SOLARIS) || defined(DRV_OS_MAC) || defined(DRV_OS_ANDROID) || defined(DRV_OS_FREEBSD)
@@ -231,6 +226,7 @@ extern "C" {
 #define DRV_STRCPY(dst,dst_size,src)             strcpy((dst),(src))
 #define DRV_STRNCPY(dst,dst_size,src,n)          strncpy((dst),(src),(n))
 #define DRV_STRCAT(dst,dst_size,src)             strcat((dst),(src))
+#define DRV_STRNCAT(dst,dst_size,src,n)          strncat((dst),(src),(n))
 #define DRV_MEMCPY(dst,dst_size,src,n)           memcpy((dst),(src), (n))
 #define DRV_STRTOK(tok,delim,context)            strtok((tok),(delim))
 #define DRV_STRTOUL                              strtoul

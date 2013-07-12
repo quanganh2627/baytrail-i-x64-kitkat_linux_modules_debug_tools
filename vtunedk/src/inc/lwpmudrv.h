@@ -36,6 +36,9 @@
 #include "lwpmudrv_types.h"
 #include "lwpmudrv_version.h"
 #include "lwpmudrv_struct.h"
+#if defined(BUILD_CHIPSET)
+#include "lwpmudrv_chipset.h"
+#endif
 
 
 /*
@@ -89,10 +92,29 @@ struct DISPATCH_NODE_S {
     U64  (*check_overflow_gp_errata)(ECB,U64*);
     VOID (*read_ro)(PVOID, U32, U32);
     U64  (*platform_info)(VOID);
+    VOID (*trigger_read)(VOID);    // Counter reads triggered/initiated by User mode timer
 };
 
 extern DISPATCH dispatch;
 
+#if defined(BUILD_CHIPSET)
+/*
+ *  Dispatch table for virtualized functions.
+ *  Used to enable common functionality for different
+ *  chipset types
+ */
+typedef struct CS_DISPATCH_NODE_S  CS_DISPATCH_NODE;
+typedef        CS_DISPATCH_NODE   *CS_DISPATCH;
+struct CS_DISPATCH_NODE_S {
+    U32  (*init_chipset)(VOID);    // initialize chipset (must be called before the others!)
+    VOID (*start_chipset)(VOID);   // start the chipset counters
+    VOID (*read_counters)(PVOID);  // at interrupt time, read out the chipset counters
+    VOID (*stop_chipset)(VOID);    // stop the chipset counters
+    VOID (*fini_chipset)(VOID);    // clean up resources and reset chipset state (called last)
+    VOID (*Trigger_Read)(VOID);    // GMCH counter reads triggered/initiated by User mode timer
+};
+extern CS_DISPATCH    cs_dispatch;
+#endif
 
 extern VOID         **PMU_register_data;
 extern VOID         **desc_data;
