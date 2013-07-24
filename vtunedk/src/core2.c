@@ -58,8 +58,10 @@ extern LBR            lbr;
 extern DRV_CONFIG     pcfg;
 extern PWR            pwr;
 
+#if !defined(DRV_ATOM_ONLY)
 static U32            direct2core_data_saved = 0;
 static U32            bl_bypass_data_saved   = 0;
+#endif
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -73,12 +75,12 @@ static U32            bl_bypass_data_saved   = 0;
  *
  * <I>Special Notes</I>
  */
+#if !defined(DRV_ATOM_ONLY)
 static VOID
 core2_Disable_Direct2core (
     ECB pecb
 )
 {
-#if !defined(DRV_ATOM_ONLY)
     U32            busno       = 0;
     U32            dev_idx     = 0;
     U32            base_idx    = 0;
@@ -205,8 +207,8 @@ core2_Disable_Direct2core (
             SEP_PRINT_DEBUG("Value after applying wkrd QPILL B:D:F %d:%d:%d offset 0x%x value 0x%x\n",busno,core2_qpill_dev_no[dev_idx],JKTUNC_QPILL_D2C_FUNC_NO,JKTUNC_QPILL_D2C_OFFSET,value);
         }
     }
-#endif
 }
+#endif
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -220,12 +222,12 @@ core2_Disable_Direct2core (
  *
  * <I>Special Notes</I>
  */
+#if !defined(DRV_ATOM_ONLY)
 static VOID
 core2_Disable_BL_Bypass (
     ECB pecb
 )
 {
-#if !defined(DRV_ATOM_ONLY)
     U64            value;
     U32            this_cpu    = CONTROL_THIS_CPU();
 
@@ -235,9 +237,8 @@ core2_Disable_BL_Bypass (
     value |= CORE2UNC_BLBYPASS_BITMASK;
     SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, value);
 
-#endif
 }
-
+#endif
 /* ------------------------------------------------------------------------- */
 /*!
  * @fn void core2_Write_PMU(param)
@@ -938,9 +939,9 @@ core2_Clean_Up (
     VOID   *param
 )
 {
+#if !defined(DRV_ATOM_ONLY)
     U32            this_cpu    = CONTROL_THIS_CPU();
     CPU_STATE      pcpu        = &pcb[this_cpu];
-#if !defined(DRV_ATOM_ONLY)
     U32            busno       = 0;
     U32            dev_idx     = 0;
     U32            base_idx    = 0;
