@@ -130,12 +130,6 @@ struct mtx_pci_ops {
 	unsigned long port_island;
 };
 
-struct mtx_visa {
-	char *ptr_data_usr;
-	unsigned long data_size;
-	unsigned long operation;
-};
-
 /* PCI info for a real pci device */
 struct pci_config {
 	unsigned long bus;
@@ -169,10 +163,6 @@ struct lookup_table {
 	unsigned long cfg_db_init_length;
 	unsigned long cfg_db_init_wb;
 
-	struct mtx_visa *visa_init;
-	unsigned long visa_init_length;
-	unsigned long visa_init_wb;
-
 	/*Poll Data */
 	struct mtx_msr *msrs_poll;
 	unsigned long msr_poll_length;
@@ -195,11 +185,6 @@ struct lookup_table {
 	struct scu_config scu_poll;
 	unsigned long scu_poll_length;
 
-	struct mtx_visa *visa_poll;
-	unsigned long visa_poll_length;
-	unsigned long visa_poll_wb;
-	unsigned long visa_records;
-
 	/*Term Data */
 	struct mtx_msr *msrs_term;
 	unsigned long msr_term_length;
@@ -216,21 +201,11 @@ struct lookup_table {
 	unsigned long *cfg_db_term;
 	unsigned long cfg_db_term_length;
 	unsigned long cfg_db_term_wb;
-
-	struct mtx_visa *visa_term;
-	unsigned long visa_term_length;
-	unsigned long visa_term_wb;
 };
 
 struct msr_buffer {
 	unsigned long eax_LSB;
 	unsigned long edx_MSB;
-};
-
-#define MAX_VISA_VALUES 10
-
-struct visa_buffer {
-	unsigned long long values[MAX_VISA_VALUES];
 };
 
 struct xchange_buffer {
@@ -242,8 +217,6 @@ struct xchange_buffer {
 	unsigned long pci_ops_length;
 	unsigned long *ptr_cfg_db_buff;
 	unsigned long cfg_db_length;
-	struct visa_buffer *ptr_visa_buff;
-	unsigned long visa_length;
 };
 
 struct xchange_buffer_all {
@@ -292,9 +265,6 @@ struct mtx_size_info {
 	unsigned int poll_cfg_db_size;
 	unsigned int poll_scu_drv_size;
 	unsigned int total_mem_bytes_req;
-	unsigned int init_visa_size;
-	unsigned int term_visa_size;
-	unsigned int poll_visa_size;
 };
 
 #define IOCTL_INIT_SCAN _IOR(0xF8, 0x00000001, unsigned long)

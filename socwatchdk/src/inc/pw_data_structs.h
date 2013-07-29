@@ -206,6 +206,7 @@ static internal_state_t INTERNAL_STATE;
 #define IS_D_SC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_SC_STATE_MASK)
 #define IS_D_NC_STATE_MODE() (INTERNAL_STATE.collection_switches & POWER_D_NC_STATE_MASK)
 #define IS_WAKELOCK_MODE() (INTERNAL_STATE.collection_switches & POWER_WAKELOCK_MASK)
+#define IS_ACPI_S3_MODE() (INTERNAL_STATE.collection_switches & POWER_ACPI_S3_STATE_MASK)
 /*
  * Special check to see if we should produce c-state samples.
  * Required to support S/D-state use of TPS probe (which requires "SLEEP_MASK") without
