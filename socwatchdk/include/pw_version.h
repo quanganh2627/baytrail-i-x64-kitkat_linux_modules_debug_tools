@@ -64,19 +64,27 @@
 /*
  * SOCWatch driver version
  * Current driver version is 1.0.0
+ * Current driver version is 1.1.0
  */
 #define PW_DRV_VERSION_MAJOR 1
-#define PW_DRV_VERSION_MINOR 1
-#define PW_DRV_VERSION_OTHER 1
-#define PW_DRV_VERSION_STRING "1.1" // used by matrix
-#define PW_DRV_NAME "socwatch1_1"
+#define PW_DRV_VERSION_MINOR 2
+#define PW_DRV_VERSION_OTHER 0
+#define PW_DRV_VERSION_STRING "1.2" // used by matrix
+#define PW_DRV_NAME "socwatch1_2"
 
 /*
  * Every SOCWatch component shares the same version number.
  */
 #define SOCWATCH_VERSION_MAJOR 1
-#define SOCWATCH_VERSION_MINOR 1
+#define SOCWATCH_VERSION_MINOR 2
 #define SOCWATCH_VERSION_OTHER 0
+
+/*
+ * WUWatch driver version
+ */
+#define PW_DRV_VERSION 3
+#define PW_DRV_INTERFACE 1
+#define PW_DRV_OTHER 9
 
 /*
  * Every wuwatch component shares the same version number.
@@ -84,7 +92,7 @@
  */
 #define WUWATCH_VERSION_VERSION 3
 #define WUWATCH_VERSION_INTERFACE 1
-#define WUWATCH_VERSION_OTHER 4
+#define WUWATCH_VERSION_OTHER 9
 
 /*
  * Power interface version

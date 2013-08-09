@@ -166,135 +166,82 @@ pw_data_buffer_t inline *pw_get_next_available_segment_i(pw_output_buffer_t *buf
     return NULL;
 };
 
-int pw_produce_tps_msg(struct PWC_tps_msg *msg)
+static pw_data_buffer_t *get_producer_seg_i(size_t size, int *cpu, u32 *write_index, bool *should_wakeup, bool *did_drop_sample)
 {
-    // unsigned long flags = 0;
-    int retval = PW_SUCCESS;
-    bool should_wakeup = false;
-    bool should_print_error = false;
-    bool did_drop_sample = false;
-    int cpu = -1;
-    bool did_switch_buffer = false;
-    int size = msg->data_len + PW_MSG_HEADER_SIZE;
+    pw_data_buffer_t *seg = NULL;
+    unsigned long flags = 0;
 
-    // local_irq_save(flags);
-    get_cpu();
+    local_irq_save(flags);
+    // get_cpu();
     {
-        pw_output_buffer_t *buffer = GET_OUTPUT_BUFFER(cpu = CPU());
+        pw_output_buffer_t *buffer = GET_OUTPUT_BUFFER(*cpu = CPU());
         int buff_index = buffer->buff_index;
-        pw_data_buffer_t *seg = buffer->buffers[buff_index];
-        char *dst = NULL;
+        if (buff_index < 0 || buff_index >= NUM_SEGS_PER_BUFFER) {
+            // printk(KERN_INFO "ERROR: cpu = %d, buff_index = %d\n", cpu, buff_index);
+            seg = NULL;
+            goto prod_seg_done;
+        }
+        seg = buffer->buffers[buff_index];
 
         if (unlikely(SPACE_AVAIL(seg) < size)) {
             seg->is_full = 1;
-            should_wakeup = true;
+            *should_wakeup = true;
             seg = pw_get_next_available_segment_i(buffer, size);
+            // seg = NULL;
             if (seg == NULL) {
                 /*
                  * We couldn't find a non-full segment.
                  */
-                retval = -PW_ERROR;
-                should_wakeup = true;
                 buffer->dropped_samples++;
-                did_drop_sample = true;
-                goto done;
+                *did_drop_sample = true;
+                goto prod_seg_done;
             }
         }
-
-        dst = &seg->buffer[seg->bytes_written];
-
-        *((PWC_tps_msg_t *)dst) = *msg;
-
+        *write_index = seg->bytes_written;
         seg->bytes_written += size;
 
         buffer->produced_samples++;
     }
-done:
-    // local_irq_restore(flags);
-    put_cpu();
-
-    if (should_wakeup && waitqueue_active(&pw_reader_queue)) {
-        set_bit(cpu, &reader_map); // we're guaranteed this won't get reordered!
-        smp_mb(); // TODO: do we really need this?
-        pw_pr_debug(KERN_INFO "[%d]: has full seg!\n", cpu);
-        wake_up_interruptible(&pw_reader_queue);
-    }
-
-    if (did_drop_sample) {
-        // pw_pr_warn("Dropping sample\n");
-    }
-
-    if (should_print_error) {
-        // pw_pr_error("ERROR in produce!\n");
-    }
-
-    if (did_switch_buffer) {
-        // pw_pr_debug("[%d]: switched sub buffers!\n", cpu);
-    }
-
-    return retval;
+prod_seg_done:
+    // put_cpu();
+    local_irq_restore(flags);
+    return seg;
 };
 
 int pw_produce_generic_msg(struct PWCollector_msg *msg, bool allow_wakeup)
 {
-    // unsigned long flags = 0;
     int retval = PW_SUCCESS;
     bool should_wakeup = false;
     bool should_print_error = false;
     bool did_drop_sample = false;
     int cpu = -1;
     bool did_switch_buffer = false;
-    int size = msg->data_len + PW_MSG_HEADER_SIZE;
+    int size = 0;
+    pw_data_buffer_t *seg = NULL;
+    char *dst = NULL;
+    u32 write_index = 0;
+
+    if (!msg) {
+        pw_pr_error("ERROR: CANNOT produce a NULL msg!\n");
+        return -PW_ERROR;
+    }
+
+    size = msg->data_len + PW_MSG_HEADER_SIZE;
 
     pw_pr_debug("[%d]: size = %d\n", RAW_CPU(), size);
 
-    // local_irq_save(flags);
-    get_cpu();
-    {
-        pw_output_buffer_t *buffer = GET_OUTPUT_BUFFER(cpu = CPU());
-        int buff_index = buffer->buff_index;
-        pw_data_buffer_t *seg = buffer->buffers[buff_index];
-        char *dst = NULL;
+    seg = get_producer_seg_i(size, &cpu, &write_index, &should_wakeup, &did_drop_sample);
 
-        if (unlikely(SPACE_AVAIL(seg) < size)) {
-            seg->is_full = 1;
-            should_wakeup = true;
-            seg = pw_get_next_available_segment_i(buffer, size);
-            if (seg == NULL) {
-                /*
-                 * We couldn't find a non-full segment.
-                 */
-                retval = -PW_ERROR;
-                should_wakeup = true;
-                buffer->dropped_samples++;
-                did_drop_sample = true;
-                goto done;
-            }
-        }
-
-        dst = &seg->buffer[seg->bytes_written];
-
+    if (likely(seg)) {
+        dst = &seg->buffer[write_index];
         *((PWCollector_msg_t *)dst) = *msg;
         dst += PW_MSG_HEADER_SIZE;
-        // pw_pr_debug("Diff = %d\n", (dst - &seg->buffer[seg->bytes_written]));
         memcpy(dst, (void *)((unsigned long)msg->p_data), msg->data_len);
-
-        seg->bytes_written += size;
-
-        buffer->produced_samples++;
-
-        if (msg->data_type == P_STATE) {
-            pw_pr_debug(KERN_INFO "OK: [%d] PRODUCED a TPF msg!\n", cpu);
-        } else {
-            pw_pr_debug(KERN_INFO "OK: [%d] PRODUCED a generic msg!\n", cpu);
-        }
-
+    } else {
+        pw_pr_warn("WARNING: NULL seg! Msg type = %u\n", msg->data_type);
     }
-done:
-    // local_irq_restore(flags);
-    put_cpu();
 
-    if (should_wakeup && allow_wakeup && waitqueue_active(&pw_reader_queue)) {
+    if (unlikely(should_wakeup && allow_wakeup && waitqueue_active(&pw_reader_queue))) {
         set_bit(cpu, &reader_map); // we're guaranteed this won't get reordered!
         smp_mb(); // TODO: do we really need this?
         // printk(KERN_INFO "[%d]: has full seg!\n", cpu);
@@ -436,6 +383,12 @@ int pw_map_per_cpu_buffers(struct vm_area_struct *vma, unsigned long *total_size
 bool pw_any_seg_full(u32 *val, const bool *is_flush_mode)
 {
     int num_visited = 0, i = 0;
+
+    if (!val || !is_flush_mode) {
+        pw_pr_error("ERROR: NULL ptrs in pw_any_seg_full!\n");
+        return false;
+    }
+
     *val = PW_NO_DATA_AVAIL_MASK;
     pw_pr_debug(KERN_INFO "Checking for full seg: val = %u, flush = %s\n", *val, GET_BOOL_STRING(*is_flush_mode));
     for_each_online_cpu(num_visited) {
@@ -484,6 +437,11 @@ unsigned long pw_consume_data(u32 mask, char __user *buffer, size_t bytes_to_rea
     unsigned long bytes_not_copied = 0;
     pw_output_buffer_t *buff = NULL;
     pw_data_buffer_t *seg = NULL;
+
+    if (!buffer || !bytes_read) {
+        pw_pr_error("ERROR: NULL ptrs in pw_consume_data!\n");
+        return -PW_ERROR;
+    }
 
     if (bytes_to_read != PW_DATA_BUFFER_SIZE) {
         pw_pr_error("Error: bytes_to_read = %u, required to be %lu\n", (unsigned)bytes_to_read, (unsigned long)PW_DATA_BUFFER_SIZE);

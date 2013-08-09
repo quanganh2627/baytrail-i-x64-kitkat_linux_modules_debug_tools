@@ -113,7 +113,6 @@ int pw_map_per_cpu_buffers(struct vm_area_struct *vma, unsigned long *total_size
 
 void pw_count_samples_produced_dropped(void);
 
-int pw_produce_tps_msg(struct PWC_tps_msg *);
 int pw_produce_generic_msg(struct PWCollector_msg *, bool);
 
 bool pw_any_seg_full(u32 *val, const bool *is_flush_mode);

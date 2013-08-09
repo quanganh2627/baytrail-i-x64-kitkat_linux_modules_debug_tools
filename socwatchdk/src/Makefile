@@ -90,9 +90,9 @@
 # -------------------- user configurable options ------------------------
 
 # base name of SOCWatch driver
-DRIVER_BASE=socwatch
+DRIVER_BASE=SOCWATCH
 DRIVER_MAJOR=1
-DRIVER_MINOR=1
+DRIVER_MINOR=2
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 

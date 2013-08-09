@@ -90,9 +90,6 @@
 #define MCR_WRITE_OPCODE    0x11
 #define BIT_POS_OPCODE      24
 
-#define PW_NUM_SOCHAP_COUNTERS 9
-extern void LWPMUDRV_VISA_Read_Data (void *data_buffer);
-
 static int matrix_major_number;
 static bool instantiated;
 static bool mem_alloc_status;
@@ -471,7 +468,6 @@ static void mt_calculate_memory_requirements(void)
 	MATRIX_INCREMENT_MEMORY(struct, mtx_pci_ops, lut, pci_ops, 1);
 //	MATRIX_INCREMENT_MEMORY(unsigned, long, lut, cfg_db, 1);
 	MATRIX_INCREMENT_MEMORY(unsigned, int, lut, cfg_db, 1);
-	MATRIX_INCREMENT_MEMORY(struct, mtx_visa, lut, visa, 1);
 	lut_info.poll_scu_drv_size =
 	    ptr_lut->scu_poll.length * ptr_lut->scu_poll_length;
 	lut_info.total_mem_bytes_req += lut_info.poll_scu_drv_size;
@@ -481,11 +477,9 @@ static void mt_calculate_memory_requirements(void)
 	MATRIX_INCREMENT_MEMORY(unsigned, int, xhg_buf, mem, 0);
 	MATRIX_INCREMENT_MEMORY(unsigned, int, xhg_buf, pci_ops, 0);
 	MATRIX_INCREMENT_MEMORY(unsigned, int, xhg_buf, cfg_db, 0);
-	MATRIX_INCREMENT_MEMORY(struct, visa_buffer, xhg_buf, visa, 0);
 //	MATRIX_INCREMENT_MEMORY(unsigned, long, xhg_buf, mem, 0);
 //	MATRIX_INCREMENT_MEMORY(unsigned, long, xhg_buf, pci_ops, 0);
 //	MATRIX_INCREMENT_MEMORY(unsigned, long, xhg_buf, cfg_db, 0);
-//	MATRIX_INCREMENT_MEMORY(struct, visa_buffer, xhg_buf, visa, 0);
 }
 
 /**
@@ -524,14 +518,6 @@ static int mt_bookmark_lookup_table(void)
 
 	/* scu part of the lookup table */
 	ptr_lut->scu_poll.drv_data = (unsigned char *)&ptr_lut_ops[offset];
-
-	/* visa part of the lookup table */
-	MATRIX_BOOK_MARK_LUT(init, visa, struct, mtx_visa, visa, 0,
-			     COPY_FAIL);
-	MATRIX_BOOK_MARK_LUT(poll, visa, struct, mtx_visa, visa, 0,
-			     COPY_FAIL);
-	MATRIX_BOOK_MARK_LUT(term, visa, struct, mtx_visa, visa, 0,
-			     COPY_FAIL);
 	return 0;
 COPY_FAIL:
 	return -EFAULT;
@@ -550,21 +536,18 @@ static void mt_bookmark_xchange_buffer(void)
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(init, mem, unsigned, long, 0);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(init, pci_ops, unsigned, long, 0);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(init, cfg_db, unsigned, long, 0);
-	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(init, visa, struct, visa_buffer, 0);
 
 	/* bookmark memory location used while polling */
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(poll, msr, struct, msr_buffer, 1);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(poll, mem, unsigned, long, 1);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(poll, pci_ops, unsigned, long, 1);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(poll, cfg_db, unsigned, long, 1);
-	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(poll, visa, struct, visa_buffer, 1);
 
 	/* bookmark memory location used in the last run */
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(term, msr, struct, msr_buffer, 0);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(term, mem, unsigned, long, 0);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(term, pci_ops, unsigned, long, 0);
 	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(term, cfg_db, unsigned, long, 0);
-	MATRIX_BOOK_MARK_EXCHANGE_BUFFER(term, visa, struct, visa_buffer, 0);
 }
 
 /**
@@ -708,10 +691,10 @@ static int mt_poll_scan(unsigned long poll_loop)
 	unsigned long cfg_db_base_addr;
 	unsigned long delta_time;
 
-	if (ptr_lut == NULL || ptr_xc_buff_all == NULL)
+	if (ptr_lut == NULL || ptr_xc_buff_all == NULL || poll_loop > ptr_lut->records)
 		goto ERROR;
 
-        //printk(KERN_INFO "poll_loop = %lu\n", poll_loop);
+        // printk(KERN_INFO "poll_loop = %lu\n", poll_loop);
 
 #if DO_ANDROID
 	max_msr_loop = ptr_lut->msr_poll_length;
@@ -831,29 +814,6 @@ static int mt_poll_scan(unsigned long poll_loop)
 	}
 #endif // DO_ANDROID
 
-	/* Get the VISA counter values */
-        if (NULL != ptr_lut->visa_poll) {
-            if (ptr_lut->visa_poll[0].operation == READ_OP) {
-                 //int i = 0;
-                 u64 __visa_buffer[PW_NUM_SOCHAP_COUNTERS];
-
-                 memset(__visa_buffer, 0, sizeof(__visa_buffer));
-
-                 LWPMUDRV_VISA_Read_Data(__visa_buffer);
-
-                 //for (i=0; i<sizeof(__visa_buffer) / sizeof(u64); ++i) {
-                 //    printk(KERN_INFO "\t[SOCWATCH VISA]: VISA[%d] = %llu\n", i, __visa_buffer[i]);
-                 //}
-
-                 memcpy(&ptr_xc_buff_all->xhg_buf_poll.ptr_visa_buff[poll_loop], __visa_buffer,
-                     sizeof(__visa_buffer));
-             } else {
-                 dev_dbg(matrix_device, "VISA operation is NOT read!\n");
-             }
-        } else {
-            dev_dbg(matrix_device, "VISA poll is NULL!\n");
-        }
-
 	return 0;
 ERROR:
 	mt_free_memory();
@@ -882,13 +842,16 @@ static int mt_transfer_data(unsigned long ptr_data)
 		dev_dbg(matrix_device, "Transferring data had issues..\n");
 		goto ERROR;
 	}
+        if (ptr_lut == NULL || ptr_xc_buff_all == NULL) {
+            printk(KERN_INFO "NULL ptrs!\n"); 
+            goto ERROR;
+        }
 
 	/*Buffers for Init transferred */
 	MATRIX_COPY_TO_USER_BUFFER(init, msr, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(init, mem, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(init, pci_ops, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(init, cfg_db, ERROR);
-	MATRIX_COPY_TO_USER_BUFFER(init, visa, ERROR);
 
 	/*Buffers for Poll transferred */
 	MATRIX_COPY_TO_USER_BUFFER(poll, msr, ERROR);
@@ -916,14 +879,12 @@ static int mt_transfer_data(unsigned long ptr_data)
 			goto ERROR;
 		}
 	MATRIX_COPY_TO_USER_BUFFER(poll, cfg_db, ERROR);
-	MATRIX_COPY_TO_USER_BUFFER(poll, visa, ERROR);
 
 	/*Buffers for Term transferred */
 	MATRIX_COPY_TO_USER_BUFFER(term, msr, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(term, mem, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(term, pci_ops, ERROR);
 	MATRIX_COPY_TO_USER_BUFFER(term, cfg_db, ERROR);
-	MATRIX_COPY_TO_USER_BUFFER(term, visa, ERROR);
 
 	xbuf_all.init_time_stamp = ptr_xc_buff_all->init_time_stamp;
 	xbuf_all.term_time_stamp = ptr_xc_buff_all->term_time_stamp;
@@ -1364,6 +1325,10 @@ static long matrix_ioctl(struct file
     switch (request) {
         case IOCTL_VERSION_INFO:
             // printk(KERN_INFO "IOCTL_VERSION_INFO received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl VERSION");
+                return -EFAULT;
+            }
             if (copy_to_user((char *)ptr_data, PW_DRV_VERSION_STRING,
                         strlen(PW_DRV_VERSION_STRING) + 1) > 0) {
                 dev_dbg(matrix_device,
@@ -1374,12 +1339,20 @@ static long matrix_ioctl(struct file
             break;
         case IOCTL_INIT_MEMORY:
             //printk(KERN_INFO "IOCTL_INIT_MEMORY received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl INIT_MEM");
+                return -EFAULT;
+            }
             return mt_initialize_memory(ptr_data);
         case IOCTL_FREE_MEMORY:
             //printk(KERN_INFO "IOCTL_FREE_MEMORY received!\n");
             return mt_free_memory();
         case IOCTL_OPERATE_ON_MSR:
             // printk(KERN_INFO "IOCTL_OPERATE_ON_MSR received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl OPERATE_ON_MSR");
+                return -EFAULT;
+            }
             return mt_operate_on_msr(ptr_data);
         case IOCTL_INIT_SCAN:
             //printk(KERN_INFO "IOCTL_INIT_SCAN received!\n");
@@ -1392,32 +1365,64 @@ static long matrix_ioctl(struct file
             return mt_poll_scan(ptr_data);
         case IOCTL_COPY_TO_USER:
             //printk(KERN_INFO "IOCTL_COPY_TO_USER received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl COPY_TO_USER");
+                return -EFAULT;
+            }
             return mt_transfer_data(ptr_data);
             /* MSR based ioctl's */
         case IOCTL_MSR:
             // printk(KERN_INFO "IOCTL_MSR received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl IOCTL_MSR");
+                return -EFAULT;
+            }
             return IOCTL_mtx_msr(ptr_data);
             /* SRAM based ioctl's */
         case IOCTL_SRAM:
             // printk(KERN_INFO "IOCTL_SRAM received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl IOCTL_SRAM");
+                return -EFAULT;
+            }
             return IOCTL_sram(ptr_data);
             // return -1;
             /* GMCH based ioctl's */
         case IOCTL_GMCH:
             // printk(KERN_INFO "IOCTL_GMCH received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl IOCTL_GMCH");
+                return -EFAULT;
+            }
             return IOCTL_gmch(request, ptr_data);
         case IOCTL_GMCH_RESET:
             // printk(KERN_INFO "IOCTL_GMCH_REQUEST received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl IOCTL_GMCH_RESET");
+                return -EFAULT;
+            }
             return IOCTL_gmch(request, ptr_data);
         case IOCTL_READ_CONFIG_DB:
             // printk(KERN_INFO "IOCTL_READ_CONFIG_DB received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl READ_CONFIG_DB");
+                return -EFAULT;
+            }
             return mt_read_config((unsigned long *)ptr_data);
             // return -1;
         case IOCTL_WRITE_CONFIG_DB:
             // printk(KERN_INFO "IOCTL_WRITE_CONFIG_DB received!\n");
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl WRITE_CONFIG_DB");
+                return -EFAULT;
+            }
             return mt_write_config((unsigned long *)ptr_data);
             // return -1;
         case IOCTL_READ_PCI_CONFIG:
+            if (!ptr_data) {
+                printk(KERN_INFO "NULL ptr_data in matrix_ioctl READ_PCI_CONFIG");
+                return -EFAULT;
+            }
             return mt_read_pci_config((unsigned long *)ptr_data);
         default:
             // printk(KERN_INFO "INVALID IOCTL = %lu received!\n", request);
