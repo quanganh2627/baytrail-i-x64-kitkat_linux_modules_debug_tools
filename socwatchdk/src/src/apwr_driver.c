@@ -2348,7 +2348,8 @@ static inline void produce_w_sample(int cpu, u64 tsc, w_sample_type_t type, pid_
         w_msg.tid = tid;
         w_msg.pid = pid;
         w_msg.constant_pool_index = cp_index;
-        memcpy(w_msg.proc_name, pname, PW_MAX_PROC_NAME_SIZE); // process name
+        // memcpy(w_msg.proc_name, pname, PW_MAX_PROC_NAME_SIZE); // process name
+        strncpy(w_msg.proc_name, pname, PW_MAX_PROC_NAME_SIZE); // process name
 
         sample.tsc = tsc;
         sample.data_type = W_STATE;
@@ -4076,7 +4077,8 @@ static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val
 
     if (val == CPUFREQ_PRECHANGE) {
 #ifndef __arm__
-        DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, new_state, old_state);
+        // DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, new_state, old_state);
+        tpf(cpu, 2, new_state, old_state);
 #else
         u64 tsc;
         u32 prev_req_freq = 0;
