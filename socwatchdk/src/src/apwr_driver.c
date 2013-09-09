@@ -103,8 +103,8 @@
 #include <linux/suspend.h> // for "pm_notifier"
 #include <linux/pci.h>
 #if DO_ANDROID
-#include <asm/intel-mid.h>
-#endif
+    #include <asm/intel-mid.h>
+#endif // DO_ANDROID
 
 #if DO_WAKELOCK_SAMPLE 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
@@ -511,6 +511,16 @@ static u64 startTSC_acpi_s3;
 #define SMP_CALL_FUNCTION(func,ctx,retry,wait)    smp_call_function((func),(ctx),(wait))
 #else
 #define SMP_CALL_FUNCTION(func,ctx,retry,wait)    smp_call_function((func),(ctx),(retry),(wait))
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
+    #define PW_HLIST_FOR_EACH_ENTRY(tpos, pos, head, member) hlist_for_each_entry(tpos, pos, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_SAFE(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, pos, n, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) hlist_for_each_entry_rcu(tpos, pos, head, member)
+#else // >= 3.9.0
+    #define PW_HLIST_FOR_EACH_ENTRY(tpos, pos, head, member) hlist_for_each_entry(tpos, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_SAFE(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, n, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) hlist_for_each_entry_rcu(tpos, head, member)
 #endif
 
 /*
@@ -1543,7 +1553,7 @@ static tnode_t *timer_find(unsigned long timer_addr, pid_t tid)
     {
 	head = &timer_map[idx].head;
 
-	hlist_for_each_entry(node, curr, head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, head, list) {
 	    if(node->timer_addr == timer_addr && (node->tid == tid || tid < 0)){
 		retVal = node;
 		break;
@@ -1568,7 +1578,7 @@ static void timer_insert(unsigned long timer_addr, pid_t tid, pid_t pid, u64 tsc
     {
         head = &timer_map[idx].head;
 
-        hlist_for_each_entry(node, curr, head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, head, list) {
             if(node->timer_addr == timer_addr){
                 /*
                  * Update-in-place.
@@ -1615,7 +1625,7 @@ static int timer_delete(unsigned long timer_addr, pid_t tid)
     {
 	head = &timer_map[idx].head;
 
-	hlist_for_each_entry_safe(node, curr, next, head, list){
+        PW_HLIST_FOR_EACH_ENTRY_SAFE(node, curr, next, head, list) {
 	    // if(node->timer_addr == timer_addr && node->tid == tid){
             if(node->timer_addr == timer_addr) {
                 if (node->tid != tid){
@@ -1648,7 +1658,7 @@ static void delete_all_non_kernel_timers(void)
 	{
 	    HASH_LOCK(i);
 	    {
-		hlist_for_each_entry_safe(node, curr, next, &timer_map[i].head, list){
+                PW_HLIST_FOR_EACH_ENTRY_SAFE(node, curr, next, &timer_map[i].head, list) {
                     if (node->is_root_timer == 0) {
 			++num_timers;
 			OUTPUT(3, KERN_INFO "[%d]: Timer %p (Node %p) has TRACE = %p\n", node->tid, (void *)node->timer_addr, node, node->trace);
@@ -1672,7 +1682,7 @@ static void delete_timers_for_tid(pid_t tid)
 	{
 	    HASH_LOCK(i);
 	    {
-		hlist_for_each_entry_safe(node, curr, next, &timer_map[i].head, list){
+                PW_HLIST_FOR_EACH_ENTRY_SAFE(node, curr, next, &timer_map[i].head, list) {
 		    if(node->is_root_timer == 0 && node->tid == tid){
 			++num_timers;
 			OUTPUT(3, KERN_INFO "[%d]: Timer %p (Node %p) has TRACE = %p\n", tid, (void *)node->timer_addr, node, node->trace);
@@ -1695,7 +1705,7 @@ static int get_num_timers(void)
 
 
     for(i=0; i<NUM_MAP_BUCKETS; ++i)
-	hlist_for_each_entry(node, curr, &timer_map[i].head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, &timer_map[i].head, list) {
 	    ++num;
 	    OUTPUT(3, KERN_INFO "[%d]: %d --> %p\n", i, node->tid, (void *)node->timer_addr);
 	}
@@ -1759,7 +1769,7 @@ static int find_wlock_node_i(unsigned long hash, size_t wlock_name_len, const ch
 
     rcu_read_lock();
     {
-        hlist_for_each_entry_rcu (node, curr, &wlock_map[idx].head, list) {
+        PW_HLIST_FOR_EACH_ENTRY_RCU (node, curr, &wlock_map[idx].head, list) {
             //printk(KERN_INFO "hash_val = %lu, name = %s, cp_index = %d\n", node->hash_val, node->wakelock_name, node->constant_pool_index);
             if (node->hash_val == hash && node->wakelock_name_len == wlock_name_len && !strcmp(node->wakelock_name, wlock_name)) {
                 cp_index = node->constant_pool_index;
@@ -1812,7 +1822,7 @@ static pw_mapping_type_t wlock_insert(size_t wlock_name_len, const char *wlock_n
          * a different process inserted an entry into the wakelock after our check and before we could insert
          * (i.e. a race condition). Check for that first.
          */
-        hlist_for_each_entry(old_node, curr, &wlock_map[idx].head, list) {
+        PW_HLIST_FOR_EACH_ENTRY(old_node, curr, &wlock_map[idx].head, list) {
             if (old_node->hash_val == hash && old_node->wakelock_name_len == wlock_name_len && !strcmp(old_node->wakelock_name, wlock_name)) {
                 *cp_index = old_node->constant_pool_index;
                 //printk(KERN_INFO "wlock mapping EXISTS: cp_index = %d, name = %s\n", *cp_index, wlock_name);
@@ -1856,7 +1866,7 @@ static int get_num_wlock_mappings(void)
     struct hlist_node *curr = NULL;
 
     for(i=0; i<NUM_WLOCK_MAP_BUCKETS; ++i)
-	hlist_for_each_entry(node, curr, &wlock_map[i].head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, &wlock_map[i].head, list) {
 	    ++retVal;
 	    OUTPUT(0, KERN_INFO "[%d]: wlock Num=%d, Dev=%s\n", i, node->wlock, node->name);
 	}
@@ -1925,7 +1935,7 @@ static bool find_irq_node_i(int cpu, int irq_num, const char *irq_name, int *ind
 
     rcu_read_lock();
 
-    hlist_for_each_entry_rcu(node, curr, &irq_map[idx].head, list){
+    PW_HLIST_FOR_EACH_ENTRY_RCU (node, curr, &irq_map[idx].head, list) {
 	if(node->irq == irq_num
 #if DO_ALLOW_MULTI_DEV_IRQ
 	   && !strcmp(node->name, irq_name)
@@ -2010,7 +2020,7 @@ static irq_mapping_types_t irq_insert(int cpu, int irq_num, const char *irq_name
 	irq_node_t *old_node = NULL;
 	struct hlist_node *curr = NULL;
 	if(found_mapping){
-	    hlist_for_each_entry(old_node, curr, &irq_map[idx].head, list){
+            PW_HLIST_FOR_EACH_ENTRY(old_node, curr, &irq_map[idx].head, list) {
 		if(old_node->irq == irq_num
 #if DO_ALLOW_MULTI_DEV_IRQ
 		   && !strcmp(old_node->name, irq_name)
@@ -2079,7 +2089,7 @@ static int get_num_irq_mappings(void)
     struct hlist_node *curr = NULL;
 
     for(i=0; i<NUM_IRQ_MAP_BUCKETS; ++i)
-	hlist_for_each_entry(node, curr, &irq_map[i].head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, &irq_map[i].head, list) {
 	    ++retVal;
 	    OUTPUT(0, KERN_INFO "[%d]: IRQ Num=%d, Dev=%s\n", i, node->irq, node->name);
 	}
@@ -2106,7 +2116,7 @@ inline bool is_tid_in_sys_list(pid_t tid)
     SYS_MAP_LOCK(lindex);
     {
 	struct hlist_head *apwr_sys_list = GET_SYS_HLIST(hindex);
-        hlist_for_each_entry (node, curr, apwr_sys_list, list) {
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, apwr_sys_list, list) {
 	    if (node->tid == tid) {
 		found = true;
 		break;
@@ -2129,7 +2139,7 @@ inline int check_and_remove_proc_from_sys_list(pid_t tid, pid_t pid)
     SYS_MAP_LOCK(lindex);
     {
 	struct hlist_head *apwr_sys_list = GET_SYS_HLIST(hindex);
-        hlist_for_each_entry (node, curr, apwr_sys_list, list) {
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, apwr_sys_list, list) {
 	    if (node->tid == tid && node->ref_count > 0) {
 		found = true;
 		--node->ref_count;
@@ -2156,7 +2166,7 @@ inline int check_and_delete_proc_from_sys_list(pid_t tid, pid_t pid)
     SYS_MAP_LOCK(lindex);
     {
 	struct hlist_head *apwr_sys_list = GET_SYS_HLIST(hindex);
-        hlist_for_each_entry (node, curr, apwr_sys_list, list) {
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, apwr_sys_list, list) {
 	    if (node->tid == tid) {
 		found = true;
 		hlist_del(&node->list);
@@ -2186,7 +2196,7 @@ inline int check_and_add_proc_to_sys_list(pid_t tid, pid_t pid)
     SYS_MAP_LOCK(lindex);
     {
 	struct hlist_head *apwr_sys_list = GET_SYS_HLIST(hindex);
-        hlist_for_each_entry (node, curr, apwr_sys_list, list) {
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, apwr_sys_list, list) {
 	    if (node->tid == tid) {
 		found = true;
 		++node->ref_count;
@@ -5888,7 +5898,7 @@ static void reset_trace_sent_fields(void)
     int i=0;
 
     for(i=0; i<NUM_MAP_BUCKETS; ++i)
-	hlist_for_each_entry(node, curr, &timer_map[i].head, list){
+        PW_HLIST_FOR_EACH_ENTRY(node, curr, &timer_map[i].head, list) {
 	    node->trace_sent = 0;
 	}
 };
@@ -7375,7 +7385,7 @@ static int __init init_hooks(void)
     printk(KERN_INFO "START Initialized the SOCWatch driver\n");
 #if DO_ANDROID
 #ifdef CONFIG_X86_INTEL_MID
-    printk(KERN_INFO "SOC Identifier = %u, Stepping = %u\n", intel_mid_identify_cpu(), intel_mid_soc_stepping());
+    // printk(KERN_INFO "SOC Identifier = %u, Stepping = %u\n", intel_mid_identify_cpu(), intel_mid_soc_stepping());
 #endif
 #endif
     printk(KERN_INFO "--------------------------------------------------------------------------------------------\n");
