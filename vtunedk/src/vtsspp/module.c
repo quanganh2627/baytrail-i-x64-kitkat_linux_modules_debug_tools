@@ -76,7 +76,7 @@ int vtss_check_trace(const char* func_name, int* flag)
 #define VTSS_SYMBOL_SCHED_SWITCH  "context_switch"
 #endif
 #define VTSS_SYMBOL_PROC_FORK     "do_fork"
-#define VTSS_SYMBOL_PROC_EXEC     "do_execve"
+#define VTSS_SYMBOL_PROC_EXEC     "sys_execve"
 #define VTSS_SYMBOL_PROC_EXIT     "do_exit"
 #define VTSS_SYMBOL_MMAP_REGION   "mmap_region"
 #ifdef VTSS_SYSCALL_TRACE
