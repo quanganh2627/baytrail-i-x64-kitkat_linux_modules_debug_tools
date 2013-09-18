@@ -333,19 +333,6 @@ typedef struct
 {
     unsigned int flagword;
     unsigned int residx;
-    unsigned short size;
-    unsigned short type;
-    
-    unsigned int idx;
-
-
-} stk_trace_kernel_record_t;
-
-/// stack trace record
-typedef struct
-{
-    unsigned int flagword;
-    unsigned int residx;
     unsigned int cpuidx;
     long long cputsc;
     long long execaddr;
@@ -470,7 +457,6 @@ typedef struct
     unsigned int fid;
 
 } prb_trace_record_t;
-
 
 typedef struct
 {

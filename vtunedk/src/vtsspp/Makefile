@@ -74,10 +74,10 @@ endif
 EXTRA_CFLAGS  += -Wno-unused -Werror
 VTSS_FEATURES := $(subst :, ,$(VTSS))
 ifneq ($(filter trace, $(VTSS_FEATURES)),)
-EXTRA_CFLAGS  += -DVTSS_DEBUG_TRACE
+EXTRA_CFLAGS  += -DDEBUG_TRACE
 endif
 ifneq ($(filter profile, $(VTSS_FEATURES)),)
-EXTRA_CFLAGS  += -DVTSS_DEBUG_PROFILE
+EXTRA_CFLAGS  += -DDEBUG_PROFILE
 endif
 ifneq ($(filter uec, $(VTSS_FEATURES)),)
 EXTRA_CFLAGS += -DVTSS_USE_UEC

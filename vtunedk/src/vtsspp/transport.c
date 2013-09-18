@@ -44,7 +44,6 @@
 #include <linux/namei.h>        /* for struct nameidata       */
 #include <linux/spinlock.h>
 #include <asm/uaccess.h>
-#include <linux/slab.h>
 
 #include "vtsstrace.h"
 
@@ -900,11 +899,8 @@ static unsigned int vtss_transport_poll(struct file *file, poll_table* poll_tabl
 static int vtss_transport_open(struct inode *inode, struct file *file)
 {
     int rc;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
     struct vtss_transport_data *trnd = (struct vtss_transport_data *)PDE(inode)->data;
-#else
-    struct vtss_transport_data *trnd = (struct vtss_transport_data *)PDE_DATA(inode);
-#endif
+
     TRACE("inode=0x%p, file=0x%p, trnd=0x%p", inode, file, trnd);
     if (trnd == NULL)
         return -ENOENT;
@@ -929,11 +925,8 @@ static int vtss_transport_open(struct inode *inode, struct file *file)
 
 static int vtss_transport_close(struct inode *inode, struct file *file)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
     struct vtss_transport_data *trnd = (struct vtss_transport_data*)PDE(inode)->data;
-#else
-    struct vtss_transport_data *trnd = (struct vtss_transport_data*)PDE_DATA(inode);
-#endif
+
     file->private_data = NULL;
     /* Restore default priority for trace reader */
     set_user_nice(current, 0);
@@ -1036,7 +1029,7 @@ struct vtss_transport_data* vtss_transport_create(pid_t ppid, pid_t pid, uid_t c
         TRACE("lookup '%s'", buf);
     } while (!kern_path(buf, 0, &path));
     /* Doesn't exist, so create it */
-    pde = proc_create_data(trnd->name, (mode_t)(mode ? (mode & 0444) : 0440), procfs_root, &vtss_transport_fops, trnd);
+    pde = create_proc_entry(trnd->name, (mode_t)(mode ? (mode & 0444) : 0440), procfs_root);
     if (pde == NULL) {
         ERROR("Could not create '%s/%s'", vtss_procfs_path(), trnd->name);
 #ifdef VTSS_USE_UEC
@@ -1048,17 +1041,13 @@ struct vtss_transport_data* vtss_transport_create(pid_t ppid, pid_t pid, uid_t c
         kfree(trnd);
         return NULL;
     }
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+    pde->data = trnd;
+    pde->proc_fops = &vtss_transport_fops;
 #ifdef VTSS_AUTOCONF_PROCFS_OWNER
     pde->owner = THIS_MODULE;
 #endif
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
     pde->uid = cuid ? cuid : uid;
     pde->gid = cgid ? cgid : gid;
-#else
-    proc_set_user(pde, cuid ? cuid : uid, cgid ? cgid : gid);
-#endif
     spin_lock_irqsave(&vtss_transport_list_lock, flags);
     list_add_tail(&trnd->list, &vtss_transport_list);
     spin_unlock_irqrestore(&vtss_transport_list_lock, flags);

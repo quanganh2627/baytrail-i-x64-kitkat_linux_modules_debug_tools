@@ -59,16 +59,6 @@ static void vtss_warning_symbol(void *data, char *msg, unsigned long symbol)
 }
 #endif
 
-typedef struct kernel_stack_control_t
-{
-    unsigned long bp;
-    unsigned char* kernel_callchain;
-    int* kernel_callchain_size;
-    int* kernel_callchain_pos;
-    unsigned long prev_addr;
-} kernel_stack_control_t;
-
-
 static int vtss_stack_stack(void *data, char *name)
 {
     return 0;
@@ -76,52 +66,7 @@ static int vtss_stack_stack(void *data, char *name)
 
 static void vtss_stack_address(void *data, unsigned long addr, int reliable)
 {
-    unsigned long addr_diff;
-    int sign;
-    char prefix = 0;
-    int j;
-    kernel_stack_control_t* stk = (kernel_stack_control_t*)data;
-    TRACE("%s%pB %d", reliable ? "" : "? ", (void*)addr, *stk->kernel_callchain_pos);
-    if (!reliable){
-        return;
-    }
-    if (!stk){
-        return;
-    }
-    if ((*stk->kernel_callchain_size) <= (*stk->kernel_callchain_pos)) {
-        return;
-    }
-    if (!stk->kernel_callchain_pos)
-    {
-        return;
-    }
-    if (stk->prev_addr != 0) {
-        addr_diff = addr - stk->prev_addr;
-    }
-    else {
-        addr_diff = addr;
-    }
-    sign = (addr_diff & (((size_t)1) << ((sizeof(size_t) << 3) - 1))) ? 0xff : 0;
-    for (j = sizeof(void*) - 1; j >= 0; j--)
-    {
-        if(((addr_diff >> (j << 3)) & 0xff) != sign)
-        {
-           break;
-        }
-    }
-    prefix |= sign ? 0x40 : 0;
-    prefix |= j + 1;
-
-    if ((*stk->kernel_callchain_size) <= (*stk->kernel_callchain_pos)+1+j+1) {
-        return;
-    }
-
-    stk->kernel_callchain[*stk->kernel_callchain_pos] = prefix;
-    (*stk->kernel_callchain_pos)++;
-
-    *(unsigned long*)&(stk->kernel_callchain[*stk->kernel_callchain_pos]) = addr_diff;
-    (*stk->kernel_callchain_pos) += j + 1;
-    stk->prev_addr = addr;
+    TRACE("%s%pB", reliable ? "" : "? ", (void*)addr);
 }
 
 static unsigned long vtss_stack_walk(
@@ -133,15 +78,14 @@ static unsigned long vtss_stack_walk(
     unsigned long *end,
     int *graph)
 {
-    kernel_stack_control_t* stk = (kernel_stack_control_t*)data;
-//    unsigned long* pbp = &stk->bp;
+    unsigned long* pbp = (unsigned long*)data;
     unsigned long kstart = (unsigned long)__START_KERNEL_map + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
 
     TRACE("bp=0x%p, stack=0x%p, end=0x%p", (void*)bp, stack, end);
     bp = print_context_stack(tinfo, stack, bp, ops, data, end, graph);
-    if (stk != NULL && bp < kstart) {
+    if (pbp != NULL && bp < kstart) {
         TRACE("user bp=0x%p", (void*)bp);
-        stk->bp = bp;
+        *pbp = bp;
     }
     return bp;
 }
@@ -154,7 +98,6 @@ static const struct stacktrace_ops vtss_stack_ops = {
     .stack          = vtss_stack_stack,
     .address        = vtss_stack_address,
     .walk_stack     = vtss_stack_walk,
-
 };
 
 #endif /* CONFIG_X86_64 && VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK */
@@ -180,30 +123,19 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
     /* Get IP and SP registers from current space */
     reg_ip = (void*)REG(ip, regs);
     reg_sp = (void*)REG(sp, regs);
-    stk->ip.vdp = reg_ip;
-    stk->sp.vdp = reg_sp;
-    stk->fp.vdp = reg_fp;
 
 #if defined(CONFIG_X86_64) && defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
-//    if (unlikely(!user_mode_vm(regs)))
     { /* Unwind kernel stack and get user BP if possible */
-        kernel_stack_control_t k_stk;
-
+        unsigned long bp = 0UL;
         unsigned long kstart = (unsigned long)__START_KERNEL_map + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
-        k_stk.bp = 0UL;
-        k_stk.kernel_callchain = stk->kernel_callchain;
-        k_stk.prev_addr = 0;
-        k_stk.kernel_callchain_size = &stk->kernel_callchain_size;
-        k_stk.kernel_callchain_pos =  &stk->kernel_callchain_pos;
-        *k_stk.kernel_callchain_pos = 0;
-        TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
+
 #ifdef VTSS_AUTOCONF_DUMP_TRACE_HAVE_BP
-        dump_trace(task, regs , reg_sp, 0, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL, NULL, 0, &vtss_stack_ops, &bp);
 #else
-        dump_trace(task, regs, reg_sp, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL, NULL, &vtss_stack_ops, &bp);
 #endif
-        TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
-        reg_fp = k_stk.bp ? (void*)k_stk.bp : reg_fp;
+//        TRACE("bp=0x%p <=> fp=0x%p", (void*)bp, reg_fp);
+        reg_fp = bp ? (void*)bp : reg_fp;
 #ifdef VTSS_DEBUG_TRACE
         if (reg_fp > (void*)kstart) {
             printk("Warning: bp=0x%p in kernel\n", reg_fp);
@@ -333,10 +265,10 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
     stk->dbgmsg[0] = '\0';
 #endif
 
-    if (stk->user_ip.vdp == reg_ip &&
-        stk->user_sp.vdp == reg_sp &&
+    if (stk->ip.vdp == reg_ip &&
+        stk->sp.vdp == reg_sp &&
         stk->bp.vdp == stack_base &&
-        stk->user_fp.vdp == reg_fp)
+        stk->fp.vdp == reg_fp)
     {
         strcat(stk->dbgmsg, "The same context");
         vtss_record_debug_info(trnd, stk->dbgmsg, 0);
@@ -354,11 +286,10 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
 
     /* stk->setup(stk, acc, reg_ip, reg_sp, stack_base, reg_fp, stk->wow64); */
     stk->acc    = acc;
-    stk->user_ip.vdp = reg_ip;
-    stk->user_sp.vdp = reg_sp;
+    stk->ip.vdp = reg_ip;
+    stk->sp.vdp = reg_sp;
     stk->bp.vdp = stack_base;
-    stk->user_fp.vdp = reg_fp;
-    TRACE("user: ip=0x%p, sp=0x%p, fp=0x%p", stk->user_ip.vdp, stk->user_sp.vdp, stk->user_fp.vdp);
+    stk->fp.vdp = reg_fp;
     VTSS_PROFILE(unw, rc = stk->unwind(stk));
     /* Check unwind result */
     if (unlikely(rc == VTSS_ERR_NOMEMORY)) {
@@ -376,82 +307,18 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
         strcat(stk->dbgmsg, "Unwind error");
         vtss_record_debug_info(trnd, stk->dbgmsg, 0);
     }
-    TRACE("end, rc = %d", rc);
     return rc;
 }
 
-int vtss_stack_record_kernel(struct vtss_transport_data* trnd, stack_control_t* stk, pid_t tid, int cpu, unsigned long long stitch_id, int is_safe)
-{
-    int rc = -EFAULT;
-    int stklen = stk->kernel_callchain_pos;
-    void* entry;
-#ifdef VTSS_USE_UEC
-    stk_trace_kernel_record_t stkrec;
-    if (stklen == 0)
-    {
-        // kernel is empty
-        return 0;
-    }
-    TRACE("ip=0x%p, sp=0x%p, fp=0x%p: Trace %d bytes", stk->ip.vdp, stk->sp.vdp, stk->fp.vdp, stklen);
-    //implementation is done for UEC NOT USED
-    /// save current alt. stack:
-    /// [flagword - 4b][residx]
-    /// ...[sampled address - 8b][systrace{sts}]
-    ///                       [length - 2b][type - 2b]...
-    stkrec.flagword = UEC_LEAF1 | UECL1_VRESIDX | UECL1_SYSTRACE;
-    stkrec.residx   = tid;
-    stkrec.size     = 4 + sizeof(stkrec.size) + sizeof(stkrec.type);
-    stkrec.type     = (sizeof(void*) == 8) ? UECSYSTRACE_CLEAR_STACK64 : UECSYSTRACE_CLEAR_STACK32;
-    stkrec.size += sizeof(unsigned int);
-    stkrec.idx   = -1;
-    if (vtss_transport_record_write(trnd, &stkrec, sizeof(stkrec) - (stk->wow64*8), stk->kernel_callchain, stklen, is_safe)) {
-        TRACE("STACK_record_write() FAIL");
-        rc = -EFAULT;
-    }
-
-#else
-    stk_trace_kernel_record_t* stkrec;
-    if (stklen == 0)
-    {
-        // kernel is empty
-        return 0;
-    }
-    TRACE("ip=0x%p, sp=0x%p, fp=0x%p: Trace %d bytes", stk->ip.vdp, stk->sp.vdp, stk->fp.vdp, stklen);
-    //implementation is done for UEC NOT USED
-    stkrec = (stk_trace_kernel_record_t*)vtss_transport_record_reserve(trnd, &entry, sizeof(stk_trace_kernel_record_t) + stklen);
-    if (likely(stkrec)) {
-    /// save current alt. stack:
-    /// [flagword - 4b][residx]
-    /// ...[sampled address - 8b][systrace{sts}]
-    ///                       [length - 2b][type - 2b]...
-    stkrec->flagword = UEC_LEAF1 | UECL1_VRESIDX | UECL1_SYSTRACE;
-    stkrec->residx   = tid;
-    stkrec->size     = (unsigned short)stklen + sizeof(stkrec->size) + sizeof(stkrec->type);
-    stkrec->type     = (sizeof(void*) == 8) ? UECSYSTRACE_CLEAR_STACK64 : UECSYSTRACE_CLEAR_STACK32;
-    stkrec->size += sizeof(unsigned int);
-    stkrec->idx   = -1;
-    memcpy((char*)stkrec+sizeof(stk_trace_kernel_record_t), stk->kernel_callchain, stklen);
-    rc = vtss_transport_record_commit(trnd, entry, is_safe);
-    }
-#endif
-    return rc;
-
-}
 int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pid_t tid, int cpu, int is_safe)
 {
     int rc = -EFAULT;
     unsigned short sample_type;
     int sktlen = stk->compress(stk);
 
-#ifdef VTSS_KERNEL_STACKS
-    if (stk->kernel_callchain_pos!=0)
-    {
-        rc = vtss_stack_record_kernel(trnd, stk, tid, cpu, 0, is_safe);
-    }
-#endif
     if (unlikely(sktlen == 0)) {
         rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p: Huge or Zero stack after compression",
-                        tid, smp_processor_id(), stk->user_ip.vdp, stk->user_sp.vdp, stk->bp.vdp, stk->user_fp.vdp);
+                        tid, smp_processor_id(), stk->ip.vdp, stk->sp.vdp, stk->bp.vdp, stk->fp.vdp);
         if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
             stk->dbgmsg[rc] = '\0';
             vtss_record_debug_info(trnd, stk->dbgmsg, is_safe);
@@ -481,18 +348,18 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
 
         if (!stk->wow64) {
             stkrec.size = 4 + sizeof(void*) + sizeof(void*);
-            stkrec.sp   = stk->user_sp.szt;
-            stkrec.fp   = stk->user_fp.szt;
+            stkrec.sp   = stk->sp.szt;
+            stkrec.fp   = stk->fp.szt;
         } else { /// a 32-bit stack in a 32-bit process on a 64-bit system
             stkrec.size = 4 + sizeof(unsigned int) + sizeof(unsigned int);
-            stkrec.sp32 = (unsigned int)stk->user_sp.szt;
-            stkrec.fp32 = (unsigned int)stk->user_fp.szt;
+            stkrec.sp32 = (unsigned int)stk->sp.szt;
+            stkrec.fp32 = (unsigned int)stk->fp.szt;
         }
         rc = 0;
         if (sktlen > 0xfffb) {
             lstk_trace_record_t lstkrec;
 
-            TRACE("ip=0x%p, sp=0x%p, fp=0x%p: Large Trace %d bytes", stk->user_ip.vdp, stk->user_sp.vdp, stk->user_fp.vdp, sktlen);
+            TRACE("ip=0x%p, sp=0x%p, fp=0x%p: Large Trace %d bytes", stk->ip.vdp, stk->sp.vdp, stk->fp.vdp, sktlen);
             lstkrec.size = (unsigned int)(stkrec.size + sktlen + 2); /* 2 = sizeof(int) - sizeof(short) */
             lstkrec.flagword = UEC_LEAF1 | UECL1_VRESIDX | UECL1_CPUIDX | UECL1_CPUTSC | UECL1_EXECADDR | UECL1_LARGETRACE;
             lstkrec.residx   = stkrec.residx;
@@ -518,7 +385,7 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
 #else  /* VTSS_USE_UEC */
     if (unlikely(sktlen > 0xfffb)) {
         rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p: Large Stack Trace %d bytes",
-                        tid, smp_processor_id(), stk->user_ip.vdp, stk->user_sp.vdp, stk->bp.vdp, stk->user_fp.vdp, sktlen);
+                        tid, smp_processor_id(), stk->ip.vdp, stk->sp.vdp, stk->bp.vdp, stk->fp.vdp, sktlen);
         if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
             stk->dbgmsg[rc] = '\0';
             vtss_record_debug_info(trnd, stk->dbgmsg, is_safe);
@@ -536,17 +403,17 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
             stkrec->residx   = tid;
             stkrec->cpuidx   = cpu;
             stkrec->cputsc   = vtss_time_cpu();
-            stkrec->execaddr = (unsigned long long)stk->user_ip.szt;
+            stkrec->execaddr = (unsigned long long)stk->ip.szt;
             stkrec->size     = (unsigned short)sktlen + sizeof(stkrec->size) + sizeof(stkrec->type);
             stkrec->type     = sample_type;
             if (!stk->wow64) {
                 stkrec->size += sizeof(void*) + sizeof(void*);
-                stkrec->sp   = stk->user_sp.szt;
-                stkrec->fp   = stk->user_fp.szt;
+                stkrec->sp   = stk->sp.szt;
+                stkrec->fp   = stk->fp.szt;
             } else { /* a 32-bit stack in a 32-bit process on a 64-bit system */
                 stkrec->size += sizeof(unsigned int) + sizeof(unsigned int);
-                stkrec->sp32 = (unsigned int)stk->user_sp.szt;
-                stkrec->fp32 = (unsigned int)stk->user_fp.szt;
+                stkrec->sp32 = (unsigned int)stk->sp.szt;
+                stkrec->fp32 = (unsigned int)stk->fp.szt;
             }
             memcpy((char*)stkrec+sizeof(stk_trace_record_t)-(stk->wow64*8), stk->compressed, sktlen);
             rc = vtss_transport_record_commit(trnd, entry, is_safe);
@@ -555,4 +422,3 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
 #endif /* VTSS_USE_UEC */
     return rc;
 }
-

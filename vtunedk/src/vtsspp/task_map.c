@@ -60,21 +60,13 @@ vtss_task_map_item_t* vtss_task_map_get_item(pid_t key)
 {
     unsigned long flags;
     struct hlist_head *head;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-    struct hlist_node *node = NULL;
-#endif
-    struct hlist_node *temp = NULL;
+    struct hlist_node *node;
     vtss_task_map_item_t *item;
     if (atomic_read(&vtss_map_initialized)==0)return NULL;
 
     read_lock_irqsave(&vtss_task_map_lock, flags);
     head = &vtss_task_map_hash_table[vtss_task_map_hash(key)];
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-    hlist_for_each_entry_safe(item, node, temp, head, hlist)
-#else
-    hlist_for_each_entry_safe(item, temp, head,  hlist)
-#endif    
-    {
+    hlist_for_each_entry(item, node, head, hlist) {
         if (key == item->key) {
             atomic_inc(&item->usage);
             read_unlock_irqrestore(&vtss_task_map_lock, flags);
@@ -123,32 +115,24 @@ int vtss_task_map_add_item(vtss_task_map_item_t* item2)
 {
     unsigned long flags;
     struct hlist_head *head;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-    struct hlist_node *node = NULL;
-#endif
+    struct hlist_node *node;
     vtss_task_map_item_t *item = NULL;
-    struct hlist_node *temp = NULL;
 
     if ((item2 != NULL) && !item2->in_list) {
         write_lock_irqsave(&vtss_task_map_lock, flags);
         head = &vtss_task_map_hash_table[vtss_task_map_hash(item2->key)];
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-        hlist_for_each_entry_safe(item, node, temp, head, hlist)
-#else
-        hlist_for_each_entry_safe(item, temp, head, hlist)
-#endif
-        {
+        hlist_for_each_entry(item, node, head, hlist) {
             if (item2->key == item->key) {
                 /* Already there, remove it */
-                item->in_list = 0;
                 hlist_del_init(&item->hlist);
+                item->in_list = 0;
                 break;
             }
             item = NULL;
         }
-        atomic_inc(&item2->usage);
         hlist_add_head(&item2->hlist, head);
         item2->in_list = 1;
+        atomic_inc(&item2->usage);
         write_unlock_irqrestore(&vtss_task_map_lock, flags);
         if ((item != NULL) && atomic_dec_and_test(&item->usage)) {
             if (item->dtor)
@@ -212,9 +196,7 @@ int vtss_task_map_foreach(vtss_task_map_func_t* func, void* args)
     int i;
     unsigned long flags;
     struct hlist_head *head;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-    struct hlist_node *node = NULL;
-#endif
+    struct hlist_node *node;
     vtss_task_map_item_t *item;
 
     if (func == NULL) {
@@ -224,12 +206,7 @@ int vtss_task_map_foreach(vtss_task_map_func_t* func, void* args)
     read_lock_irqsave(&vtss_task_map_lock, flags);
     for (i = 0; i < HASH_TABLE_SIZE; i++) {
         head = &vtss_task_map_hash_table[i];
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-        hlist_for_each_entry(item, node, head, hlist)
-#else
-        hlist_for_each_entry(item, head, hlist)
-#endif
-        {
+        hlist_for_each_entry(item, node, head, hlist) {
             func(item, args);
         }
     }
@@ -262,22 +239,14 @@ void vtss_task_map_fini(void)
     int i;
     unsigned long flags;
     struct hlist_head *head;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-    struct hlist_node *node = NULL;
-#endif
-    struct hlist_node *temp;
+    struct hlist_node *node, *temp;
     vtss_task_map_item_t *item;
 
     atomic_set(&vtss_map_initialized,0);
     write_lock_irqsave(&vtss_task_map_lock, flags);
     for (i = 0; i < HASH_TABLE_SIZE; i++) {
         head = &vtss_task_map_hash_table[i];
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
-        hlist_for_each_entry_safe(item, node, temp, head, hlist)
-#else        
-        hlist_for_each_entry_safe(item, temp, head, hlist)
-#endif
-        {
+        hlist_for_each_entry_safe(item, node, temp, head, hlist) {
             hlist_del_init(&item->hlist);
             item->in_list = 0;
             if (atomic_dec_and_test(&item->usage)) {

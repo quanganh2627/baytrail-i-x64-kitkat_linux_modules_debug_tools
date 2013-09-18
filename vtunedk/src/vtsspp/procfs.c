@@ -39,8 +39,6 @@
 #include <linux/fs.h>           /* for struct file_operations */
 #include <linux/namei.h>        /* for struct nameidata       */
 #include <linux/seq_file.h>
-#include <linux/slab.h>
-#include <linux/proc_fs.h>
 #include <asm/uaccess.h>
 
 #define VTSS_PROCFS_CTRL_NAME      ".control"
@@ -813,16 +811,12 @@ static const struct file_operations vtss_procfs_timelimit_fops = {
 static void vtss_procfs_rmdir(void)
 {
     if (vtss_procfs_root != NULL) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
         if (atomic_read(&vtss_procfs_root->count) == 1) {
-#endif
             remove_proc_entry(THIS_MODULE->name, NULL);
             vtss_procfs_root = NULL;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
         } else {
             ERROR("Entry '%s' is busy", vtss_procfs_path());
         }
-#endif
     }
 }
 
@@ -831,7 +825,6 @@ static int vtss_procfs_mkdir(void)
     struct path path;
 
     if (vtss_procfs_root == NULL) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
         if (kern_path(vtss_procfs_path(), 0, &path)) {
             /* doesn't exist, so create it */
             vtss_procfs_root = proc_mkdir(THIS_MODULE->name, NULL);
@@ -840,26 +833,13 @@ static int vtss_procfs_mkdir(void)
             vtss_procfs_root = PDE(path.dentry->d_inode);
             path_put(&path);
         }
-#else
-        if (kern_path(vtss_procfs_path(), 0, &path) == 0) {
-            /* if exist, remove it */
-            remove_proc_entry(THIS_MODULE->name, NULL);
-         }
-        /* doesn't exist, so create it */
-        vtss_procfs_root = proc_mkdir(THIS_MODULE->name, NULL);
-#endif
+
         if (vtss_procfs_root != NULL) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 #ifdef VTSS_AUTOCONF_PROCFS_OWNER
             vtss_procfs_root->owner = THIS_MODULE;
 #endif
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-        vtss_procfs_root->uid = uid;
-        vtss_procfs_root->gid = gid;
-#else
-        proc_set_user(vtss_procfs_root, uid, gid);
-#endif
+            vtss_procfs_root->uid = uid;
+            vtss_procfs_root->gid = gid;
         }
     }
     return (vtss_procfs_root != NULL) ? 0 : -ENOENT;
@@ -885,24 +865,19 @@ void vtss_procfs_fini(void)
 
 static int vtss_procfs_create_entry(const char* name, const struct file_operations* fops)
 {
-    struct proc_dir_entry *pde = proc_create(name, (mode_t)(mode ? (mode & 0666) : 0660), vtss_procfs_root, fops);
+    struct proc_dir_entry *pde = create_proc_entry(name, (mode_t)(mode ? (mode & 0666) : 0660), vtss_procfs_root);
     if (pde == NULL) {
         ERROR("Could not create '%s/%s'", vtss_procfs_path(), name);
         vtss_procfs_fini();
         return -ENOENT;
     }
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-// 3 lines below not supported anymore
+    pde->proc_fops = fops;
+    pde->data = NULL;
 #ifdef VTSS_AUTOCONF_PROCFS_OWNER
     pde->owner = THIS_MODULE;
 #endif
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
     pde->uid = uid;
     pde->gid = gid;
-#else
-    proc_set_user(pde, uid, gid);
-#endif
     return 0;
 }
 

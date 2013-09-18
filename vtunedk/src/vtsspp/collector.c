@@ -700,7 +700,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     atomic_inc(&vtss_target_count);
     vtss_task_map_add_item(item);
     TRACE(" (%d:%d): u=%d, n=%d, init='%s'",
-        tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
+            tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
     task = vtss_find_task_by_tid(tskd->tid);
     if (task != NULL && !(task->state & TASK_DEAD)) { /* task exist */
 #ifdef VTSS_GET_TASK_STRUCT
@@ -716,6 +716,16 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
         /* NOTE: Need this for BP save and FIXUP_TOP_OF_STACK into pt_regs
          * when is called from the SYSCALL. Actual only for 64-bit kernel! */
         set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+#endif
+#if defined(CONFIG_PREEMPT_NOTIFIERS) && defined(VTSS_USE_PREEMPT_NOTIFIERS)
+        /**
+         * TODO: add to task, not to current !!!
+         * This API will be added in future version of kernel:
+         * preempt_notifier_register_task(&tskd->preempt_notifier, task);
+         * So far I should use following:
+         */
+        hlist_add_head(&tskd->preempt_notifier.link, &task->preempt_notifiers);
+        tskd->state |= VTSS_ST_NOTIFIER;
 #endif
         if (tskd->tid == tskd->pid) { /* New process */
             unsigned long addr = VTSS_EVENT_LOST_MODULE_ADDR;
@@ -745,23 +755,6 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
             vtss_mmap_all(tskd, task);
             vtss_kmap_all(tskd);
         }
-        /* ========================================================= */
-        /* Add new item in task map. Tracing starts after this call. */
-        /* ========================================================= */
-        atomic_inc(&vtss_target_count);
-        vtss_task_map_add_item(item);
-        TRACE(" (%d:%d): u=%d, n=%d, init='%s'",
-            tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
-#if defined(CONFIG_PREEMPT_NOTIFIERS) && defined(VTSS_USE_PREEMPT_NOTIFIERS)
-        /**
-         * TODO: add to task, not to current !!!
-         * This API will be added in future version of kernel:
-         * preempt_notifier_register_task(&tskd->preempt_notifier, task);
-         * So far I should use following:
-         */
-        hlist_add_head(&tskd->preempt_notifier.link, &task->preempt_notifiers);
-        tskd->state |= VTSS_ST_NOTIFIER;
-#endif
 #ifdef VTSS_GET_TASK_STRUCT
         vtss_put_task_struct(task);
 #endif
@@ -775,7 +768,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
         }
         TRACE(" (%d:%d): u=%d, n=%d, done='%s'",
                 tskd->tid, tskd->pid, atomic_read(&item->usage), atomic_read(&vtss_target_count), tskd->filename);
-        vtss_task_map_put_item(item);
+        vtss_target_del(item);
         read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
         return 0;
     }
@@ -828,7 +821,7 @@ void vtss_target_fork(struct task_struct *task, struct task_struct *child)
                 } else {
                     set_tsk_need_resched(task);
                 }
-                // NOTE: vtss_task_map_put_item(item) in vtss_target_fork_work() 
+                /* NOTE: vtss_task_map_put_item(item) in vtss_target_fork_work() */
             } else {
                 vtss_target_new(TASK_TID(child), TASK_PID(child), tskd->pid, tskd->filename);
                 vtss_task_map_put_item(item);
