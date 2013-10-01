@@ -39,7 +39,6 @@
 #include "bts.h"
 #include "lbr.h"
 #include "pebs.h"
-#include "regs.h"
 #include "time.h"
 
 #include <linux/spinlock.h>
@@ -60,6 +59,7 @@
 #include <asm/fixmap.h>         /* VSYSCALL_START */
 #include <asm/page.h>
 #include <asm/elf.h>
+#include <asm/stacktrace.h>
 
 #ifndef KERNEL_IMAGE_SIZE
 #define KERNEL_IMAGE_SIZE (512 * 1024 * 1024)
@@ -212,6 +212,7 @@ struct vtss_task_data
     char             filename[VTSS_FILENAME_SIZE];
     cpuevent_t       cpuevent_chain[VTSS_CFG_CHAIN_SIZE];
 //  chipevent_t      chipevent_chain[VTSS_CFG_CHAIN_SIZE];
+    void*            from_ip;
 };
 
 static void vtss_mmap_all(struct vtss_task_data*, struct task_struct*);
@@ -620,6 +621,7 @@ int vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename)
     tskd->m32        = 0; /* unknown so far, assume native */
     tskd->cpu        = smp_processor_id();
     tskd->ip         = NULL;
+    tskd->from_ip    = NULL;
 #ifndef VTSS_NO_BTS
     tskd->bts_size   = 0;
 #endif
@@ -1152,12 +1154,14 @@ void vtss_mmap(struct file *file, unsigned long addr, unsigned long pgoff, unsig
     read_unlock_irqrestore(&vtss_transport_init_rwlock, flags);
 }
 
-static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struct* task)
+static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struct* task, void* bp, void* ip)
 {
     unsigned long flags;
     int state = atomic_read(&vtss_collector_state);
     struct vtss_task_data* tskd = (struct vtss_task_data*)&item->data;
     int is_preempt = (task->state == TASK_RUNNING) ? 1 : 0;
+
+
 
 #ifdef VTSS_DEBUG_STACK
     unsigned long stack_size = ((unsigned long)(&stack_size)) & (THREAD_SIZE-1);
@@ -1193,6 +1197,7 @@ static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struc
         pcb_cpu.tcb_ptr = NULL;
     }
     /* store swap-out record */
+    if (ip) tskd->from_ip = ip;
     if (likely(VTSS_IN_CONTEXT(tskd))) {
         if (reqcfg.trace_cfg.trace_flags & VTSS_CFGTRACE_CTX)
             VTSS_STORE_SWAPOUT(tskd, is_preempt, NOT_SAFE);
@@ -1212,14 +1217,24 @@ static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struc
             {
                 void* reg_bp;
                 unsigned long flags;
-                struct pt_regs* regs = task_pt_regs(task);
-
+                struct pt_regs* regs = NULL;
 #ifdef VTSS_SYSCALL_TRACE
                 if (VTSS_IN_SYSCALL(tskd))
                     reg_bp = tskd->syscall_bp;
                 else
 #endif
-                reg_bp = regs ? (void*)REG(bp, regs) : NULL;
+
+#ifdef VTSS_KERNEL_CONTEXT_SWITCH
+//                printk("from bp = %p\n", bp);
+                reg_bp = (void*)bp;//0;//(void*)_RET_IP_;//bp;// ? bp : (void*)vtss_task_bp(task);
+#else
+                {
+//                    regs =task_pt_regs(task);
+                    reg_bp = /*(void*)bp;*/regs ? (void*)REG(bp, regs) : NULL;//(void*)_RET_IP_;//bp;// ? bp : (void*)vtss_task_bp(task);
+                }
+#endif
+//                tskd->ip = (void*)_THIS_IP_;
+                //tskd->from_ip = (void*) current_text_addr();
                 /* Clear stack history if stack was not stored in trace */
                 if (unlikely(VTSS_NEED_STACK_SAVE(tskd)))
                     tskd->stk.clear(&tskd->stk);
@@ -1233,7 +1248,7 @@ static void vtss_sched_switch_from(vtss_task_map_item_t* item, struct task_struc
     local_irq_restore(flags);
 }
 
-static void vtss_sched_switch_to(vtss_task_map_item_t* item, struct task_struct* task)
+static void vtss_sched_switch_to(vtss_task_map_item_t* item, struct task_struct* task, void* ip)
 {
     int cpu;
     unsigned long flags;
@@ -1255,6 +1270,13 @@ static void vtss_sched_switch_to(vtss_task_map_item_t* item, struct task_struct*
         return;
     }
 
+#ifdef VTSS_KERNEL_CONTEXT_SWITCH
+    if ((!ip) && (!tskd->from_ip)) {
+        vtss_profiling_pause();
+        tskd->state &= ~VTSS_ST_PMU_SET;
+        return;
+    }
+#endif
     local_irq_save(flags);
     preempt_disable();
     cpu = smp_processor_id();
@@ -1312,11 +1334,19 @@ static void vtss_sched_switch_to(vtss_task_map_item_t* item, struct task_struct*
             !VTSS_IN_CONTEXT(tskd)  && /* in correct state */
             state == VTSS_COLLECTOR_RUNNING))
         {
+#ifdef VTSS_KERNEL_CONTEXT_SWITCH
+            if ( !ip )
+            {
+                ip = tskd->from_ip;
+            }
+#else
+            ip = (void*)KSTK_EIP(task);
+#endif
             if (reqcfg.trace_cfg.trace_flags & VTSS_CFGTRACE_CTX) {
                 VTSS_STORE_SAMPLE(tskd, tskd->cpu, NULL, NOT_SAFE);
-                VTSS_STORE_SWAPIN(tskd, cpu, (void*)KSTK_EIP(task), NOT_SAFE);
+                VTSS_STORE_SWAPIN(tskd, cpu, ip, NOT_SAFE);
             } else {
-                VTSS_STORE_SAMPLE(tskd, tskd->cpu, (void*)KSTK_EIP(task), NOT_SAFE);
+                VTSS_STORE_SAMPLE(tskd, tskd->cpu, ip, NOT_SAFE);
                 VTSS_STORE_STATE(tskd, 0, VTSS_ST_SWAPIN);
             }
             if (likely(!VTSS_ERROR_STORE_SWAPIN(tskd))) {
@@ -1352,7 +1382,9 @@ static void vtss_notifier_sched_out(struct preempt_notifier *notifier, struct ta
     vtss_profiling_pause();
     item = vtss_task_map_get_item(TASK_TID(current));
     if (item != NULL) {
-        VTSS_PROFILE(ctx, vtss_sched_switch_from(item, current));
+        unsigned long bp;
+        vtss_get_current_bp(bp);
+        VTSS_PROFILE(ctx, vtss_sched_switch_from(item, current, (void*)bp, 0));
         vtss_task_map_put_item(item);
     }
 }
@@ -1360,9 +1392,9 @@ static void vtss_notifier_sched_out(struct preempt_notifier *notifier, struct ta
 static void vtss_notifier_sched_in(struct preempt_notifier *notifier, int cpu)
 {
     vtss_task_map_item_t* item = vtss_task_map_get_item(TASK_TID(current));
-
     if (item != NULL) {
-        VTSS_PROFILE(ctx, vtss_sched_switch_to(item, current));
+        void* bp = vtss_get_current_bp(bp);
+        VTSS_PROFILE(ctx, vtss_sched_switch_to(item, current, (void*)_THIS_IP_));
         vtss_task_map_put_item(item);
     } else {
         vtss_profiling_pause();
@@ -1371,19 +1403,19 @@ static void vtss_notifier_sched_in(struct preempt_notifier *notifier, int cpu)
 
 #endif
 
-void vtss_sched_switch(struct task_struct* prev, struct task_struct* next)
+
+void vtss_sched_switch(struct task_struct* prev, struct task_struct* next, void* prev_bp, void* prev_ip)
 {
     vtss_task_map_item_t *item;
-
     vtss_profiling_pause();
     item = vtss_task_map_get_item(TASK_TID(prev));
     if (item != NULL) {
-        VTSS_PROFILE(ctx, vtss_sched_switch_from(item, prev));
+        VTSS_PROFILE(ctx, vtss_sched_switch_from(item, prev, prev_bp, prev_ip));
         vtss_task_map_put_item(item);
     }
     item = vtss_task_map_get_item(TASK_TID(next));
     if (item != NULL) {
-        VTSS_PROFILE(ctx, vtss_sched_switch_to(item, next));
+        VTSS_PROFILE(ctx, vtss_sched_switch_to(item, next, 0));
         vtss_task_map_put_item(item);
     }
 }
@@ -1464,8 +1496,9 @@ static void vtss_pmi_record(struct pt_regs* regs, vtss_task_map_item_t* item)
             VTSS_ERROR_STORE_SWAPIN(tskd) &&
             atomic_read(&vtss_collector_state) == VTSS_COLLECTOR_RUNNING))
         {
-            if (reqcfg.trace_cfg.trace_flags & VTSS_CFGTRACE_CTX)
+            if (reqcfg.trace_cfg.trace_flags & VTSS_CFGTRACE_CTX){
                 VTSS_STORE_SWAPIN(tskd, cpu, (void*)instruction_pointer(regs), NOT_SAFE);
+                }
             else
                 VTSS_STORE_STATE(tskd, 0, VTSS_ST_SWAPIN);
             if (likely(!VTSS_ERROR_STORE_SWAPIN(tskd))) {
@@ -1503,7 +1536,13 @@ static void vtss_pmi_record(struct pt_regs* regs, vtss_task_map_item_t* item)
                     reg_bp = tskd->syscall_bp;
                 else
 #endif
+                {
                 reg_bp = regs ? (void*)REG(bp, regs) : NULL;
+//                printk("sample, reg_bp from regs = %p\n", reg_bp);
+                
+                
+                }
+                
                 /* Clear stack history if stack was not stored in trace */
                 if (unlikely(VTSS_NEED_STACK_SAVE(tskd)))
                     tskd->stk.clear(&tskd->stk);

@@ -76,7 +76,14 @@ int vtss_check_trace(const char* func_name, int* flag)
 #define VTSS_SYMBOL_SCHED_SWITCH  "context_switch"
 #endif
 #define VTSS_SYMBOL_PROC_FORK     "do_fork"
-#define VTSS_SYMBOL_PROC_EXEC     "sys_execve"
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
+#define VTSS_SYMBOL_PROC_EXEC     "do_execve"
+#else
+// from the version 3.9 do_execve is inlined into sys_execve, and brobe is broken because of this.
+// lp tried to use sys_execve instead, but this crashes ia32 bit systems
+// so, we are using do_execve_common now.
+#define VTSS_SYMBOL_PROC_EXEC     "do_execve"
+#endif
 #define VTSS_SYMBOL_PROC_EXIT     "do_exit"
 #define VTSS_SYMBOL_MMAP_REGION   "mmap_region"
 #ifdef VTSS_SYSCALL_TRACE
@@ -102,13 +109,31 @@ int vtss_check_trace(const char* func_name, int* flag)
 #if defined(CONFIG_TRACEPOINTS) && defined(VTSS_AUTOCONF_TRACE_EVENTS_SCHED)
 static void tp_sched_switch(VTSS_TP_PROTO VTSS_TP_RQ struct task_struct *prev, struct task_struct *next)
 {
-    vtss_sched_switch(prev, next);
+   void* prev_bp = NULL;
+   void* prev_ip = NULL;
+   if (prev == current && current !=0 )
+   {
+       unsigned long bp;
+       vtss_get_current_bp(bp);
+       prev_bp = (void*)bp;
+       prev_ip = (void*)_THIS_IP_ ;
+   }
+   vtss_sched_switch(prev, next, prev_bp, prev_ip);
 }
 #endif
 
 static void jp_sched_switch(VTSS_TP_RQ struct task_struct *prev, struct task_struct *next)
 {
-    vtss_sched_switch(prev, next);
+   void* prev_bp = NULL;
+   void* prev_ip = NULL;
+   if (prev == current && current !=0 )
+   {
+       unsigned long bp;
+       vtss_get_current_bp(bp);
+       prev_bp = (void*)bp;
+       prev_ip = (void*)_THIS_IP_ ;
+   }
+    vtss_sched_switch(prev, next, prev_bp, prev_ip);
     jprobe_return();
 }
 
