@@ -362,7 +362,9 @@ end_of_search:
             if(value.chp < search_sp.chp || value.chp >= bp)
             {
                 /// it's not FP, check for IP
-                if(!stk->acc->validate(stk->acc, (unsigned long)value.szt))
+                unsigned long sa = (unsigned long)value.szt;
+//                if (!(0x1000 <= sa && sa < ~0xFFFUL)) continue;
+                if(!stk->acc->validate(stk->acc, sa))
                 {
                     /// not IP
                     continue;

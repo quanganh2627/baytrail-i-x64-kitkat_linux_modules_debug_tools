@@ -46,9 +46,20 @@
 #define VTSS_STACK_LIMIT 0x200000 /* 2Mb */
 #endif
 
-#if defined(CONFIG_X86_64) && defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
+#if defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
 #include <asm/stacktrace.h>
 
+#if defined(CONFIG_X86_64)
+const unsigned long vtss_koffset = (unsigned long)__START_KERNEL_map;
+#else
+const unsigned long vtss_koffset = (unsigned long)PAGE_OFFSET;
+#endif
+
+#if defined(CONFIG_X86_64)
+const unsigned long vtss_kstart = (unsigned long)__START_KERNEL_map + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
+#else
+const unsigned long vtss_kstart = (unsigned long)PAGE_OFFSET + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
+#endif
 #ifdef VTSS_AUTOCONF_STACKTRACE_OPS_WARNING
 static void vtss_warning(void *data, char *msg)
 {
@@ -135,11 +146,10 @@ static unsigned long vtss_stack_walk(
 {
     kernel_stack_control_t* stk = (kernel_stack_control_t*)data;
 //    unsigned long* pbp = &stk->bp;
-    unsigned long kstart = (unsigned long)__START_KERNEL_map + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
 
-    TRACE("bp=0x%p, stack=0x%p, end=0x%p", (void*)bp, stack, end);
-    bp = print_context_stack(tinfo, stack, bp, ops, data, end, graph);
-    if (stk != NULL && bp < kstart) {
+    TRACE("bp=0x%p, stack=0x%p, end=0x%p", (void*)stk->bp, stack, end);
+    bp = print_context_stack(tinfo, stack, stk->bp, ops, data, end, graph);
+    if (stk != NULL && bp < vtss_kstart) {
         TRACE("user bp=0x%p", (void*)bp);
         stk->bp = bp;
     }
@@ -165,8 +175,15 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
     user_vm_accessor_t* acc;
     void* stack_base = stk->bp.vdp;
     void *reg_ip, *reg_sp;
+    int kernel_stack = 0;
+    
+    if ((!regs && reg_fp >= (void*)__PAGE_OFFSET) || (regs && (!user_mode_vm(regs)))) kernel_stack = 1; 
 
     if (unlikely(regs == NULL)) {
+        regs = task_pt_regs(task);
+    }
+    if (unlikely(regs == NULL)) {
+        
         rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x: incorrect regs",
                         task->pid, smp_processor_id());
         if (rc > 0 && rc < sizeof(stk->dbgmsg)-1) {
@@ -184,13 +201,15 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
     stk->sp.vdp = reg_sp;
     stk->fp.vdp = reg_fp;
 
-#if defined(CONFIG_X86_64) && defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
+#if defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
 //    if (unlikely(!user_mode_vm(regs)))
+//    printk("stack reg_fp = %p, vtss_kstart=%lx, vtss_koffset = %lx\n", reg_fp, vtss_kstart, vtss_koffset);
+    if (kernel_stack)
     { /* Unwind kernel stack and get user BP if possible */
         kernel_stack_control_t k_stk;
 
-        unsigned long kstart = (unsigned long)__START_KERNEL_map + ((CONFIG_PHYSICAL_START + (CONFIG_PHYSICAL_ALIGN - 1)) & ~(CONFIG_PHYSICAL_ALIGN - 1));
-        k_stk.bp = 0UL;
+        k_stk.bp = (unsigned long)reg_fp;
+        if (k_stk.bp<0x1000) k_stk.bp = 0; //error instead of bp
         k_stk.kernel_callchain = stk->kernel_callchain;
         k_stk.prev_addr = 0;
         k_stk.kernel_callchain_size = &stk->kernel_callchain_size;
@@ -198,14 +217,15 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
         *k_stk.kernel_callchain_pos = 0;
         TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
 #ifdef VTSS_AUTOCONF_DUMP_TRACE_HAVE_BP
-        dump_trace(task, regs , reg_sp, 0, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL , NULL, 0, &vtss_stack_ops, &k_stk);
 #else
-        dump_trace(task, regs, reg_sp, &vtss_stack_ops, &k_stk);
+//        dump_trace(task, regs, reg_sp, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL, NULL, &vtss_stack_ops, &k_stk);
 #endif
         TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
         reg_fp = k_stk.bp ? (void*)k_stk.bp : reg_fp;
 #ifdef VTSS_DEBUG_TRACE
-        if (reg_fp > (void*)kstart) {
+        if (reg_fp > (void*)vtss_kstart) {
             printk("Warning: bp=0x%p in kernel\n", reg_fp);
             dump_stack();
             rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p]: User bp=0x%p inside kernel space",
@@ -216,6 +236,10 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
             }
         }
 #endif
+    }
+    else
+    {
+        stk->kernel_callchain_pos = 0;
     }
 #endif /* CONFIG_X86_64 && VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK */
 
@@ -443,12 +467,10 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
     unsigned short sample_type;
     int sktlen = stk->compress(stk);
 
-#ifdef VTSS_KERNEL_STACKS
     if (stk->kernel_callchain_pos!=0)
     {
         rc = vtss_stack_record_kernel(trnd, stk, tid, cpu, 0, is_safe);
     }
-#endif
     if (unlikely(sktlen == 0)) {
         rc = snprintf(stk->dbgmsg, sizeof(stk->dbgmsg)-1, "tid=0x%08x, cpu=0x%08x, ip=0x%p, sp=[0x%p,0x%p], fp=0x%p: Huge or Zero stack after compression",
                         tid, smp_processor_id(), stk->user_ip.vdp, stk->user_sp.vdp, stk->bp.vdp, stk->user_fp.vdp);

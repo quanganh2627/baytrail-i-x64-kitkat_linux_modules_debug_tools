@@ -30,11 +30,13 @@
 
 #include "vtss_autoconf.h"
 #include "task_map.h"
+#include "regs.h"
 
 #include <linux/fs.h>           /* for struct file        */
 #include <linux/mm.h>           /* for struct mm_struct   */
 #include <linux/sched.h>        /* for struct task_struct */
 #include <linux/seq_file.h>     /* for struct seq_file    */
+#include <asm/stacktrace.h>
 
 #define TASK_PID(task)    (task->tgid)
 #define TASK_TID(task)    (task->pid)
@@ -59,7 +61,7 @@ void vtss_syscall_enter(struct pt_regs *regs);
 void vtss_syscall_leave(struct pt_regs *regs);
 void vtss_kmap(struct task_struct* task, const char* name, unsigned long addr, unsigned long pgoff, unsigned long size);
 void vtss_mmap(struct file *file, unsigned long addr, unsigned long pgoff, unsigned long size);
-void vtss_sched_switch(struct task_struct *prev, struct task_struct *next);
+void vtss_sched_switch(struct task_struct *prev, struct task_struct *next, void* prev_bp, void* next_ip);
 
 int vtss_cmd_open(void);
 int vtss_cmd_close(void);
@@ -77,4 +79,6 @@ int vtss_target_pids(struct seq_file *s);
 int  vtss_init(void);
 void vtss_fini(void);
 
+
+                                                        
 #endif /* _VTSS_COLLECTOR_H_ */
