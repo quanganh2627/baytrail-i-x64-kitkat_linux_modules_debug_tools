@@ -96,7 +96,7 @@ static void vtss_stack_address(void *data, unsigned long addr, int reliable)
     if (!reliable){
         return;
     }
-    if (!stk){
+    if (!stk || !stk->kernel_callchain_size || !stk->kernel_callchain_pos){
         return;
     }
     if ((*stk->kernel_callchain_size) <= (*stk->kernel_callchain_pos)) {
@@ -145,8 +145,9 @@ static unsigned long vtss_stack_walk(
     int *graph)
 {
     kernel_stack_control_t* stk = (kernel_stack_control_t*)data;
-//    unsigned long* pbp = &stk->bp;
-
+    if (!stk){
+        return bp;
+    }
     TRACE("bp=0x%p, stack=0x%p, end=0x%p", (void*)stk->bp, stack, end);
     bp = print_context_stack(tinfo, stack, stk->bp, ops, data, end, graph);
     if (stk != NULL && bp < vtss_kstart) {
