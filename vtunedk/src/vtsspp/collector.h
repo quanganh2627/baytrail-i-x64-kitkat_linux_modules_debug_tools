@@ -36,7 +36,6 @@
 #include <linux/mm.h>           /* for struct mm_struct   */
 #include <linux/sched.h>        /* for struct task_struct */
 #include <linux/seq_file.h>     /* for struct seq_file    */
-#include <asm/stacktrace.h>
 
 #define TASK_PID(task)    (task->tgid)
 #define TASK_TID(task)    (task->pid)
@@ -49,9 +48,6 @@
 #define VTSS_FILENAME_SIZE 128
 
 struct pt_regs;
-
-int  vtss_target_new(pid_t tid, pid_t pid, pid_t ppid, const char* filename);
-int  vtss_target_del(vtss_task_map_item_t* item);
 
 void vtss_target_fork(struct task_struct* task, struct task_struct* child);
 void vtss_target_exec_enter(struct task_struct* task, const char *filename, const char *config);
