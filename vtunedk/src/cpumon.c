@@ -149,8 +149,9 @@ cpumon_Init_Cpu (
     CPU_STATE            pcpu;
     local_handler_t      lhandler;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-    unsigned long        cr0_value;
+     unsigned long        cr0_value;
 #endif
+
 
     preempt_disable();
     pcpu = &pcb[CONTROL_THIS_CPU()];
@@ -203,7 +204,7 @@ cpumon_Destroy_Cpu (
     unsigned long long  *idt_base;
     CPU_STATE            pcpu;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-    unsigned long        cr0_value;
+     unsigned long        cr0_value;
 #endif
 
     preempt_disable();
@@ -214,7 +215,6 @@ cpumon_Destroy_Cpu (
     // restore perf. vector (to a safe stub pointer)
     idt_base = SYS_Get_IDT_Base();
     APIC_Disable_PMI();
-
     // From 3.10 kernel, the IDT memory has been moved to a read-only location
     // which is controlled by the bit 16 in the CR0 register.
     // The write protection should be temporarily released to update the IDT.
@@ -257,13 +257,13 @@ cpumon_Set_IDT_Func (
     _set_gate(&idt[CPU_PERF_VECTOR], GATE_INTERRUPT, (unsigned long) func, 3, 0);
 #else
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-    unsigned long cr0_value;
+     unsigned long cr0_value;
 #endif
+
     GATE_STRUCT  local;
     // _set_gate() cannot be used because the IDT table is not exported.
 
     pack_gate(&local, GATE_INTERRUPT, (unsigned long)func, 3, 0, __KERNEL_CS);
-
     // From 3.10 kernel, the IDT memory has been moved to a read-only location
     // which is controlled by the bit 16 in the CR0 register.
     // The write protection should be temporarily released to update the IDT.
@@ -276,6 +276,7 @@ cpumon_Set_IDT_Func (
     write_cr0(cr0_value);
 #endif
 #endif
+
     return;
 }
 

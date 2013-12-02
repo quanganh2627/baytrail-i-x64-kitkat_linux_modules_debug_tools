@@ -32,7 +32,6 @@
 #include "record.h"
 #include "user_vm.h"
 #include "time.h"
-#include "lbr.h"
 
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -103,9 +102,10 @@ static void vtss_stack_address(void *data, unsigned long addr, int reliable)
     if ((*stk->kernel_callchain_size) <= (*stk->kernel_callchain_pos)) {
         return;
     }
-#ifndef CONFIG_FRAME_POINTER
-    if (addr < vtss_koffset) return;
-#endif
+    if (!stk->kernel_callchain_pos)
+    {
+        return;
+    }
     if (stk->prev_addr != 0) {
         addr_diff = addr - stk->prev_addr;
     }
@@ -145,7 +145,6 @@ static unsigned long vtss_stack_walk(
     int *graph)
 {
     kernel_stack_control_t* stk = (kernel_stack_control_t*)data;
-//    unsigned long* pbp = &stk->bp;
     if (!stk){
         return bp;
     }
@@ -171,19 +170,16 @@ static const struct stacktrace_ops vtss_stack_ops = {
 
 #endif /* CONFIG_X86_64 && VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK */
 
-int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, struct task_struct* task, struct pt_regs* regs_in, void* reg_fp, int in_irq)
+int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, struct task_struct* task, struct pt_regs* regs, void* reg_fp, int in_irq)
 {
     int rc;
     user_vm_accessor_t* acc;
     void* stack_base = stk->bp.vdp;
     void *reg_ip, *reg_sp;
     int kernel_stack = 0;
-    struct pt_regs* regs = regs_in;
     
     if ((!regs && reg_fp >= (void*)__PAGE_OFFSET) || (regs && (!user_mode_vm(regs)))) kernel_stack = 1; 
-#ifndef CONFIG_FRAME_POINTER
-    if (!regs) kernel_stack = 0; 
-#endif
+
     if (unlikely(regs == NULL)) {
         regs = task_pt_regs(task);
     }
@@ -208,18 +204,13 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
 
 #if defined(VTSS_AUTOCONF_STACKTRACE_OPS_WALK_STACK)
 //    if (unlikely(!user_mode_vm(regs)))
+//    printk("stack reg_fp = %p, vtss_kstart=%lx, vtss_koffset = %lx\n", reg_fp, vtss_kstart, vtss_koffset);
     if (kernel_stack)
     { /* Unwind kernel stack and get user BP if possible */
         kernel_stack_control_t k_stk;
 
-        if ((unsigned long)reg_fp < 0x1000) reg_fp = 0;//error instead of bp;
         k_stk.bp = (unsigned long)reg_fp;
-//        if (k_stk.bp < 0x1000){
-             //error instead of bp
-//             k_stk.bp = 0; 
-//             REG(bp, regs_in) = 0;
-//        }
-        
+        if (k_stk.bp<0x1000) k_stk.bp = 0; //error instead of bp
         k_stk.kernel_callchain = stk->kernel_callchain;
         k_stk.prev_addr = 0;
         k_stk.kernel_callchain_size = &stk->kernel_callchain_size;
@@ -227,10 +218,10 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
         *k_stk.kernel_callchain_pos = 0;
         TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
 #ifdef VTSS_AUTOCONF_DUMP_TRACE_HAVE_BP
-        dump_trace(task, regs_in , NULL, 0, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL , NULL, 0, &vtss_stack_ops, &k_stk);
 #else
 //        dump_trace(task, regs, reg_sp, &vtss_stack_ops, &k_stk);
-        dump_trace(task, regs_in, NULL, &vtss_stack_ops, &k_stk);
+        dump_trace(task, NULL, NULL, &vtss_stack_ops, &k_stk);
 #endif
         TRACE("ip=0x%p, sp=0x%p, fp=0x%p, stk->kernel_callchain_pos=%d", reg_ip, reg_sp, reg_fp, stk->kernel_callchain_pos);
         reg_fp = k_stk.bp ? (void*)k_stk.bp : reg_fp;
@@ -263,6 +254,7 @@ int vtss_stack_dump(struct vtss_transport_data* trnd, stack_control_t* stk, stru
 #ifdef VTSS_DEBUG_TRACE
             strcat(stk->dbgmsg, "Cannot get user mode regs");
             vtss_record_debug_info(trnd, stk->dbgmsg, 0);
+            printk("Warning: %s\n", stk->dbgmsg);
             dump_stack();
 #endif
             return -EFAULT;
@@ -433,12 +425,10 @@ int vtss_stack_record_kernel(struct vtss_transport_data* trnd, stack_control_t* 
     ///                       [length - 2b][type - 2b]...
     stkrec.flagword = UEC_LEAF1 | UECL1_VRESIDX | UECL1_SYSTRACE;
     stkrec.residx   = tid;
-    stkrec.size     = 4 /*+ sizeof(stkrec.size) + sizeof(stkrec.type)*/;
+    stkrec.size     = 4 + sizeof(stkrec.size) + sizeof(stkrec.type);
     stkrec.type     = (sizeof(void*) == 8) ? UECSYSTRACE_CLEAR_STACK64 : UECSYSTRACE_CLEAR_STACK32;
     stkrec.size += sizeof(unsigned int);
     stkrec.idx   = -1;
-    /// correct the size of systrace
-    stkrec.size += (unsigned short)sktlen;
     if (vtss_transport_record_write(trnd, &stkrec, sizeof(stkrec) - (stk->wow64*8), stk->kernel_callchain, stklen, is_safe)) {
         TRACE("STACK_record_write() FAIL");
         rc = -EFAULT;
@@ -476,14 +466,7 @@ int vtss_stack_record(struct vtss_transport_data* trnd, stack_control_t* stk, pi
 {
     int rc = -EFAULT;
     unsigned short sample_type;
-    int sktlen;
-
-    /// collect LBR call stacks if so requested
-    if(reqcfg.trace_cfg.trace_flags & VTSS_CFGTRACE_LBRCSTK)
-    {
-        return vtss_stack_record_lbr(trnd, stk, tid, cpu, is_safe);
-    }
-    sktlen = stk->compress(stk);
+    int sktlen = stk->compress(stk);
 
     if (stk->kernel_callchain_pos!=0)
     {

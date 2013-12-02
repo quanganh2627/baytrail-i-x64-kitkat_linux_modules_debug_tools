@@ -72,28 +72,18 @@ int vtss_check_trace(const char* func_name, int* flag)
 
 #if defined(CONFIG_X86_32)
 #define VTSS_SYMBOL_SCHED_SWITCH  "__switch_to"
-#define VTSS_SYMBOL_SCHED_SWITCH_AUX  "context_switch"
 #elif defined(CONFIG_X86_64)
 #define VTSS_SYMBOL_SCHED_SWITCH  "context_switch"
-#define VTSS_SYMBOL_SCHED_SWITCH_AUX  "__switch_to"
 #endif
-
 #define VTSS_SYMBOL_PROC_FORK     "do_fork"
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
 #define VTSS_SYMBOL_PROC_EXEC     "do_execve"
 #else
-// from the version 3.9 do_execve is inlined into sys_execve, and probe is broken because of this.
+// from the version 3.9 do_execve is inlined into sys_execve, and brobe is broken because of this.
 // lp tried to use sys_execve instead, but this crashes ia32 bit systems
-// so, we are using do_execve_common for 32 bit.
-// The only possible solution dor intel64 is use sys_execve
-#if defined(CONFIG_X86_32)
+// so, we are using do_execve_common now.
 #define VTSS_SYMBOL_PROC_EXEC     "do_execve"
-#else
-#define VTSS_SYMBOL_PROC_EXEC     "sys_execve"
 #endif
-#endif
-
 #define VTSS_SYMBOL_PROC_EXIT     "do_exit"
 #define VTSS_SYMBOL_MMAP_REGION   "mmap_region"
 #ifdef VTSS_SYSCALL_TRACE
@@ -121,7 +111,6 @@ static void tp_sched_switch(VTSS_TP_PROTO VTSS_TP_RQ struct task_struct *prev, s
 {
    void* prev_bp = NULL;
    void* prev_ip = NULL;
-//   printk("switch\n");
    if (prev == current && current !=0 )
    {
        unsigned long bp;
@@ -408,14 +397,9 @@ static int unprobe_##name(void) \
 
 /* ------------------------------------------------------------------------- */
 /* Define jprobe stub */
-#define DEFINE_JP_STUB(name,symbol,symbol_aux) \
+#define DEFINE_JP_STUB(name,symbol) \
 static struct jprobe _jp_##name = { \
     _SET_KP_SYMBOL_NAME(symbol) \
-    .kp.addr = (kprobe_opcode_t*)NULL, \
-    .entry = (kprobe_opcode_t*)jp_##name \
-}; \
-static struct jprobe _jp_##name_aux = { \
-    _SET_KP_SYMBOL_NAME(symbol_aux) \
     .kp.addr = (kprobe_opcode_t*)NULL, \
     .entry = (kprobe_opcode_t*)jp_##name \
 }; \
@@ -428,15 +412,8 @@ static int probe_##name(void) \
         { \
             _SET_KPROBE_FLAGS(_jp_##name.kp) \
             rc = register_jprobe(&_jp_##name); \
+            if (rc) ERROR("register_jprobe('%s') failed: %d", symbol, rc); \
         } \
-        if (rc){\
-        _LOOKUP_SYMBOL_NAME(_jp_##name_aux.kp,symbol_aux) \
-        { \
-            _SET_KPROBE_FLAGS(_jp_##name_aux.kp) \
-            rc = register_jprobe(&_jp_##name_aux); \
-        }\
-        } \
-        if (rc) ERROR("register_jprobe('%s') failed: %d", symbol, rc); \
     } \
     return rc; \
 } \
@@ -509,7 +486,7 @@ DEFINE_KP_STUB(syscall_leave,      VTSS_SYMBOL_SYSCALL_LEAVE)
     rc = unregister_trace_##name(tp_##name VTSS_TP_DATA);
 #endif
 
-DEFINE_JP_STUB(sched_switch, VTSS_SYMBOL_SCHED_SWITCH, VTSS_SYMBOL_SCHED_SWITCH_AUX)
+DEFINE_JP_STUB(sched_switch,       VTSS_SYMBOL_SCHED_SWITCH)
 DEFINE_RP_STUB(sched_process_fork, VTSS_SYMBOL_PROC_FORK, 0)
 DEFINE_KP_STUB(sched_process_exit, VTSS_SYMBOL_PROC_EXIT)
 

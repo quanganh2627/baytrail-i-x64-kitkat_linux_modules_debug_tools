@@ -1416,26 +1416,15 @@ corei7_Check_Overflow_Errata (
  * <I>Special Notes:</I>
  *              <NONE>
  */
-static void
+static U64
 corei7_Platform_Info (
-    PVOID data
+    void
 )
 {
-    DRV_PLATFORM_INFO      platform_data = (DRV_PLATFORM_INFO)data;
-    U64                    value         = 0;
- 
-    if (!platform_data) {
-        return;
-    }
- 
 #define IA32_MSR_PLATFORM_INFO 0xCE
-    value = SYS_Read_MSR(IA32_MSR_PLATFORM_INFO);
- 
-    DRV_PLATFORM_INFO_info(platform_data)           = value;
-    DRV_PLATFORM_INFO_ddr_freq_index(platform_data) = 0;
- 
-    return;
+    U64 value = SYS_Read_MSR(IA32_MSR_PLATFORM_INFO);
 
+    return value;
 }
 
 /*
