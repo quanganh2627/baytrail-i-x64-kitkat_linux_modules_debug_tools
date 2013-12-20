@@ -114,6 +114,7 @@ extern void vtss_perfvec_handler(void);
 
 void vtss_cpuevents_enable(void)
 {
+//    printk("cpu events enable\n");
     vtss_pmi_enable();
     /* enable counters globally (required for some Core2 & Core i7 systems) */
     if (hardcfg.family == 0x06 && hardcfg.model >= 0x0f) {
@@ -334,8 +335,8 @@ void vtss_cpuevents_upload(cpuevent_t* cpuevent_chain, cpuevent_cfg_v1_t* cpueve
             /// set up counter offset for fixed events
             if (hardcfg.family == 0x06 && cpuevent_cfg[i].selmsr.idx == IA32_FIXED_CTR_CTRL) {
                 /// set up fixed counter events as slaves (that follow leading events)
-                if (cpuevent_cfg[i].cntmsr.idx == IA32_FIXED_CTR0 ||
-                    cpuevent_cfg[i].cntmsr.idx == IA32_FIXED_CTR0+1)
+                if (cpuevent_cfg[i].cntmsr.idx == IA32_FIXED_CTR0 || //lp: instruction ret counter
+                    cpuevent_cfg[i].cntmsr.idx == IA32_FIXED_CTR0+1) // core counter, IA32_FIXED_CTR0+2 - ref counter
                 {
                     cpuevent_chain[i].slave_interval = cpuevent_cfg[i].interval;
                     cpuevent_chain[i].interval = 0;
