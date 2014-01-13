@@ -92,14 +92,14 @@
 # base name of SOCWatch driver
 DRIVER_BASE=SOCWATCH
 DRIVER_MAJOR=1
-DRIVER_MINOR=2
+DRIVER_MINOR=3
 # basic name of driver
 DRIVER_NAME=${DRIVER_BASE}${DRIVER_MAJOR}_${DRIVER_MINOR}
 
 # location to install driver
 INSTALL = .
 
-INCDIR=$(M)/../include
+INCDIR=$(M)/include
 INC2=$(M)/inc
 
 # If KERNELRELEASE is defined, we've been invoked from the
