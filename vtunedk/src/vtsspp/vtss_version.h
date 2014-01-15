@@ -1,4 +1,0 @@
-#define VTSS_VERSION_MAJOR    1
-#define VTSS_VERSION_MINOR    0
-#define VTSS_VERSION_REVISION 64
-#define VTSS_VERSION_STRING   "v1.0.64-310995 Intel(R) VTune(TM) Amplifier XE 2013"

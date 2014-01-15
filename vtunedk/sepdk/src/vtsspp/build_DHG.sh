@@ -1,0 +1,16 @@
+#!/bin/sh
+
+DHG_SDK=/root/IntelCE-23.0.11293.288356
+KVER=23.0.11283.287431/kernel_source
+
+# For Canmore
+#DHG_SDK=/opt/intel.PR18
+#KVER=18.0.10361.176365
+# For Sodaville
+#DHG_SDK=/opt/IntelCE-21.2.11233.283229
+#KVER=21.0.11141.267660
+
+KDIR=$DHG_SDK/project_build_i686/IntelCE/kernel-$KVER/linux-2.6.28
+TOOLCHAIN=$DHG_SDK/build_i686/i686-linux-elf/bin/i686-cm-linux-
+KERNEL_VERSION=2.6.28
+make KDIR=$KDIR KERNEL_VERSION=$KERNEL_VERSION MARCH=i386 CROSS_COMPILE=$TOOLCHAIN $*

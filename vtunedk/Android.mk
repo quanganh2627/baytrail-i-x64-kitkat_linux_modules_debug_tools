@@ -1,0 +1,16 @@
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := sep3_10
+LOCAL_MODULE_PATH := $(LOCAL_PATH)/sepdk
+include $(BUILD_EXTERNAL_KERNEL_MODULE)
+
+LOCAL_MODULE := pax
+LOCAL_MODULE_PATH := $(LOCAL_PATH)/sepdk/pax
+include $(BUILD_EXTERNAL_KERNEL_MODULE)
+
+LOCAL_MODULE := vtsspp
+LOCAL_MODULE_PATH := $(LOCAL_PATH)/sepdk/src/vtsspp
+include $(BUILD_EXTERNAL_KERNEL_MODULE)
+
+
