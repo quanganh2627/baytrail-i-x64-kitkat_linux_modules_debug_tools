@@ -146,6 +146,8 @@ typedef enum {
     NON_SLM=0,
     SLM_VLV2,
     SLM_TNG,
+    SLM_ANN,
+    SLM_CHV
 } slm_arch_type_t;
 
 #define APWR_VERSION_CODE LINUX_VERSION_CODE
@@ -2269,96 +2271,6 @@ static inline void producer_template(int cpu)
 /*
  * Insert a ACPI S3 Residency counter sample into a (per-cpu) output buffer.
  */
-#if 0
-static inline void produce_acpi_s3_sample(bool s3flag)
-{
-    u64 tsc;
-    int cpu = raw_smp_processor_id();
-
-    PWCollector_msg_t msg;
-    s_residency_sample_t sres;
-
-    /*
-     * No residency counters available  
-     */
-    tscval(&tsc);
-    msg.data_type = ACPI_S3;
-    msg.cpuidx = cpu;
-    msg.tsc = tsc;
-    msg.data_len = sizeof(sres);
-
-    if (startTSC_acpi_s3 == 0) {
-        startTSC_acpi_s3 = tsc;
-    }
-
-    if (s3flag) { 
-        sres.data[0] = 0;
-        sres.data[1] = tsc - startTSC_acpi_s3;
-    } else {
-        sres.data[0] = tsc - startTSC_acpi_s3;
-        sres.data[1] = 0;
-    }
-    startTSC_acpi_s3 = tsc;
-
-    msg.p_data = (u64)((unsigned long)(&sres));
-
-    /*
-     * OK, everything computed. Now copy
-     * this sample into an output buffer
-     */
-    pw_produce_generic_msg(&msg, true); // "true" ==> allow wakeups
-};
-#endif // if 0
-#if 0
-static inline void produce_acpi_s3_sample(u64 s3_res)
-{
-    u64 tsc;
-    int cpu = raw_smp_processor_id();
-
-    PWCollector_msg_t msg;
-    s_residency_sample_t sres;
-
-    /*
-     * No residency counters available  
-     */
-    tscval(&tsc);
-    msg.data_type = ACPI_S3;
-    msg.cpuidx = cpu;
-    msg.tsc = tsc;
-    msg.data_len = sizeof(sres);
-
-    /*
-    if (startTSC_acpi_s3 == 0) {
-        startTSC_acpi_s3 = tsc;
-    }
-
-    if (s3flag) { 
-        sres.data[0] = 0;
-        sres.data[1] = s3_res; // tsc - startTSC_acpi_s3;
-    } else {
-        sres.data[0] = tsc - startTSC_acpi_s3;
-        sres.data[1] = 0;
-    }
-    */
-    printk(KERN_INFO "GU: start tsc = %llu, tsc = %llu, s3_res = %llu\n", startTSC_acpi_s3, tsc, s3_res);
-
-    if (startTSC_acpi_s3 == 0 || s3_res > 0) {
-        startTSC_acpi_s3 = tsc;
-    }
-    sres.data[0] = tsc - startTSC_acpi_s3;
-    sres.data[1] = s3_res;
-
-    startTSC_acpi_s3 = tsc;
-
-    msg.p_data = (u64)((unsigned long)(&sres));
-
-    /*
-     * OK, everything computed. Now copy
-     * this sample into an output buffer
-     */
-    pw_produce_generic_msg(&msg, true); // "true" ==> allow wakeups
-};
-#endif // if 0
 static inline void produce_acpi_s3_sample(u64 tsc, u64 s3_res)
 {
     int cpu = raw_smp_processor_id();
@@ -2367,7 +2279,7 @@ static inline void produce_acpi_s3_sample(u64 tsc, u64 s3_res)
     s_residency_sample_t sres;
 
     /*
-     * No residency counters available  
+     * No residency counters available
      */
     msg.data_type = ACPI_S3;
     msg.cpuidx = cpu;
@@ -2379,7 +2291,7 @@ static inline void produce_acpi_s3_sample(u64 tsc, u64 s3_res)
         startTSC_acpi_s3 = tsc;
     }
 
-    if (s3flag) { 
+    if (s3flag) {
         sres.data[0] = 0;
         sres.data[1] = s3_res; // tsc - startTSC_acpi_s3;
     } else {
@@ -2407,7 +2319,7 @@ static inline void produce_acpi_s3_sample(u64 tsc, u64 s3_res)
 };
 #endif // DO_ACPI_S3_SAMPLE
 
-#if DO_S_RESIDENCY_SAMPLE 
+#if DO_S_RESIDENCY_SAMPLE
 
 #ifdef CONFIG_RPMSG_IPC
     #define PW_SCAN_MMAP_DO_IPC(cmd, sub_cmd) rpmsg_send_generic_simple_command(cmd, sub_cmd)
@@ -2565,7 +2477,7 @@ static inline void produce_boundary_s_residency_msg_i(bool is_begin_boundary)
     }
 };
 
-#endif // DO_S_RESIDENCY_SAMPLE 
+#endif // DO_S_RESIDENCY_SAMPLE
 
 
 #if DO_WAKELOCK_SAMPLE 
@@ -6565,7 +6477,7 @@ int start_collection(PWCollector_cmd_t cmd)
 	return -ERROR;
     }
 
-#if DO_S_RESIDENCY_SAMPLE 
+#if DO_S_RESIDENCY_SAMPLE
     //struct timeval cur_time;
     if (IS_S_RESIDENCY_MODE()) {
         startTSC_s_residency = 0;
@@ -6619,7 +6531,7 @@ int stop_collection(PWCollector_cmd_t cmd)
         hrtimer_try_to_cancel(&pw_acpi_s3_hrtimer);
     }
 
-#if DO_S_RESIDENCY_SAMPLE 
+#if DO_S_RESIDENCY_SAMPLE
     if (IS_S_RESIDENCY_MODE()) {
         produce_boundary_s_residency_msg_i(false); // "false" ==> NOT begin boundary
         startTSC_s_residency = 0; // redundant!
@@ -6869,7 +6781,7 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
 #endif // if 0
 
                     /*
-                     * No residency counters available  
+                     * No residency counters available
                      */
                     msg.data_type = S_RESIDENCY;
                     msg.cpuidx = cpu;
@@ -6894,9 +6806,9 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                  * Also need to send an ACPI S3 sample.
                  */
                 if (IS_ACPI_S3_MODE()) {
-                    // produce_acpi_s3_sample(false); 
-                    // produce_acpi_s3_sample(0 /* s3 res */); 
-                    produce_acpi_s3_sample(pw_suspend_start_tsc, 0 /* s3 res */); 
+                    // produce_acpi_s3_sample(false);
+                    // produce_acpi_s3_sample(0 /* s3 res */);
+                    produce_acpi_s3_sample(pw_suspend_start_tsc, 0 /* s3 res */);
                 }
                 /*
                  * And finally, the special 'broadcast' wakelock sample.
@@ -6956,9 +6868,9 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                     }
 #endif // if 0
                     /*
-                     * We need to an 'S_RESIDENCY' sample detailing the actual supend 
-                     * statistics (when did the device get suspended; for how long 
-                     * was it suspended etc.). 
+                     * We need to an 'S_RESIDENCY' sample detailing the actual supend
+                     * statistics (when did the device get suspended; for how long
+                     * was it suspended etc.).
                      */
                     {
                         PWCollector_msg_t msg;
@@ -6982,7 +6894,7 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                         if (pw_is_slm) {
                             suspend_time_ticks = (pw_suspend_stop_s0i3 - pw_suspend_start_s0i3);
                         } else {
-                            suspend_time_usecs = (pw_suspend_stop_s0i3 - pw_suspend_start_s0i3); 
+                            suspend_time_usecs = (pw_suspend_stop_s0i3 - pw_suspend_start_s0i3);
                             suspend_time_ticks = suspend_time_usecs * base_operating_freq_mhz;
                         }
                         printk(KERN_INFO "BASE operating freq_mhz = %llu\n", base_operating_freq_mhz);
@@ -7003,19 +6915,14 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
                         pw_produce_generic_msg(&msg, true); // "true" ==> allow wakeups
                     }
                 } // IS_S_RESIDENCY_MODE()
-#if 0
-                else if (IS_ACPI_S3_MODE()) {
-                    produce_acpi_s3_sample(true); 
-                }
-#endif // if 0
             } else {
                 tsc_suspend_time_ticks = (pw_suspend_stop_tsc - pw_suspend_start_tsc);
                 suspend_time_ticks = tsc_suspend_time_ticks;
             }
             printk(KERN_INFO "OK: suspend time ticks = %llu\n", suspend_time_ticks);
             if (IS_ACPI_S3_MODE()) {
-                // produce_acpi_s3_sample(suspend_time_ticks /* s3 res */); 
-                produce_acpi_s3_sample(pw_suspend_stop_tsc, suspend_time_ticks /* s3 res */); 
+                // produce_acpi_s3_sample(suspend_time_ticks /* s3 res */);
+                produce_acpi_s3_sample(pw_suspend_stop_tsc, suspend_time_ticks /* s3 res */);
             }
 
             break;
@@ -7607,10 +7514,14 @@ static slm_arch_type_t is_slm(void)
      */
     if (family == 0x6) {
         switch (model) {
+            case 0x30:
+                return SLM_CHV;
             case 0x37:
                 return SLM_VLV2;
             case 0x4a:
                 return SLM_TNG;
+            case 0x5a:
+                return SLM_ANN;
             default:
                 break;
         }

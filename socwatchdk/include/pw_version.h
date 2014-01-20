@@ -68,7 +68,7 @@
  */
 #define PW_DRV_VERSION_MAJOR 1
 #define PW_DRV_VERSION_MINOR 3
-#define PW_DRV_VERSION_OTHER 0
+#define PW_DRV_VERSION_OTHER 1
 #define PW_DRV_VERSION_STRING "1.3" // used by matrix
 #define PW_DRV_NAME "socwatch1_3"
 
@@ -76,8 +76,8 @@
  * Every SOCWatch component shares the same version number.
  */
 #define SOCWATCH_VERSION_MAJOR 1
-#define SOCWATCH_VERSION_MINOR 3 
-#define SOCWATCH_VERSION_OTHER 0
+#define SOCWATCH_VERSION_MINOR 3
+#define SOCWATCH_VERSION_OTHER 1
 
 /*
  * WUWatch driver version
