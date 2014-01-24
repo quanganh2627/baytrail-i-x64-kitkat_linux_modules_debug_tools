@@ -458,9 +458,9 @@ static int mt_msg_scan_msr(struct mt_xchange_buffer *xbuff, const struct mtx_msr
                 wrmsr_on_cpu(cpu, msr_no, lo_wr, high_wr);
                 break;
             case SET_BITS_OP:
-                { 
-                    u32 eax_LSB, edx_MSB; 
-                    rdmsr_on_cpu(cpu, msr_no, &eax_LSB, &edx_MSB); 
+                {
+                    u32 eax_LSB, edx_MSB;
+                    rdmsr_on_cpu(cpu, msr_no, &eax_LSB, &edx_MSB);
                     wrmsr_on_cpu(cpu, msr_no, (eax_LSB | lo_wr), (edx_MSB | high_wr));
                 }
                 break;
@@ -719,7 +719,7 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
 
     // printk(KERN_INFO "OK: POLL MT_MSG scan was SUCCESSFUL!\n");
     return MT_SUCCESS;
-    
+
 MT_MSG_POLL_ERROR:
     printk(KERN_INFO "ERROR doing a POLL MT_MSG scan!\n");
     mt_free_memory();

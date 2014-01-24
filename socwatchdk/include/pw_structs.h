@@ -462,7 +462,7 @@ typedef struct c_msg {
      * Domain-specific wakeup data. Corresponds to "c_data" under c_message_t fixed-length scheme.
      * Meaning is as follows for the following wakeup_types:
      *    PW_BREAK_TYPE_I: IRQ number (used as index to get IRQ name using i_message_t)
-     *    PW_BREAK_TYPE_T: System call CPU TSC 
+     *    PW_BREAK_TYPE_T: System call CPU TSC
      *    All other types: field is ignored.
      */
     u64 wakeup_data;
@@ -1111,9 +1111,9 @@ struct c_meta_data {
  */
 typedef struct p_meta_data p_meta_data_t;
 struct p_meta_data {
-    /* 
+    /*
      * GEH: Could we add an enum for processing unit (GPU, CPU, etc.) and add a field here to reference? Something like this:
-     * proc_unit_t proc_unit; 
+     * proc_unit_t proc_unit;
      */
     u16 num_available_freqs; // The # of frequencies in the 'data' field below; 256 freqs should be enough for anybody!
     u16 *available_freqs; // A (variable-length) array of 16bit frequencies, in MHz. 
@@ -1257,7 +1257,7 @@ struct meta_data_msg {
  */
 typedef struct PWCollector_msg PWCollector_msg_t; 
 struct PWCollector_msg {
-    u64 tsc;      // TSC of message. 
+    u64 tsc;      // TSC of message.
                   // GEH: Is this equal to wakeup TSC for c_msg_t samples?
     u16 data_len; // length of payload message in bytes (not including this header) represented by p_data.
     u16 cpuidx;   // GEH: Need to define what this is for post-processed samples
@@ -1730,11 +1730,11 @@ typedef enum power_data {
 #define POWER_ACPI_S3_STATE_MASK (1ULL << PW_ACPI_S3_STATE )
 #define POWER_SNAPSHOT_C_STATE_MASK (1ULL << PW_POWER_SNAPSHOT_C_STATE )
 #define POWER_BANDWIDTH_CORE_MODULE0_MASK (1ULL << PW_BANDWIDTH_CORE_MODULE0 )
-#define POWER_BANDWIDTH_CORE_MODULE1ULL_MASK (1ULL << PW_BANDWIDTH_CORE_MODULE1)
+#define POWER_BANDWIDTH_CORE_MODULE1_MASK (1ULL << PW_BANDWIDTH_CORE_MODULE1)
 #define POWER_BANDWIDTH_CORE_32BYTE_MASK (1ULL << PW_BANDWIDTH_CORE_32BYTE )
 #define POWER_BANDWIDTH_CORE_64BYTE_MASK (1ULL << PW_BANDWIDTH_CORE_64BYTE )
 #define POWER_BANDWIDTH_SRR_CH0_MASK (1ULL << PW_BANDWIDTH_SRR_CH0 )
-#define POWER_BANDWIDTH_SRR_CH1ULL_MASK (1ULL << PW_BANDWIDTH_SRR_CH1)
+#define POWER_BANDWIDTH_SRR_CH1_MASK (1ULL << PW_BANDWIDTH_SRR_CH1)
 #define POWER_BANDWIDTH_TUNIT_MASK (1ULL << PW_BANDWIDTH_TUNIT )
 
 #define SET_COLLECTION_SWITCH(m,s) ( (m) |= (1ULL << (s) ) )
