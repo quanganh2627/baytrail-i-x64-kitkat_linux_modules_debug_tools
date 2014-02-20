@@ -3760,6 +3760,8 @@ lwpmu_Device_Control_Compat (
     IOCTL_COMPAT_ARGS_NODE  local_args_compat;
     IOCTL_ARGS_NODE         local_args;
 
+    memset(&local_args_compat, 0, sizeof(IOCTL_COMPAT_ARGS_NODE));
+
     SEP_PRINT_DEBUG("Compat: type: %d, subcommand: %d\n", _IOC_TYPE(cmd), _IOC_NR(cmd));
 
     if (_IOC_TYPE(cmd) != LWPMU_IOC_MAGIC) {

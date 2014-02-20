@@ -531,6 +531,8 @@ pax_Device_Control_Compat (
     IOCTL_COMPAT_ARGS_NODE  local_args_compat;
     IOCTL_ARGS_NODE         local_args;
 
+    memset(&local_args_compat, 0, sizeof(IOCTL_COMPAT_ARGS_NODE));
+
     if (arg) {
         status = copy_from_user(&local_args_compat, (IOCTL_COMPAT_ARGS)arg, sizeof(IOCTL_COMPAT_ARGS_NODE)); 
         }
