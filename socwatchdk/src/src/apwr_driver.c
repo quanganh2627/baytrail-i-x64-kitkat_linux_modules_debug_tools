@@ -84,6 +84,7 @@
 #include <trace/events/irq.h>
 #include <trace/events/sched.h>
 #include <trace/events/syscalls.h>
+struct pool_workqueue; // Get rid of warnings regarding trace_workqueue
 #include <trace/events/workqueue.h>
 
 #include <linux/hardirq.h> // for "in_interrupt"
@@ -547,9 +548,9 @@ static u64 startTSC_acpi_s3;
     #define PW_HLIST_FOR_EACH_ENTRY_SAFE(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, pos, n, head, member)
     #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) hlist_for_each_entry_rcu(tpos, pos, head, member)
 #else // >= 3.9.0
-    #define PW_HLIST_FOR_EACH_ENTRY(tpos, pos, head, member) hlist_for_each_entry(tpos, head, member)
-    #define PW_HLIST_FOR_EACH_ENTRY_SAFE(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, n, head, member)
-    #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) hlist_for_each_entry_rcu(tpos, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY(tpos, pos, head, member) pos = NULL; hlist_for_each_entry(tpos, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_SAFE(tpos, pos, n, head, member) pos = NULL; hlist_for_each_entry_safe(tpos, n, head, member)
+    #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) pos = NULL; hlist_for_each_entry_rcu(tpos, head, member)
 #endif
 
 /*
@@ -1721,11 +1722,12 @@ static int get_num_timers(void)
     int i=0, num=0;
 
 
-    for(i=0; i<NUM_MAP_BUCKETS; ++i)
+    for (i=0; i<NUM_MAP_BUCKETS; ++i) {
         PW_HLIST_FOR_EACH_ENTRY(node, curr, &timer_map[i].head, list) {
 	    ++num;
 	    OUTPUT(3, KERN_INFO "[%d]: %d --> %p\n", i, node->tid, (void *)node->timer_addr);
 	}
+    }
 
     return num;
 };
@@ -2105,11 +2107,12 @@ static int get_num_irq_mappings(void)
     irq_node_t *node = NULL;
     struct hlist_node *curr = NULL;
 
-    for(i=0; i<NUM_IRQ_MAP_BUCKETS; ++i)
+    for (i=0; i<NUM_IRQ_MAP_BUCKETS; ++i) {
         PW_HLIST_FOR_EACH_ENTRY(node, curr, &irq_map[i].head, list) {
 	    ++retVal;
 	    OUTPUT(0, KERN_INFO "[%d]: IRQ Num=%d, Dev=%s\n", i, node->irq, node->name);
 	}
+    }
 
     return retVal;
 
@@ -2332,7 +2335,9 @@ static inline void pw_start_s_residency_counter_i(void)
     /*
      * Send START IPC command.
      */
-    PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_start_command, INTERNAL_STATE.ipc_start_sub_command);
+    if (PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_start_command, INTERNAL_STATE.ipc_start_sub_command)) {
+        printk(KERN_INFO "WARNING: possible error starting S_RES counters!\n");
+    }
     pw_pr_debug("GU: SENT START IPC command!\n");
 };
 
@@ -2341,7 +2346,9 @@ static inline void pw_dump_s_residency_counter_i(void)
     /*
      * Send DUMP IPC command.
      */
-    PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_dump_command, INTERNAL_STATE.ipc_dump_sub_command);
+    if (PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_dump_command, INTERNAL_STATE.ipc_dump_sub_command)) {
+        printk(KERN_INFO "WARNING: possible error dumping S_RES counters!\n");
+    }
     pw_pr_debug("GU: SENT DUMP IPC command!\n");
 };
 
@@ -2350,7 +2357,9 @@ static inline void pw_stop_s_residency_counter_i(void)
     /*
      * Send STOP IPC command.
      */
-    PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_stop_command, INTERNAL_STATE.ipc_stop_sub_command);
+    if (PW_SCAN_MMAP_DO_IPC(INTERNAL_STATE.ipc_stop_command, INTERNAL_STATE.ipc_stop_sub_command)) {
+        printk(KERN_INFO "WARNING: possible error stopping S_RES counters!\n");
+    }
     pw_pr_debug("GU: SENT STOP IPC command!\n");
 };
 
@@ -2375,7 +2384,7 @@ static inline void pw_populate_s_residency_values_i(u64 *values, bool is_begin_b
                 // value = INTERNAL_STATE.platform_remapped_addrs[i];
                 // value = *((u64 *)INTERNAL_STATE.platform_remapped_addrs[i]);
                 // value = *((u32 *)INTERNAL_STATE.platform_remapped_addrs[i]);
-                memcpy(&value, (void *)INTERNAL_STATE.platform_remapped_addrs[i], counter_size_in_bytes);
+                memcpy(&value, (void *)(unsigned long)INTERNAL_STATE.platform_remapped_addrs[i], counter_size_in_bytes);
                 break;
             default:
                 printk(KERN_INFO "ERROR: unsupported S0iX collection type: %u!\n", INTERNAL_STATE.collection_type);
@@ -4307,7 +4316,7 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
-void __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
+void inline __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
 {
     int target_cpu = task_cpu(task), source_cpu = CPU();
     /*
@@ -4350,7 +4359,7 @@ static void probe_sched_wakeup(void *ignore, struct task_struct *task, int succe
 };
 
 
-bool __attribute__((always_inline)) is_sleep_syscall_i(long id) 
+bool inline __attribute__((always_inline)) is_sleep_syscall_i(long id)
 {
     switch (id) {
         case __NR_poll: // 7
@@ -4374,7 +4383,7 @@ bool __attribute__((always_inline)) is_sleep_syscall_i(long id)
     return false;
 };
 
-void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
+void  inline __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
 {
     if (check_and_add_proc_to_sys_list(tid, pid)) {
         pw_pr_error("ERROR: could NOT add proc to sys list!\n");
@@ -4382,7 +4391,7 @@ void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_
     return;
 };
 
-void  __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
+void  inline __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
 {
     check_and_remove_proc_from_sys_list(tid, pid);
 };
@@ -5653,7 +5662,7 @@ static void pw_deallocate_platform_res_info_i(void)
         int i=0;
         for (i=0; i<INTERNAL_STATE.num_addrs; ++i) {
             if (INTERNAL_STATE.platform_remapped_addrs[i]) {
-                iounmap(INTERNAL_STATE.platform_remapped_addrs[i]);
+                iounmap((volatile void *)(unsigned long)INTERNAL_STATE.platform_remapped_addrs[i]);
                 // printk(KERN_INFO "OK: unmapped MMIO base addr: 0x%lx\n", INTERNAL_STATE.platform_remapped_addrs[i]);
             }
         }
@@ -5814,9 +5823,10 @@ int pw_set_platform_res_config_i(struct PWCollector_platform_res_info __user *re
                 // INTERNAL_STATE.platform_remapped_addrs[i] = ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u32) * 1);
                 // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u64) * 1);
                 // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u32) * 1);
-                INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], (INTERNAL_STATE.counter_size_in_bytes * 1));
-                if (INTERNAL_STATE.platform_remapped_addrs[i] == NULL) {
-                    printk(KERN_INFO "ERROR remapping MMIO addresses 0x%lx\n", INTERNAL_STATE.platform_res_addrs[i]);
+                // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], (INTERNAL_STATE.counter_size_in_bytes * 1));
+                INTERNAL_STATE.platform_remapped_addrs[i] = (u64)(unsigned long)ioremap_nocache((unsigned long)INTERNAL_STATE.platform_res_addrs[i], (unsigned long)(INTERNAL_STATE.counter_size_in_bytes * 1));
+                if ((void *)(unsigned long)INTERNAL_STATE.platform_remapped_addrs[i] == NULL) {
+                    printk(KERN_INFO "ERROR remapping MMIO addresses %p\n", (void *)(unsigned long)INTERNAL_STATE.platform_res_addrs[i]);
                     pw_deallocate_platform_res_info_i();
                     return -ERROR;
                 }
@@ -6125,10 +6135,11 @@ static void reset_trace_sent_fields(void)
     struct hlist_node *curr = NULL;
     int i=0;
 
-    for(i=0; i<NUM_MAP_BUCKETS; ++i)
+    for(i=0; i<NUM_MAP_BUCKETS; ++i) {
         PW_HLIST_FOR_EACH_ENTRY(node, curr, &timer_map[i].head, list) {
 	    node->trace_sent = 0;
 	}
+    }
 };
 
 
@@ -6738,7 +6749,7 @@ int pw_alrm_suspend_notifier_callback_i(struct notifier_block *block, unsigned l
 {
     u64 tsc_suspend_time_ticks = 0;
     u64 suspend_time_ticks = 0;
-    u64 usec = 0;
+    // u64 usec = 0;
     u64 suspend_time_usecs = 0;
     u64 base_operating_freq_mhz = base_operating_freq_khz / 1000;
 

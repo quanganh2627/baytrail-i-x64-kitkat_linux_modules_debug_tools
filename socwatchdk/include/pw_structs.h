@@ -355,8 +355,13 @@ typedef enum{
     PW_BREAK_TYPE_END = 9 // EOF
 }c_break_type_t;
 #define FOR_EACH_WAKEUP_TYPE(idx) for ( idx = PW_BREAK_TYPE_I; idx < PW_BREAK_TYPE_END; ++idx )
-static const char *s_wake_type_names[] = {"IRQ", "TIM", "SCHED", "IPI", "WRQ", "BDRY", "NONE", "ABRT", "UNK", "EOF"};
-static const char *s_wake_type_long_names[] = {"IRQ", "TIMER", "SCHEDULER", "IPI", "WORK QUEUE", "BOUNDARY", "NONE", "ABORT", "UNKNOWN", "EOF"};
+/*
+ * 's_wake_type_names' and 's_wake_type_long_names' are used mainly in Ring-3 debugging.
+ */
+#ifndef __KERNEL__
+    static const char *s_wake_type_names[] = {"IRQ", "TIM", "SCHED", "IPI", "WRQ", "BDRY", "NONE", "ABRT", "UNK", "EOF"};
+    static const char *s_wake_type_long_names[] = {"IRQ", "TIMER", "SCHEDULER", "IPI", "WORK QUEUE", "BOUNDARY", "NONE", "ABORT", "UNKNOWN", "EOF"};
+#endif // __KERNEL__
 
 #pragma pack(push) /* Store current alignment */
 #pragma pack(2) /* Set new alignment -- 2 byte boundaries */
@@ -373,9 +378,11 @@ typedef enum pw_msr_type {
 } pw_msr_type_t;
 /*
  * Names corresponding to C-state MSR types.
- * Debugging ONLY!
+ * Ring-3 Debugging ONLY!
  */
-static const char *s_pw_msr_type_names[] = {"Thread", "Core", "Module", "Package", "GPU"};
+#ifndef __KERNEL__
+    static const char *s_pw_msr_type_names[] = {"Thread", "Core", "Module", "Package", "GPU"};
+#endif // __KERNEL__
 /*
  * Specifier for GPU C-states.
  */
@@ -385,9 +392,11 @@ typedef enum pw_gpu_msr_subtype {
 } pw_gpu_msr_subtype_t;
 /*
  * Names corresponding to GPU C-state subtypes.
- * Debugging ONLY!
+ * Ring-3 Debugging ONLY!
  */
-static const char *s_pw_gpu_msr_subtype_names[] = {"RENDER", "MEDIA"};
+#ifndef __KERNEL__
+    static const char *s_pw_gpu_msr_subtype_names[] = {"RENDER", "MEDIA"};
+#endif // __KERNEL__
 
 /*
  * MSR specifiers
@@ -872,8 +881,11 @@ typedef enum pw_mt_msg_type {
 } pw_mt_msg_type_t;
 /*
  * Debugging: names for the above msg types.
+ * Ring-3 ONLY!
  */
-static const char *s_pw_mt_msg_type_names[] = {"NONE", "INIT", "POLL", "TERM", "END"};
+#ifndef __KERNEL__
+    static const char *s_pw_mt_msg_type_names[] = {"NONE", "INIT", "POLL", "TERM", "END"};
+#endif // __KERNEL__
 /*
  * Encode information returned by the matrix driver.
  * Msg type == 'MATRIX_MSG'

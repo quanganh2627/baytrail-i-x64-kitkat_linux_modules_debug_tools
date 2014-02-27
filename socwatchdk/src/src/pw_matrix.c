@@ -70,13 +70,6 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/version.h>
-#if 0
-#if DO_ANDROID
-    #include <asm/intel-mid.h>
-    #include <asm/intel_mid_rpmsg.h>
-    #include <asm/intel_scu_pmic.h>	/* Needed for 3.4 kernel port */
-#endif // DO_ANDROID
-#endif // if 0
 #ifdef CONFIG_X86_WANT_INTEL_MID
     #include <asm/intel-mid.h>
 #endif
@@ -96,7 +89,7 @@
 #include "matrix.h"
 
 // #define NAME "matrix"
-#define NAME "socwatch"
+#define DRV_NAME "socwatch"
 //#define DRIVER_VERSION "1.0"
 
 #define MT_SUCCESS 0
@@ -104,9 +97,6 @@
 
 #define MCR_WRITE_OPCODE    0x11
 #define BIT_POS_OPCODE      24
-/*
- * Added by GU
- */
 /*
  * Should we be doing 'direct' PCI reads and writes?
  * '1' ==> YES, call "pci_{read,write}_config_dword()" directly
@@ -160,14 +150,6 @@ static int mt_free_memory(void);
         __length += ptr_lut->cfg_db_##type##_length * sizeof(unsigned long); \
         __length;})
 
-#if 0
-#define TOTAL_ONE_SHOT_LEN(type) ({unsigned long __length = 0; \
-        __length += ptr_lut->msr_##type##_wb * sizeof(struct msr_buffer); \
-        __length += ptr_lut->mem_##type##_wb * sizeof(unsigned long); \
-        __length += ptr_lut->pci_ops_##type##_wb * sizeof(unsigned long); \
-        __length += ptr_lut->cfg_db_##type##_wb * sizeof(unsigned long); \
-        __length;})
-#endif
 #define TOTAL_ONE_SHOT_LEN(type) ({unsigned long __length = 0; \
         __length += ptr_lut->msr_##type##_wb * sizeof(struct mt_msr_buffer); \
         __length += ptr_lut->mem_##type##_wb * sizeof(u32); \
@@ -175,12 +157,6 @@ static int mt_free_memory(void);
         __length += ptr_lut->cfg_db_##type##_wb * sizeof(u32); \
         __length;})
 
-#if 0
-typedef struct {
-    u8 *ops;
-    size_t len;
-} mt_msg_buff_t;
-#endif
 
 // static u8 *mt_msg_init_buff_ops = NULL, *mt_msg_poll_buff_ops = NULL, *mt_msg_term_buff_ops = NULL;
 // static mt_msg_buff_t mt_msg_init_buff = {NULL, 0}, mt_msg_poll_buff = {NULL, 0}, mt_msg_term_buff = {NULL, 0};
@@ -306,7 +282,7 @@ static void mt_platform_pci_write32(unsigned long address, unsigned long data);
 /*
  * MT_MSG functions.
  */
-static void mt_free_msg_memory()
+static void mt_free_msg_memory(void)
 {
     if (mt_msg_init_buff) {
         vfree(mt_msg_init_buff);
@@ -349,16 +325,16 @@ static int mt_init_msg_memory(void)
         __buff->cfg_db_length = ptr_lut->cfg_db_init_wb;
 
         if (__buff->msr_length) {
-            __buff->ptr_msr_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
+            __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
         }
         if (__buff->mem_length) {
-            __buff->ptr_mem_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
+            __buff->ptr_mem_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
         }
         if (__buff->pci_ops_length) {
-            __buff->ptr_pci_ops_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
+            __buff->ptr_pci_ops_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
         }
         if (__buff->cfg_db_length) {
-            __buff->ptr_cfg_db_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+            __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
         }
     }
 
@@ -380,16 +356,16 @@ static int mt_init_msg_memory(void)
         __buff->cfg_db_length = ptr_lut->cfg_db_poll_wb;
 
         if (__buff->msr_length) {
-            __buff->ptr_msr_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
+            __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
         }
         if (__buff->mem_length) {
-            __buff->ptr_mem_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
+            __buff->ptr_mem_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
         }
         if (__buff->pci_ops_length) {
-            __buff->ptr_pci_ops_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
+            __buff->ptr_pci_ops_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
         }
         if (__buff->cfg_db_length) {
-            __buff->ptr_cfg_db_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+            __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
         }
     }
 
@@ -411,16 +387,16 @@ static int mt_init_msg_memory(void)
         __buff->cfg_db_length = ptr_lut->cfg_db_term_wb;
 
         if (__buff->msr_length) {
-            __buff->ptr_msr_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
+            __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
         }
         if (__buff->mem_length) {
-            __buff->ptr_mem_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
+            __buff->ptr_mem_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->mem_length;
         }
         if (__buff->pci_ops_length) {
-            __buff->ptr_pci_ops_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
+            __buff->ptr_pci_ops_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->pci_ops_length;
         }
         if (__buff->cfg_db_length) {
-            __buff->ptr_cfg_db_buff = (u64)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+            __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
         }
     }
     return MT_SUCCESS;
@@ -433,7 +409,7 @@ static int mt_msg_scan_msr(struct mt_xchange_buffer *xbuff, const struct mtx_msr
         unsigned int cpu;
         u32 *lo_rd, *high_rd, lo_wr, high_wr;
         u32 msr_no;
-        struct mt_msr_buffer *msr_buff = (struct mt_msr_buffer *)xbuff->ptr_msr_buff;
+        struct mt_msr_buffer *msr_buff = (struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff;
 
         cpu = (unsigned int)msrs[lut_loop].n_cpu;
         msr_no = msrs[lut_loop].ecx_address;
@@ -509,7 +485,7 @@ static int mt_msg_scan_mmap(struct mt_xchange_buffer *xbuff, const struct memory
             }
         }
         if (mmap[lut_loop].data_size != 0) {
-            memcpy(&((u32 *)xbuff->ptr_mem_buff)[mem_loop], mmap[lut_loop].data_remap_address, mmap[lut_loop].data_size * sizeof(u32));
+            memcpy(&((u32 *)(unsigned long)xbuff->ptr_mem_buff)[mem_loop], mmap[lut_loop].data_remap_address, mmap[lut_loop].data_size * sizeof(u32));
             mem_loop += mmap[lut_loop].data_size;
             if (mem_loop > max_mem_loop) {
                 dev_dbg(matrix_device, "A(%04d) [0x%40lu]of [0x%40lu]\n", __LINE__, mem_loop, max_mem_loop);
@@ -538,7 +514,7 @@ static int mt_msg_scan(struct mt_xchange_buffer *xbuff, const struct mtx_msr *ms
         return -MT_ERROR;
     }
     for (lut_loop = 0; lut_loop < max_cfg_db_loop; ++lut_loop) {
-        ((u32 *)xbuff->ptr_cfg_db_buff)[lut_loop] = mt_platform_pci_read32(cfg_db[lut_loop]);
+        ((u32 *)(unsigned long)xbuff->ptr_cfg_db_buff)[lut_loop] = mt_platform_pci_read32(cfg_db[lut_loop]);
     }
     return MT_SUCCESS;
 };
@@ -631,7 +607,7 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
     unsigned long max_msr_read;
     unsigned long max_cfg_db_loop;
     unsigned long cfg_db_base_addr;
-    unsigned long delta_time;
+    // unsigned long delta_time;
 
     u64 tsc;
 
@@ -656,7 +632,7 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
     if (ptr_lut->msrs_poll) {
         for (lut_loop = 0; lut_loop < max_msr_loop; lut_loop++) {
             if (ptr_lut->msrs_poll[lut_loop].operation == READ_OP) {
-                rdmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, (u32 *) &(((struct mt_msr_buffer *)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].eax_LSB), (u32 *) &(((struct mt_msr_buffer *)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].edx_MSB));
+                rdmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, (u32 *) &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].eax_LSB), (u32 *) &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].edx_MSB));
                 msr_loop++;
             } else if (ptr_lut->msrs_poll[lut_loop].operation == WRITE_OP) {
                 wrmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, ptr_lut->msrs_poll[lut_loop].eax_LSB, ptr_lut->msrs_poll[lut_loop].edx_MSB);
@@ -676,7 +652,7 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
             if (ptr_lut->mmap_poll[lut_loop].ctrl_remap_address)
                 writel(ptr_lut->mmap_poll[lut_loop].ctrl_data, ptr_lut->mmap_poll[lut_loop].ctrl_remap_address);
             if (ptr_lut->mmap_poll[lut_loop].data_size != 0) {
-                memcpy(&((u32 *)xbuff->ptr_mem_buff)[mem_base_addr + mem_loop], ptr_lut->mmap_poll[lut_loop].data_remap_address, ptr_lut->mmap_poll[lut_loop].data_size * sizeof(u32));
+                memcpy(&((u32 *)(unsigned long)xbuff->ptr_mem_buff)[mem_base_addr + mem_loop], ptr_lut->mmap_poll[lut_loop].data_remap_address, ptr_lut->mmap_poll[lut_loop].data_size * sizeof(u32));
                 mem_loop += ptr_lut->mmap_poll[lut_loop].data_size;
                 if (mem_loop > max_mem_loop) {
                     dev_dbg(matrix_device, "A(%04d) [0x%40lu]of [0x%40lu]\n", __LINE__, mem_loop, max_mem_loop);
@@ -689,8 +665,8 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
     /* Get the status of power islands in the North Complex */
     io_pm_lower_status = inl(io_pm_status_reg + PWR_STS_NORTH_CMPLX_LOWER);
     io_pm_upper_status = inl(io_base_pwr_address + PWR_STS_NORTH_CMPLX_UPPER);
-    memcpy(&((u32 *)xbuff->ptr_pci_ops_buff)[0], &io_pm_lower_status, sizeof(u32));
-    memcpy(&((u32 *)xbuff->ptr_pci_ops_buff)[1], &io_pm_upper_status, sizeof(u32));
+    memcpy(&((u32 *)(unsigned long)xbuff->ptr_pci_ops_buff)[0], &io_pm_lower_status, sizeof(u32));
+    memcpy(&((u32 *)(unsigned long)xbuff->ptr_pci_ops_buff)[1], &io_pm_upper_status, sizeof(u32));
 
     /* SCU IO */
 #ifdef CONFIG_INTEL_SCU_IPC
@@ -708,7 +684,7 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
 #endif // CONFIG_INTEL_SCU_IPC
     cfg_db_base_addr = 0; // (poll_loop * max_cfg_db_loop);
     for (lut_loop = 0; lut_loop < max_cfg_db_loop; lut_loop++) {
-        ((u32 *)xbuff->ptr_cfg_db_buff)[cfg_db_base_addr + lut_loop] = mt_platform_pci_read32(ptr_lut->cfg_db_poll[lut_loop]);
+        ((u32 *)(unsigned long)xbuff->ptr_cfg_db_buff)[cfg_db_base_addr + lut_loop] = mt_platform_pci_read32(ptr_lut->cfg_db_poll[lut_loop]);
     }
 #endif // DO_ANDROID
 
@@ -938,9 +914,9 @@ static int mt_initialize_memory(unsigned long ptr_data)
         */
 
         {
-            unsigned long init_length = TOTAL_ONE_SHOT_LENGTH(init);
-            unsigned long poll_length = TOTAL_ONE_SHOT_LENGTH(poll);
-            unsigned long term_length = TOTAL_ONE_SHOT_LENGTH(term);
+            // unsigned long init_length = TOTAL_ONE_SHOT_LENGTH(init);
+            // unsigned long poll_length = TOTAL_ONE_SHOT_LENGTH(poll);
+            // unsigned long term_length = TOTAL_ONE_SHOT_LENGTH(term);
 
 
             // printk(KERN_INFO "GU: init_length = %lu, poll_length = %lu, term_length = %lu\n", init_length, poll_length, term_length);
@@ -1588,7 +1564,7 @@ static long matrix_ioctl(struct file
 #endif // compat && x64
             return mt_get_version((u32 *)ptr_data);
         default:
-            printk(KERN_INFO "INVALID IOCTL = %lu received!\n", request);
+            printk(KERN_INFO "INVALID IOCTL = %u received!\n", request);
             dev_dbg(matrix_device,
                     "file : %s ,function : %s ,line %i\n", __FILE__,
                     __func__, __LINE__);
@@ -1596,95 +1572,6 @@ static long matrix_ioctl(struct file
     }
     return 0;
 }
-
-#if 0
-/*
- * GU: Use this version of the function after full HSW support has been enabled
- */
-static long matrix_ioctl(struct file *filp, unsigned int request, unsigned long ptr_data)
-{
-    // printk(KERN_INFO "Received MATRIX IOCTL: %lu\n", request);
-    if (MT_MATCH_IOCTL(request, IOCTL_VERSION_INFO)) {
-        printk(KERN_INFO "IOCTL_VERSION_INFO received!\n");
-        if (copy_to_user((char *)ptr_data, PW_DRV_VERSION_STRING,
-                    strlen(PW_DRV_VERSION_STRING) + 1) > 0) {
-            dev_dbg(matrix_device,
-                    "file : %s ,function : %s ,line %i\n",
-                    __FILE__, __func__, __LINE__);
-            return -EFAULT;
-        }
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_INIT_MEMORY)) {
-        printk(KERN_INFO "IOCTL_INIT_MEMORY received!\n");
-        return mt_initialize_memory(ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_FREE_MEMORY)) {
-        printk(KERN_INFO "IOCTL_FREE_MEMORY received!\n");
-        return mt_free_memory();
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_OPERATE_ON_MSR)) {
-            printk(KERN_INFO "IOCTL_OPERATE_ON_MSR received!\n");
-            return mt_operate_on_msr(ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_INIT_SCAN)) {
-            printk(KERN_INFO "IOCTL_INIT_SCAN received!\n");
-            return mt_msg_data_scan(request);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_TERM_SCAN)) {
-            printk(KERN_INFO "IOCTL_TERM_SCAN received!\n");
-            return mt_msg_data_scan(request);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_POLL_SCAN)) {
-            printk(KERN_INFO "IOCTL_POLL_SCAN received!\n");
-            // return mt_poll_scan(ptr_data);
-            return mt_msg_poll_scan(ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_COPY_TO_USER)) {
-            printk(KERN_INFO "IOCTL_COPY_TO_USER received!\n");
-            return mt_transfer_data(ptr_data);
-    }
-    /* MSR based ioctl's */
-    else if (MT_MATCH_IOCTL(request, IOCTL_MSR)) {
-            printk(KERN_INFO "IOCTL_MSR received!\n");
-            return IOCTL_mtx_msr(ptr_data);
-    }
-    /* SRAM based ioctl's */
-    else if (MT_MATCH_IOCTL(request, IOCTL_SRAM)) {
-            printk(KERN_INFO "IOCTL_SRAM received!\n");
-            return IOCTL_sram(ptr_data);
-    }
-            // return -1;
-    /* GMCH based ioctl's */
-    else if (MT_MATCH_IOCTL(request, IOCTL_GMCH)) {
-            printk(KERN_INFO "IOCTL_GMCH received!\n");
-            return IOCTL_gmch(request, ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_GMCH_RESET)) {
-            printk(KERN_INFO "IOCTL_GMCH_REQUEST received!\n");
-            return IOCTL_gmch(request, ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_READ_CONFIG_DB)) {
-            printk(KERN_INFO "IOCTL_READ_CONFIG_DB received!\n");
-            return mt_read_config((unsigned long *)ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_WRITE_CONFIG_DB)) {
-        printk(KERN_INFO "IOCTL_WRITE_CONFIG_DB received!\n");
-        return mt_write_config((unsigned long *)ptr_data);
-    }
-    else if (MT_MATCH_IOCTL(request, IOCTL_READ_PCI_CONFIG)) {
-        printk(KERN_INFO "IOCTL_READ_PCI_CONFIG received!\n");
-        return mt_read_pci_config((unsigned long *)ptr_data);
-    }
-    else {
-            printk(KERN_INFO "INVALID IOCTL = %lu received!\n", request);
-            dev_dbg(matrix_device,
-                    "file : %s ,function : %s ,line %i\n", __FILE__,
-                    __func__, __LINE__);
-            return -EFAULT;
-    }
-    return 0;
-}
-#endif // if 0
 
 static int matrix_release(struct inode *in, struct file *filp)
 {
@@ -1748,7 +1635,12 @@ static int mt_copy_mmap_info_i(struct memory_map __user *mem, const struct memor
         if (get_user(data, &mem32[i].ctrl_addr) || put_user(data, &mem[i].ctrl_addr)) {
             return -EFAULT;
         }
+        /*
         if (get_user(data, &mem32[i].ctrl_remap_address) || put_user(data, &mem[i].ctrl_remap_address)) {
+            return -EFAULT;
+        }
+        */
+        if (copy_from_user(&data, &mem32[i].ctrl_remap_address, sizeof(data)) || copy_to_user(&mem[i].ctrl_remap_address, &data, sizeof(data))) {
             return -EFAULT;
         }
         if (get_user(data, &mem32[i].ctrl_data) || put_user(data, &mem[i].ctrl_data)) {
@@ -1830,7 +1722,7 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
     struct lookup_table32 __user *__tab32 = compat_ptr(ioctl_param);
     struct lookup_table __user *__tab = NULL;
     struct lookup_table32 __tmp;
-    u32 data;
+    // u32 data;
     size_t __size = 0;
     u32 __dst_idx = 0;
     u8 __user *__buffer = NULL;
@@ -1897,7 +1789,7 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
      */
     __buffer = compat_alloc_user_space(__size);
     if (!__buffer) {
-        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", __size);
+        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", (unsigned)__size);
         return -EFAULT;
     }
     // printk(KERN_INFO "OK: ALLOCATED compat space of size = %u\n", __size);
@@ -2307,13 +2199,13 @@ static long mt_device_compat_msr_ioctl_i(struct file *file, unsigned int ioctl_n
     struct mtx_msr_container32 __user *__msr32 = compat_ptr(ioctl_param);
     struct mtx_msr_container __user *__msr = NULL;
     struct mtx_msr_container32 __tmp;
-    u32 data;
+    // u32 data;
     size_t __size = 0;
     u32 __dst_idx = 0;
     u8 __user *__buffer = NULL;
-    struct mtx_msr_container mtx_msr_drv;
-    unsigned long *buffer = NULL;
-    int err = 0;
+    // struct mtx_msr_container mtx_msr_drv;
+    // unsigned long *buffer = NULL;
+    // int err = 0;
 
 
     // printk(KERN_INFO "OK, received \"matrix\" compat ioctl!\n");
@@ -2348,7 +2240,7 @@ static long mt_device_compat_msr_ioctl_i(struct file *file, unsigned int ioctl_n
      */
     __buffer = compat_alloc_user_space(__size);
     if (!__buffer) {
-        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", __size);
+        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", (unsigned)__size);
         return -EFAULT;
     }
     // printk(KERN_INFO "OK: ALLOCATED compat space of size = %u\n", __size);
@@ -2415,13 +2307,13 @@ static long mt_device_compat_pci_config_ioctl_i(struct file *file, unsigned int 
     struct pci_config32 __user *__pci32 = compat_ptr(ioctl_param);
     struct pci_config __user *__pci = NULL;
     struct pci_config32 __tmp;
-    u32 data;
+    // u32 data;
     size_t __size = 0;
     u32 __dst_idx = 0;
     u8 __user *__buffer = NULL;
-    struct pci_config mtx_pci_drv;
-    unsigned long *buffer = NULL;
-    int err = 0;
+    // struct pci_config mtx_pci_drv;
+    // unsigned long *buffer = NULL;
+    // int err = 0;
 
 
     // printk(KERN_INFO "OK, received \"matrix\" compat ioctl!\n");
@@ -2451,7 +2343,7 @@ static long mt_device_compat_pci_config_ioctl_i(struct file *file, unsigned int 
      */
     __buffer = compat_alloc_user_space(__size);
     if (!__buffer) {
-        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", __size);
+        printk(KERN_INFO "ERROR allocating compat space for size = %u!\n", (unsigned)__size);
         return -EFAULT;
     }
     // printk(KERN_INFO "OK: ALLOCATED compat space of size = %u\n", __size);
@@ -2519,20 +2411,20 @@ static long mt_device_compat_config_db_ioctl_i(struct file *file, unsigned int i
 int mt_register_dev(void)
 {
 	int error;
-	error = alloc_chrdev_region(&matrix_dev, 0, 1, NAME);
+	error = alloc_chrdev_region(&matrix_dev, 0, 1, DRV_NAME);
 	if (error < 0) {
 		pr_err("Matrix : Could not allocate char dev region");
 		// return 1;
 		return error;
 	}
 	matrix_major_number = MAJOR(matrix_dev);
-	matrix_class = class_create(THIS_MODULE, NAME);
+	matrix_class = class_create(THIS_MODULE, DRV_NAME);
 	if (IS_ERR(matrix_class)) {
 		pr_err("Matrix :Error registering class\n");
 		// return 1;
 		return -MT_ERROR;
 	}
-	device_create(matrix_class, NULL, matrix_dev, NULL, NAME);
+	device_create(matrix_class, NULL, matrix_dev, NULL, DRV_NAME);
 
 	/*Device Registration */
 	matrix_cdev = cdev_alloc();
@@ -2542,7 +2434,7 @@ int mt_register_dev(void)
 	}
 	matrix_cdev->owner = THIS_MODULE;
 	matrix_cdev->ops = &matrix_fops;
-	matrix_device = (struct device *)matrix_cdev->dev;
+	matrix_device = (struct device *)(unsigned long)matrix_cdev->dev;
 	if (cdev_add(matrix_cdev, matrix_dev, 1) < 0) {
 		pr_err("Error registering device driver\n");
 		// return error;
@@ -2556,7 +2448,7 @@ int mt_register_dev(void)
 void mt_unregister_dev(void)
 {
 	pr_info("Matrix De-Registered Successfully...\n");
-	unregister_chrdev(matrix_major_number, NAME);
+	unregister_chrdev(matrix_major_number, DRV_NAME);
 	device_destroy(matrix_class, matrix_dev);
 	class_destroy(matrix_class);
 	unregister_chrdev_region(matrix_dev, 1);
