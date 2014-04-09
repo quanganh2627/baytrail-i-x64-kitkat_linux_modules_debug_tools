@@ -225,6 +225,10 @@ lwpmudrv_PWR_Info (
     // First things first: Make a copy of the data for global use.
     //
     pwr = CONTROL_Allocate_Memory((int)arg->w_len);
+    if (!pwr) {
+        return OS_NO_MEM;
+    }
+
     if (copy_from_user(pwr, arg->w_buf, arg->w_len)) {
         return OS_FAULT;
     }
@@ -2053,6 +2057,10 @@ lwpmudrv_LBR_Info (
     //
 
     lbr = CONTROL_Allocate_Memory((int)arg->w_len);
+    if (!lbr) {
+        return OS_NO_MEM;
+    }
+
     if (copy_from_user(lbr, arg->w_buf, arg->w_len)) {
         return OS_FAULT;
     }
