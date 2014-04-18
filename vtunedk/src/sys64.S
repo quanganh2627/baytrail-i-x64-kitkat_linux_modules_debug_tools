@@ -1,4 +1,4 @@
-#     Copyright (C) 2002-2012 Intel Corporation.  All Rights Reserved.
+#     Copyright (C) 2002-2014 Intel Corporation.  All Rights Reserved.
 # 
 #     This file is part of SEP Development Kit
 # 
