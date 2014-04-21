@@ -76,13 +76,12 @@
 #ifdef CONFIG_RPMSG_IPC
     #include <asm/intel_mid_rpmsg.h>
 #endif // CONFIG_RPMSG_IPC
-// #if DO_ANDROID
 #ifdef CONFIG_INTEL_SCU_IPC
     #include <asm/intel_scu_pmic.h>	/* Needed for 3.4 kernel port */
 #endif // CONFIG_INTEL_SCU_IPC
-// #endif // if DO_ANDROID
 #include <linux/kdev_t.h>
 #include <asm/paravirt.h>
+#include <linux/sfi.h> // To retrieve SCU F/W version
 
 #include "pw_structs.h"
 #include "pw_output_buffer.h"
@@ -111,9 +110,14 @@
     #undef DO_DIRECT_PCI_READ_WRITE
     #define DO_DIRECT_PCI_READ_WRITE  1
 #endif
-#if !DO_DIRECT_PCI_READ_WRITE 
+#if !DO_DIRECT_PCI_READ_WRITE
     #include <asm/intel_mid_pcihelpers.h>
 #endif
+
+#define PW_NUM_SOCHAP_COUNTERS 9
+#if DO_INTEL_INTERNAL
+    extern void LWPMUDRV_VISA_Read_Data (void *data_buffer);
+#endif // DO_INTEL_INTERNAL
 
 static int matrix_major_number;
 static bool instantiated;
@@ -148,6 +152,7 @@ static int mt_free_memory(void);
         __length += ptr_lut->mem_##type##_length * sizeof(struct memory_map); \
         __length += ptr_lut->pci_ops_##type##_length * sizeof(struct mtx_pci_ops); \
         __length += ptr_lut->cfg_db_##type##_length * sizeof(unsigned long); \
+        __length += ptr_lut->visa_##type##_length * sizeof(struct mtx_visa); \
         __length;})
 
 #define TOTAL_ONE_SHOT_LEN(type) ({unsigned long __length = 0; \
@@ -155,17 +160,15 @@ static int mt_free_memory(void);
         __length += ptr_lut->mem_##type##_wb * sizeof(u32); \
         __length += ptr_lut->pci_ops_##type##_wb * sizeof(u32); \
         __length += ptr_lut->cfg_db_##type##_wb * sizeof(u32); \
+        /*__length += ptr_lut->visa_##type##_wb * sizeof(struct mt_visa_buffer); */\
+        /* GU: Ring-3 now sets 'visa_poll_wb' == MAX_VISA_VALUES */ \
+        __length += ptr_lut->visa_##type##_wb * sizeof(u64); \
         __length;})
 
-
-// static u8 *mt_msg_init_buff_ops = NULL, *mt_msg_poll_buff_ops = NULL, *mt_msg_term_buff_ops = NULL;
-// static mt_msg_buff_t mt_msg_init_buff = {NULL, 0}, mt_msg_poll_buff = {NULL, 0}, mt_msg_term_buff = {NULL, 0};
-// static pw_mt_msg_t mt_msg_init_buff = {0, 0, 0x0}, mt_msg_poll_buff = {0, 0, 0x0}, mt_msg_term_buff = {0, 0, 0x0};
 static pw_mt_msg_t *mt_msg_init_buff = NULL, *mt_msg_poll_buff = NULL, *mt_msg_term_buff = NULL;
 
 static u32 mt_platform_pci_read32(u32 address);
 static void mt_platform_pci_write32(unsigned long address, unsigned long data);
-
 
 /**
  * Matrix Driver works in such a way that only one thread
@@ -211,6 +214,8 @@ static void mt_platform_pci_write32(unsigned long address, unsigned long data);
                 ioremap_nocache(ptr_lut-> \
                         mmap_##state[count].ctrl_addr, \
                         sizeof(unsigned long)); \
+            } else { \
+                ptr_lut->mmap_##state[count].ctrl_remap_address = NULL; \
             } \
             if (ptr_lut->mmap_##state[count].data_addr) { \
                 ptr_lut->mmap_##state[count].data_remap_address = \
@@ -219,6 +224,8 @@ static void mt_platform_pci_write32(unsigned long address, unsigned long data);
                         (ptr_lut-> \
                          mmap_##state[count].data_size) \
                         * sizeof(unsigned long));\
+            }  else { \
+                ptr_lut->mmap_##state[count].data_remap_address = NULL; \
             }  \
         } \
     } while (0)
@@ -278,6 +285,7 @@ static void mt_platform_pci_write32(unsigned long address, unsigned long data);
     static int mt_copy_mmap_info_i(struct memory_map __user *mem, const struct memory_map32 __user *mem32, unsigned long length);
     static int mt_copy_pci_info_i(struct mtx_pci_ops __user *pci, const struct mtx_pci_ops32 __user *pci32, unsigned long length);
     static int mt_copy_cfg_db_info_i(unsigned long __user *cfg, const u32 __user *cfg32, unsigned long length);
+    static int mt_copy_visa_info_i(struct mtx_visa __user *visa, const struct mtx_visa32 __user *visa32, unsigned long length);
 #endif
 /*
  * MT_MSG functions.
@@ -307,6 +315,8 @@ static int mt_init_msg_memory(void)
     unsigned int poll_len = TOTAL_ONE_SHOT_LEN(poll);
     unsigned int term_len = TOTAL_ONE_SHOT_LEN(term);
 
+    // printk(KERN_INFO "sizeof mt_xchange = %u, sizeof mt_msr_buffer = %u, header_size = %u\n", sizeof(struct mt_xchange_buffer), sizeof(struct mt_msr_buffer), PW_MT_MSG_HEADER_SIZE());
+
     mt_msg_init_buff = (pw_mt_msg_t *)vmalloc(PW_MT_MSG_HEADER_SIZE() + sizeof(struct mt_xchange_buffer) + init_len);
     if (!mt_msg_init_buff) {
         mt_free_msg_memory();
@@ -323,6 +333,9 @@ static int mt_init_msg_memory(void)
         __buff->mem_length = ptr_lut->mem_init_wb;
         __buff->pci_ops_length = ptr_lut->pci_ops_init_wb;
         __buff->cfg_db_length = ptr_lut->cfg_db_init_wb;
+        __buff->visa_length = ptr_lut->visa_init_wb;
+
+        // printk(KERN_INFO "GU: init visa length = %lu\n", __buff->visa_length);
 
         if (__buff->msr_length) {
             __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
@@ -335,6 +348,9 @@ static int mt_init_msg_memory(void)
         }
         if (__buff->cfg_db_length) {
             __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+        }
+        if (__buff->visa_length) {
+            __buff->ptr_visa_buff = (u64)(unsigned long)&__buff_ops[__dst_idx];
         }
     }
 
@@ -354,6 +370,9 @@ static int mt_init_msg_memory(void)
         __buff->mem_length = ptr_lut->mem_poll_wb;
         __buff->pci_ops_length = ptr_lut->pci_ops_poll_wb;
         __buff->cfg_db_length = ptr_lut->cfg_db_poll_wb;
+        __buff->visa_length = ptr_lut->visa_poll_wb;
+
+        // printk(KERN_INFO "GU: poll visa length = %lu\n", __buff->visa_length);
 
         if (__buff->msr_length) {
             __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
@@ -366,6 +385,9 @@ static int mt_init_msg_memory(void)
         }
         if (__buff->cfg_db_length) {
             __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+        }
+        if (__buff->visa_length) {
+            __buff->ptr_visa_buff = (u64)(unsigned long)&__buff_ops[__dst_idx];
         }
     }
 
@@ -385,6 +407,9 @@ static int mt_init_msg_memory(void)
         __buff->mem_length = ptr_lut->mem_term_wb;
         __buff->pci_ops_length = ptr_lut->pci_ops_term_wb;
         __buff->cfg_db_length = ptr_lut->cfg_db_term_wb;
+        __buff->visa_length = ptr_lut->visa_term_wb;
+
+        // printk(KERN_INFO "GU: term visa length = %lu\n", __buff->visa_length);
 
         if (__buff->msr_length) {
             __buff->ptr_msr_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(struct mt_msr_buffer) * __buff->msr_length;
@@ -397,6 +422,9 @@ static int mt_init_msg_memory(void)
         }
         if (__buff->cfg_db_length) {
             __buff->ptr_cfg_db_buff = (u64)(unsigned long)&__buff_ops[__dst_idx]; __dst_idx += sizeof(u32) * __buff->cfg_db_length;
+        }
+        if (__buff->visa_length) {
+            __buff->ptr_visa_buff = (u64)(unsigned long)&__buff_ops[__dst_idx];
         }
     }
     return MT_SUCCESS;
@@ -476,11 +504,12 @@ static int mt_msg_scan_mmap(struct mt_xchange_buffer *xbuff, const struct memory
          * _address should point to the mmio address from which
          * we need to read 
          */
+        // printk(KERN_INFO "lut_loop = %lu, ctrl_addr = %lu, data_addr = %lu, data_size = %lu\n", lut_loop, mmap[lut_loop].ctrl_addr, mmap[lut_loop].data_addr, mmap[lut_loop].data_size);
         if (mmap[lut_loop].ctrl_addr) {
             scu_cmd = mmap[lut_loop].ctrl_data & 0xFF;
             scu_sub_cmd = (mmap[lut_loop].ctrl_data >> 12) & 0xF;
             if (MATRIX_SCAN_MMAP_DO_IPC(scu_cmd, scu_sub_cmd)) {
-                dev_dbg(matrix_device, "Unagle to get SCU data...\n");
+                dev_dbg(matrix_device, "Unable to get SCU data...\n");
                 return -MT_ERROR;
             }
         }
@@ -505,6 +534,7 @@ static int mt_msg_scan_mmap(struct mt_xchange_buffer *xbuff, const struct memory
 static int mt_msg_scan(struct mt_xchange_buffer *xbuff, const struct mtx_msr *msrs, const struct memory_map *mmap, const unsigned long *cfg_db, unsigned long max_msr_loop, unsigned long max_mem_loop, unsigned long max_mem_lut_loop, unsigned long max_cfg_db_loop)
 {
     unsigned long lut_loop = 0;
+    // printk(KERN_INFO "MT_MSG_SCAN: msrs = %p, mmap = %p, cfg_db = %p\n", msrs, mmap, cfg_db);
     if (msrs && mt_msg_scan_msr(xbuff, msrs, max_msr_loop)) {
         printk(KERN_INFO "ERROR reading MT_MSG MSRs!\n");
         return -MT_ERROR;
@@ -516,6 +546,7 @@ static int mt_msg_scan(struct mt_xchange_buffer *xbuff, const struct mtx_msr *ms
     for (lut_loop = 0; lut_loop < max_cfg_db_loop; ++lut_loop) {
         ((u32 *)(unsigned long)xbuff->ptr_cfg_db_buff)[lut_loop] = mt_platform_pci_read32(cfg_db[lut_loop]);
     }
+    // TODO pci_ops?
     return MT_SUCCESS;
 };
 
@@ -632,7 +663,9 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
     if (ptr_lut->msrs_poll) {
         for (lut_loop = 0; lut_loop < max_msr_loop; lut_loop++) {
             if (ptr_lut->msrs_poll[lut_loop].operation == READ_OP) {
-                rdmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, (u32 *) &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].eax_LSB), (u32 *) &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr + msr_loop].edx_MSB));
+                u32 *__lsb = &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr+msr_loop].eax_LSB);
+                u32 *__msb = &(((struct mt_msr_buffer *)(unsigned long)xbuff->ptr_msr_buff)[msr_base_addr+msr_loop].edx_MSB);
+                rdmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, __lsb, __msb);
                 msr_loop++;
             } else if (ptr_lut->msrs_poll[lut_loop].operation == WRITE_OP) {
                 wrmsr_on_cpu(ptr_lut->msrs_poll[lut_loop].n_cpu, ptr_lut->msrs_poll[lut_loop].ecx_address, ptr_lut->msrs_poll[lut_loop].eax_LSB, ptr_lut->msrs_poll[lut_loop].edx_MSB);
@@ -687,6 +720,26 @@ static int mt_msg_poll_scan(unsigned long poll_loop)
         ((u32 *)(unsigned long)xbuff->ptr_cfg_db_buff)[cfg_db_base_addr + lut_loop] = mt_platform_pci_read32(ptr_lut->cfg_db_poll[lut_loop]);
     }
 #endif // DO_ANDROID
+
+    /* Get the VISA counter values */
+#if DO_INTEL_INTERNAL
+    if (NULL != ptr_lut->visa_poll) {
+        if (ptr_lut->visa_poll[0].operation == READ_OP) {
+            //int i = 0;
+            u64 __visa_buffer[PW_NUM_SOCHAP_COUNTERS];
+
+            memset(__visa_buffer, 0, sizeof(__visa_buffer));
+
+            LWPMUDRV_VISA_Read_Data(__visa_buffer);
+
+            memcpy(&((struct visa_buffer *)(unsigned long)xbuff->ptr_visa_buff)[0], __visa_buffer, sizeof(__visa_buffer));
+        } else {
+            dev_dbg(matrix_device, "VISA operation is NOT read!\n");
+        }
+    } else {
+        dev_dbg(matrix_device, "VISA poll is NULL!\n");
+    }
+#endif // DO_INTEL_INTERNAL
 
     if (mt_produce_mt_msg(mt_msg_poll_buff, tsc)) {
         printk(KERN_INFO "ERROR producing a POLL MT_MSG!\n");
@@ -779,6 +832,7 @@ static void mt_calculate_memory_requirements(void)
 	MATRIX_INCREMENT_MEMORY(struct, mtx_pci_ops, lut, pci_ops, 1);
 	MATRIX_INCREMENT_MEMORY(unsigned, long, lut, cfg_db, 1);
 	// MATRIX_INCREMENT_MEMORY(unsigned, int, lut, cfg_db, 1);
+	MATRIX_INCREMENT_MEMORY(struct, mtx_visa, lut, visa, 1);
 	lut_info.poll_scu_drv_size =
 	    ptr_lut->scu_poll.length * ptr_lut->scu_poll_length;
 	lut_info.total_mem_bytes_req += lut_info.poll_scu_drv_size;
@@ -823,6 +877,13 @@ static int mt_bookmark_lookup_table(void)
 	/* scu part of the lookup table */
 	ptr_lut->scu_poll.drv_data = (unsigned char *)&ptr_lut_ops[offset];
 
+	/* visa part of the lookup table */
+	MATRIX_BOOK_MARK_LUT(init, visa, struct, mtx_visa, visa, 0,
+			     COPY_FAIL);
+	MATRIX_BOOK_MARK_LUT(poll, visa, struct, mtx_visa, visa, 0,
+			     COPY_FAIL);
+	MATRIX_BOOK_MARK_LUT(term, visa, struct, mtx_visa, visa, 0,
+			     COPY_FAIL);
 	return 0;
 COPY_FAIL:
 	return -EFAULT;
@@ -893,6 +954,10 @@ static int mt_initialize_memory(unsigned long ptr_data)
         PRINT_LUT_LENGTHS(cfg_db, init);
         PRINT_LUT_LENGTHS(cfg_db, poll);
         PRINT_LUT_LENGTHS(cfg_db, term);
+
+        PRINT_LUT_LENGTHS(visa, init);
+        PRINT_LUT_LENGTHS(visa, poll);
+        PRINT_LUT_LENGTHS(visa, term);
         */
 
         /*
@@ -911,6 +976,10 @@ static int mt_initialize_memory(unsigned long ptr_data)
         PRINT_LUT_WBS(cfg_db, init);
         PRINT_LUT_WBS(cfg_db, poll);
         PRINT_LUT_WBS(cfg_db, term);
+
+        PRINT_LUT_WBS(visa, init);
+        PRINT_LUT_WBS(visa, poll);
+        PRINT_LUT_WBS(visa, term);
         */
 
         {
@@ -955,12 +1024,12 @@ ERROR:
 	mt_free_memory();
 	return -EFAULT;
 }
-
 #if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
     #define MT_MATCH_IOCTL(num, pred) ( (num) == (pred) || (num) == (pred##32) )
 #else
     #define MT_MATCH_IOCTL(num, pred) ( (num) == (pred) )
 #endif // COMPAT && x64
+
 /**
  * initial_scan - function that is run once before polling at regular intervals
  * sets the msr's and other variables to their default values
@@ -1005,14 +1074,14 @@ ERROR:
 static int mt_transfer_data(unsigned long ptr_data)
 {
     return 0; // SUCCESS
-};
+}
 
 /**
  * ioctl_mtx_msr - mtx_msr_container refers to structure designed to hold data related
  * to MSR( Model Specific Registers).
  * @ptr_data : gets the address of the user buffer that has to be populated
  */
-static int IOCTL_mtx_msr(unsigned long ptr_data)
+static int IOCTL_mtx_msr(unsigned long ptr_data, unsigned int request)
 {
 	struct mtx_msr_container mtx_msr_drv;
 	unsigned long *buffer = NULL;
@@ -1043,6 +1112,17 @@ static int IOCTL_mtx_msr(unsigned long ptr_data)
 			goto ERROR;
 		}
 	}
+        if (false) {
+            printk(KERN_INFO "IOCTL_MTX_MSR received...\n");
+            printk(KERN_INFO "\teax_LSB = %lu\n", mtx_msr_drv.msrType1.eax_LSB);
+            printk(KERN_INFO "\tedx_MSB = %lu\n", mtx_msr_drv.msrType1.edx_MSB);
+            printk(KERN_INFO "\tecx_address = %lu\n", mtx_msr_drv.msrType1.ecx_address);
+            printk(KERN_INFO "\tebx_value = %lu\n", mtx_msr_drv.msrType1.ebx_value);
+            printk(KERN_INFO "\tn_cpu = %lu\n", mtx_msr_drv.msrType1.n_cpu);
+            printk(KERN_INFO "\toperation = %lu\n", mtx_msr_drv.msrType1.operation);
+
+            return -EFAULT;
+        }
 	switch (mtx_msr_drv.msrType1.operation) {
 	case WRITE_OP:
 		err = wrmsr_on_cpu(mtx_msr_drv.msrType1.n_cpu,
@@ -1055,6 +1135,11 @@ static int IOCTL_mtx_msr(unsigned long ptr_data)
 				   mtx_msr_drv.msrType1.ecx_address,
 				   (u32 *) & mtx_msr_drv.msrType1.eax_LSB,
 				   (u32 *) & mtx_msr_drv.msrType1.edx_MSB);
+                if (false) {
+                    u32 __lsb = mtx_msr_drv.msrType1.eax_LSB, __msb = mtx_msr_drv.msrType1.edx_MSB;
+                    u64 __val = ((u64)__msb << 32) | (u64)__lsb;
+                    printk(KERN_INFO "eax_LSB = %u, edx_MSB = %u, actual = %llu\n", __lsb, __msb, __val);
+                }
 		break;
 	case ENABLE_OP:
 		wrmsrl(mtx_msr_drv.msrType1.ecx_address,
@@ -1069,6 +1154,49 @@ static int IOCTL_mtx_msr(unsigned long ptr_data)
 	}
 	if (err != 0)
 		goto ERROR;
+
+#if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
+        if (request == IOCTL_MSR32) {
+            struct mtx_msr_container32 __user *__msr32 = compat_ptr(ptr_data);
+            // struct mtx_msr_container32 __user *__msr32 = (struct mtx_msr_container32 *)ptr_data;
+            u32 data;
+            // printk(KERN_INFO "SIZE = %u (%u)\n", sizeof(*__msr32), sizeof(__msr32->msrType1));
+            data = (u32)mtx_msr_drv.length;
+            if (put_user(data, &__msr32->length)) {
+                goto ERROR;
+            }
+            data = (u32)mtx_msr_drv.msrType1.eax_LSB;
+            if (put_user(data, &__msr32->msrType1.eax_LSB)) {
+                goto ERROR;
+            }
+            // printk(KERN_INFO "eax_LSB = %u\n", data);
+            data = (u32)mtx_msr_drv.msrType1.edx_MSB;
+            if (put_user(data, &__msr32->msrType1.edx_MSB)) {
+                goto ERROR;
+            }
+            // printk(KERN_INFO "edx_MSB = %u\n", data);
+            data = (u32)mtx_msr_drv.msrType1.ecx_address;
+            if (put_user(data, &__msr32->msrType1.ecx_address)) {
+                goto ERROR;
+            }
+            data = (u32)mtx_msr_drv.msrType1.ebx_value;
+            if (put_user(data, &__msr32->msrType1.ebx_value)) {
+                goto ERROR;
+            }
+            data = (u32)mtx_msr_drv.msrType1.n_cpu;
+            if (put_user(data, &__msr32->msrType1.n_cpu)) {
+                goto ERROR;
+            }
+            data = (u32)mtx_msr_drv.msrType1.operation;
+            if (put_user(data, &__msr32->msrType1.operation)) {
+                goto ERROR;
+            }
+            // printk(KERN_INFO "OK: copied MSR32!\n");
+            vfree(buffer);
+            return 0;
+        }
+#endif // COMPAT && x64
+
 	if (copy_to_user
 	    ((struct mtx_msr_container *)ptr_data, &mtx_msr_drv,
 	     sizeof(mtx_msr_drv)) > 0) {
@@ -1485,10 +1613,10 @@ static long matrix_ioctl(struct file
 #if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
         case IOCTL_INIT_MEMORY32:
 #endif // COMPAT && x64
-            //printk(KERN_INFO "IOCTL_INIT_MEMORY received!\n");
+            // printk(KERN_INFO "IOCTL_INIT_MEMORY received!\n");
             return mt_initialize_memory(ptr_data);
         case IOCTL_FREE_MEMORY:
-            //printk(KERN_INFO "IOCTL_FREE_MEMORY received!\n");
+            // printk(KERN_INFO "IOCTL_FREE_MEMORY received!\n");
             return mt_free_memory();
         case IOCTL_OPERATE_ON_MSR:
             // printk(KERN_INFO "IOCTL_OPERATE_ON_MSR received!\n");
@@ -1505,19 +1633,16 @@ static long matrix_ioctl(struct file
 #if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
         case IOCTL_POLL_SCAN32:
 #endif // COMPAT && x64
-            //printk(KERN_INFO "IOCTL_POLL_SCAN received!\n");
+            // printk(KERN_INFO "IOCTL_POLL_SCAN received!\n");
             // return mt_poll_scan(ptr_data);
             return mt_msg_poll_scan(ptr_data);
         case IOCTL_COPY_TO_USER:
-            //printk(KERN_INFO "IOCTL_COPY_TO_USER received!\n");
+            // printk(KERN_INFO "IOCTL_COPY_TO_USER received!\n");
             return mt_transfer_data(ptr_data);
             /* MSR based ioctl's */
         case IOCTL_MSR:
-#if defined(HAVE_COMPAT_IOCTL) && defined(CONFIG_X86_64)
-        case IOCTL_MSR32:
-#endif // COMPAT && x64
             // printk(KERN_INFO "IOCTL_MSR received!\n");
-            return IOCTL_mtx_msr(ptr_data);
+            return IOCTL_mtx_msr(ptr_data, request);
             /* SRAM based ioctl's */
         case IOCTL_SRAM:
             // printk(KERN_INFO "IOCTL_SRAM received!\n");
@@ -1700,6 +1825,25 @@ static int mt_copy_cfg_db_info_i(unsigned long __user *cfg, const u32 __user *cf
     return PW_SUCCESS;
 };
 
+static int mt_copy_visa_info_i(struct mtx_visa __user *visa, const struct mtx_visa32 __user *visa32, unsigned long length)
+{
+    unsigned long i=0;
+    u32 data;
+
+    for (i=0; i<length; ++i) {
+        if (get_user(data, &visa32[i].ptr_data_usr) || put_user(compat_ptr(data), &visa[i].ptr_data_usr)) {
+            return -EFAULT;
+        }
+        if (get_user(data, &visa32[i].data_size) || put_user(data, &visa[i].data_size)) {
+            return -EFAULT;
+        }
+        if (get_user(data, &visa32[i].operation) || put_user(data, &visa[i].operation)) {
+            return -EFAULT;
+        }
+    }
+    return PW_SUCCESS;
+};
+
 static long mt_device_compat_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
     switch (ioctl_num) {
@@ -1782,6 +1926,14 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
         // printk(KERN_INFO "cfg_db_poll_length = %u\n", __tmp.cfg_db_poll_length);
         // printk(KERN_INFO "cfg_db_term_length = %u\n", __tmp.cfg_db_term_length);
 
+        __size += (size_t)__tmp.visa_init_length * sizeof(struct mtx_visa);
+        __size += (size_t)__tmp.visa_poll_length * sizeof(struct mtx_visa);
+        __size += (size_t)__tmp.visa_term_length * sizeof(struct mtx_visa);
+
+        // printk(KERN_INFO "visa_init_length = %u\n", __tmp.visa_init_length);
+        // printk(KERN_INFO "visa_poll_length = %u\n", __tmp.visa_poll_length);
+        // printk(KERN_INFO "visa_term_length = %u\n", __tmp.visa_term_length);
+
         __size += sizeof(struct lookup_table);
     }
     /*
@@ -1804,16 +1956,19 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
         __tab->mmap_init = (struct memory_map *)&__buffer[__dst_idx]; __dst_idx += __tmp.mem_init_length * sizeof(*__tab->mmap_init);
         __tab->pci_ops_init = (struct mtx_pci_ops *)&__buffer[__dst_idx]; __dst_idx += __tmp.pci_ops_init_length * sizeof(*__tab->pci_ops_init);
         __tab->cfg_db_init = (unsigned long *)&__buffer[__dst_idx]; __dst_idx += __tmp.cfg_db_init_length * sizeof(*__tab->cfg_db_init);
+        __tab->visa_init = (struct mtx_visa *)&__buffer[__dst_idx]; __dst_idx += __tmp.visa_init_length * sizeof(*__tab->visa_init);
 
         __tab->msrs_poll = (struct mtx_msr *)&__buffer[__dst_idx]; __dst_idx += __tmp.msr_poll_length * sizeof(*__tab->msrs_poll);
         __tab->mmap_poll = (struct memory_map *)&__buffer[__dst_idx]; __dst_idx += __tmp.mem_poll_length * sizeof(*__tab->mmap_poll);
         __tab->pci_ops_poll = (struct mtx_pci_ops *)&__buffer[__dst_idx]; __dst_idx += __tmp.pci_ops_poll_length * sizeof(*__tab->pci_ops_poll);
         __tab->cfg_db_poll = (unsigned long *)&__buffer[__dst_idx]; __dst_idx += __tmp.cfg_db_poll_length * sizeof(*__tab->cfg_db_poll);
+        __tab->visa_poll = (struct mtx_visa *)&__buffer[__dst_idx]; __dst_idx += __tmp.visa_poll_length * sizeof(*__tab->visa_poll);
 
         __tab->msrs_term = (struct mtx_msr *)&__buffer[__dst_idx]; __dst_idx += __tmp.msr_term_length * sizeof(*__tab->msrs_term);
         __tab->mmap_term = (struct memory_map *)&__buffer[__dst_idx]; __dst_idx += __tmp.mem_term_length * sizeof(*__tab->mmap_term);
         __tab->pci_ops_term = (struct mtx_pci_ops *)&__buffer[__dst_idx]; __dst_idx += __tmp.pci_ops_term_length * sizeof(*__tab->pci_ops_term);
         __tab->cfg_db_term = (unsigned long *)&__buffer[__dst_idx]; __dst_idx += __tmp.cfg_db_term_length * sizeof(*__tab->cfg_db_term);
+        __tab->visa_term = (struct mtx_visa *)&__buffer[__dst_idx]; __dst_idx += __tmp.visa_term_length * sizeof(*__tab->visa_term);
     }
     /*
      * Step 4
@@ -1865,6 +2020,17 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
                     return -EFAULT;
                 }
                 if (put_user(__tmp.cfg_db_init_wb, &__tab->cfg_db_init_wb)) {
+                    return -EFAULT;
+                }
+            }
+            /*
+             * VISA
+             */
+            {
+                if (put_user(__tmp.visa_init_length, &__tab->visa_init_length)) {
+                    return -EFAULT;
+                }
+                if (put_user(__tmp.visa_init_wb, &__tab->visa_init_wb)) {
                     return -EFAULT;
                 }
             }
@@ -1943,6 +2109,20 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
                     return -EFAULT;
                 }
             }
+            /*
+             * VISA
+             */
+            {
+                if (put_user(__tmp.visa_poll_length, &__tab->visa_poll_length)) {
+                    return -EFAULT;
+                }
+                if (put_user(__tmp.visa_poll_wb, &__tab->visa_poll_wb)) {
+                    return -EFAULT;
+                }
+                if (put_user(__tmp.visa_records, &__tab->visa_records)) {
+                    return -EFAULT;
+                }
+            }
         }
         /*
          * TERM
@@ -1992,6 +2172,17 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
                     return -EFAULT;
                 }
             }
+            /*
+             * VISA
+             */
+            {
+                if (put_user(__tmp.visa_term_length, &__tab->visa_term_length)) {
+                    return -EFAULT;
+                }
+                if (put_user(__tmp.visa_term_wb, &__tab->visa_term_wb)) {
+                    return -EFAULT;
+                }
+            }
         }
     }
     /*
@@ -2004,6 +2195,8 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
         struct memory_map __user *__mem = __tab->mmap_init;
         struct mtx_pci_ops32 __user *__pci32 = compat_ptr(__tab32->pci_ops_init);
         struct mtx_pci_ops __user *__pci = __tab->pci_ops_init;
+        struct mtx_visa32 __user *__visa32 = NULL;
+        struct mtx_visa __user *__visa = NULL;
         u32 __user *__cfg_db32 = NULL;
         unsigned long __user *__cfg_db = NULL;
 
@@ -2023,6 +2216,12 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
         __cfg_db = __tab->cfg_db_init;
         if (mt_copy_cfg_db_info_i(__cfg_db, __cfg_db32, __tmp.cfg_db_init_length)) {
             printk(KERN_INFO "ERROR copying init cfg_db!\n");
+            return -EFAULT;
+        }
+        __visa32 = compat_ptr(__tab32->visa_init);
+        __visa = __tab->visa_init;
+        if (mt_copy_visa_info_i(__visa, __visa32, __tmp.visa_init_length)) {
+            printk(KERN_INFO "ERROR copying init visa!\n");
             return -EFAULT;
         }
 
@@ -2049,6 +2248,12 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
             printk(KERN_INFO "ERROR copying poll cfg_db!\n");
             return -EFAULT;
         }
+        __visa32 = compat_ptr(__tab32->visa_poll);
+        __visa = __tab->visa_poll;
+        if (mt_copy_visa_info_i(__visa, __visa32, __tmp.visa_poll_length)) {
+            printk(KERN_INFO "ERROR copying poll visa!\n");
+            return -EFAULT;
+        }
 
         __msr32 = compat_ptr(__tab32->msrs_term);
         __msr = __tab->msrs_term;
@@ -2071,6 +2276,12 @@ static long mt_device_compat_init_ioctl_i(struct file *file, unsigned int ioctl_
         __cfg_db = __tab->cfg_db_term;
         if (mt_copy_cfg_db_info_i(__cfg_db, __cfg_db32, __tmp.cfg_db_term_length)) {
             printk(KERN_INFO "ERROR copying term cfg_db!\n");
+            return -EFAULT;
+        }
+        __visa32 = compat_ptr(__tab32->visa_term);
+        __visa = __tab->visa_term;
+        if (mt_copy_visa_info_i(__visa, __visa32, __tmp.visa_term_length)) {
+            printk(KERN_INFO "ERROR copying term visa!\n");
             return -EFAULT;
         }
 
@@ -2408,6 +2619,7 @@ static long mt_device_compat_config_db_ioctl_i(struct file *file, unsigned int i
 };
 
 #endif // HAVE_COMPAT_IOCTL && CONFIG_X86_64
+
 int mt_register_dev(void)
 {
 	int error;

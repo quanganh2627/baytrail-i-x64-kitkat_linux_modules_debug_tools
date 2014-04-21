@@ -159,7 +159,9 @@ static __read_mostly bool pw_is_hsw = false;
 static __read_mostly bool pw_is_any_thread_set = false;
 static __read_mostly bool pw_is_auto_demote_enabled = false;
 static __read_mostly u16 pw_msr_fsb_freq_value = 0x0;
-static __read_mostly u16 pw_max_non_turbo_ratio = 0x0;
+static __read_mostly u16 pw_max_non_turbo_ratio = 0x0; // Highest non-turbo ratio i.e. TSC frequency
+static __read_mostly u16 pw_max_turbo_ratio = 0x0; // Highest turbo ratio i.e. "HFM"
+static __read_mostly u16 pw_max_efficiency_ratio = 0x0; // Lowest non-turbo (and non-thermal-throttled) ratio i.e. "LFM"
 
 __read_mostly u16 pw_scu_fw_major_minor = 0x0;
 
@@ -437,6 +439,10 @@ static unsigned long startJIFF, stopJIFF;
  * For SLM -- max turbo ratio is encoded in bits 4:0 of 'MSR_IA32_IACORE_TURBO_RATIOS'
  */
 #define MSR_IA32_IACORE_TURBO_RATIOS 0x66c
+/*
+ * For "Core" -- max turbo ratio is encoded in bits 
+ */
+#define MSR_TURBO_RATIO_LIMIT 0x1AD
 /*
  * Standard Bus frequency. Valid for
  * NHM/WMR.
@@ -771,6 +777,8 @@ static DEFINE_PER_CPU(u32, pcpu_prev_req_freq) = 0;
 static DEFINE_PER_CPU(struct msr_set, pw_pcpu_msr_sets);
 
 static struct pw_msr_info_set *pw_pcpu_msr_info_sets ____cacheline_aligned_in_smp = NULL;
+
+static DEFINE_PER_CPU(u32, pcpu_prev_perf_status_val) = 0;
 
 
 /*
@@ -4110,23 +4118,13 @@ static void probe_cpu_hotplug(void *ignore, unsigned int state, int cpu_id)
 #endif // TRACE_CPU_HOTPLUG
 #endif // __arm__
 
-/*
- * Tokenize the Frequency table string
- * to extract individual frequency 'steps'
- */
-
-/*
- * New methodology -- We're now using APERF/MPERF
- * collected within the TPS probe to calculate actual 
- * frequencies. Only calculate TSC values within
- * the 'power_frequency' tracepoint.
- */
 #ifndef __arm__
 static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq)
 {
     u64 tsc = 0, aperf = 0, mperf = 0;
     // u32 prev_req_freq = 0;
     u32 perf_status = 0;
+    u32 prev_perf_status = 0;
 
 #if DO_IOCTL_STATS
     stats_t *pstats = NULL;
@@ -4164,7 +4162,20 @@ static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq
      * actually model-specific.
      */
     WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
-    perf_status = l; // We're only interested in the lower 16 bits!
+    // perf_status = l; // We're only interested in the lower 16 bits!
+    /*
+     * Update: 'TPF' is FORWARD facing -- make it BACKWARDS facing here.
+     */
+    {
+        prev_perf_status = per_cpu(pcpu_prev_perf_status_val, cpu);
+        per_cpu(pcpu_prev_perf_status_val, cpu) = l;
+    }
+    perf_status = prev_perf_status;
+    /*
+    if (false) {
+        printk(KERN_INFO "[%d]: prev perf status = %u, curr perf status = %u\n", cpu, prev_perf_status, l);
+    }
+    */
 
     /*
      * Retrieve the previous requested frequency, if any. 
@@ -4206,7 +4217,7 @@ static int apwr_cpufreq_notifier(struct notifier_block *block, unsigned long val
 	return SUCCESS;
     }
 
-    if (val == CPUFREQ_PRECHANGE) {
+    if (val == CPUFREQ_POSTCHANGE) {
 #ifndef __arm__
         // DO_PER_CPU_OVERHEAD_FUNC(tpf, cpu, 2, new_state, old_state);
         tpf(cpu, 2, new_state, old_state);
@@ -4316,7 +4327,7 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
-void inline __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
+void __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
 {
     int target_cpu = task_cpu(task), source_cpu = CPU();
     /*
@@ -4359,7 +4370,7 @@ static void probe_sched_wakeup(void *ignore, struct task_struct *task, int succe
 };
 
 
-bool inline __attribute__((always_inline)) is_sleep_syscall_i(long id)
+bool __attribute__((always_inline)) is_sleep_syscall_i(long id) 
 {
     switch (id) {
         case __NR_poll: // 7
@@ -4383,7 +4394,7 @@ bool inline __attribute__((always_inline)) is_sleep_syscall_i(long id)
     return false;
 };
 
-void  inline __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
+void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
 {
     if (check_and_add_proc_to_sys_list(tid, pid)) {
         pw_pr_error("ERROR: could NOT add proc to sys list!\n");
@@ -4391,7 +4402,7 @@ void  inline __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t ti
     return;
 };
 
-void  inline __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
+void  __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
 {
     check_and_remove_proc_from_sys_list(tid, pid);
 };
@@ -5823,7 +5834,6 @@ int pw_set_platform_res_config_i(struct PWCollector_platform_res_info __user *re
                 // INTERNAL_STATE.platform_remapped_addrs[i] = ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u32) * 1);
                 // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u64) * 1);
                 // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], sizeof(u32) * 1);
-                // INTERNAL_STATE.platform_remapped_addrs[i] = (u64)ioremap_nocache(INTERNAL_STATE.platform_res_addrs[i], (INTERNAL_STATE.counter_size_in_bytes * 1));
                 INTERNAL_STATE.platform_remapped_addrs[i] = (u64)(unsigned long)ioremap_nocache((unsigned long)INTERNAL_STATE.platform_res_addrs[i], (unsigned long)(INTERNAL_STATE.counter_size_in_bytes * 1));
                 if ((void *)(unsigned long)INTERNAL_STATE.platform_remapped_addrs[i] == NULL) {
                     printk(KERN_INFO "ERROR remapping MMIO addresses %p\n", (void *)(unsigned long)INTERNAL_STATE.platform_res_addrs[i]);
@@ -6135,7 +6145,7 @@ static void reset_trace_sent_fields(void)
     struct hlist_node *curr = NULL;
     int i=0;
 
-    for(i=0; i<NUM_MAP_BUCKETS; ++i) {
+    for (i=0; i<NUM_MAP_BUCKETS; ++i) {
         PW_HLIST_FOR_EACH_ENTRY(node, curr, &timer_map[i].head, list) {
 	    node->trace_sent = 0;
 	}
@@ -6183,7 +6193,7 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
          */
         per_cpu(pcpu_prev_req_freq, cpu) = 0;
     }
-    // per_cpu(pcpu_prev_req_freq, cpu) = perf_status;
+    per_cpu(pcpu_prev_perf_status_val, cpu) = perf_status;
     /*
      * Also read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE. These required ONLY for AXE import
      * backward compatibility!
@@ -6259,7 +6269,7 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
          */
         per_cpu(pcpu_prev_req_freq, cpu) = 0;
     }
-    // per_cpu(pcpu_prev_req_freq, cpu) = perf_status;
+    per_cpu(pcpu_prev_perf_status_val, cpu) = perf_status;
     /*
      * Also read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE. These required ONLY for AXE import
      * backward compatibility!
@@ -7120,11 +7130,13 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         // printk(KERN_INFO "PW_IOCTL_FSB_FREQ  received!\n");
         /*
          * UPDATE: return fsb-freq AND max non-turbo ratio here.
+         * UPDATE: and also the LFM ratio (i.e. "max efficiency")
+         * UPDATE: and also the max turbo ratio (i.e. "HFM")
          */
         {
-            u32 __fsb_non_turbo = (pw_max_non_turbo_ratio << 16 | pw_msr_fsb_freq_value);
-            pw_pr_debug("__fsb_non_turbo = %u\n", __fsb_non_turbo);
-            if (put_user(__fsb_non_turbo, (u32 *)remote_args->out_arg)) {
+            u64 __fsb_non_turbo = ((pw_u64_t)pw_max_turbo_ratio << 48 | (pw_u64_t)pw_max_non_turbo_ratio << 32 | pw_max_efficiency_ratio << 16 | pw_msr_fsb_freq_value);
+            pw_pr_debug("__fsb_non_turbo = %llu\n", __fsb_non_turbo);
+            if (put_user(__fsb_non_turbo, (u64 *)remote_args->out_arg)) {
                 pw_pr_error("ERROR transfering FSB_FREQ MSR value!\n");
                 return -ERROR;
             }
@@ -7525,12 +7537,12 @@ static slm_arch_type_t is_slm(void)
      */
     if (family == 0x6) {
         switch (model) {
-            case 0x30:
-                return SLM_CHV;
             case 0x37:
                 return SLM_VLV2;
             case 0x4a:
                 return SLM_TNG;
+            case 0x4c:
+                return SLM_CHV;
             case 0x5a:
                 return SLM_ANN;
             default:
@@ -7727,6 +7739,16 @@ static int __init init_hooks(void)
         } else if (pw_is_slm) {
             rdmsrl(MSR_IA32_IACORE_RATIOS, res);
             ratio = (res >> 16) & 0x3F; // Bits 21:16
+            /*
+             * Debug code
+             */
+            {
+                rdmsrl(MSR_IA32_IACORE_TURBO_RATIOS, res);
+                pw_pr_debug("IACORE_TURBO_RATIOS: res = %llu, val = %u\n", res, (u32)(res & 0x1f) /* bits [4:0] */);
+            }
+            /*
+             * End debug code.
+             */
         } else {
             rdmsrl(PLATFORM_INFO_MSR_ADDR, res);
             /*
@@ -7734,19 +7756,66 @@ static int __init init_hooks(void)
              * bits 15:8
              */
             ratio = (res >> 8) & 0xff;
-            pw_pr_debug("val = %llu, max-efficiency ratio = %u, min operating ratio = %u\n", res, (res >> 40) & 0xff, (res >> 48) & 0xff);
-            if (pw_is_hsw) {
-                /*
-                 * Check the max turbo ratio limit
-                 */
-                const u32 MSR_TURBO_RATIO_LIMIT = 0x1AD;
-                rdmsrl(MSR_TURBO_RATIO_LIMIT, res);
-                pw_pr_debug("MAX_TURBO_RATIO_LIMIT: val = %llu, 1c = %u, 2c = %u, 3c = %u, 4c = %u\n", res, res & 0xff, (res >> 8) & 0xff, (res >> 16) & 0xff, (res >> 24) & 0xff);
-            }
         }
 
         pw_max_non_turbo_ratio = ratio;
         pw_pr_debug("MAX non-turbo ratio = %u\n", (u32)pw_max_non_turbo_ratio);
+    }
+    /*
+     * Read the max efficiency ratio
+     * (AKA "LFM")
+     */
+    {
+        u64 res = 0;
+        u16 ratio = 0;
+        /*
+         * Algo:
+         * (1) If "Core" -- read bits 47:40 of 'PLATFORM_INFO_MSR_ADDR'
+         * (2) If Atom[STW] -- ???
+         * (3) If Atom[SLM] -- read bits 13:8 of 'PUNIT_CR_IACORE_RATIOS' (MSR_IA32_IACORE_RATIOS) MSR
+         * to extract the 'base operating ratio'.
+         */
+        if (pw_is_atm) {
+            /*
+             * TODO
+             */
+            ratio = 0x0;
+        } else if (pw_is_slm) {
+            rdmsrl(MSR_IA32_IACORE_RATIOS, res);
+            ratio = (res >> 8) & 0x3F; // Bits 13:8
+        } else {
+            rdmsrl(PLATFORM_INFO_MSR_ADDR, res);
+            ratio = (res >> 40) & 0xff;
+        }
+        pw_max_efficiency_ratio = ratio;
+        pw_pr_debug("MAX EFFICIENCY RATIO = %u\n", (u32)pw_max_efficiency_ratio);
+    }
+    /*
+     * Read the max turbo ratio.
+     */
+    {
+        u64 res = 0;
+        u16 ratio = 0;
+        /*
+         * Algo:
+         * (1) If "Core" -- read bits 7:0 of 'MSR_TURBO_RATIO_LIMIT'
+         * (2) If Atom[STW] -- ???
+         * (3) If Atom[SLM] -- read bits 4:0 of MSR_IA32_IACORE_TURBO_RATIOS
+         */
+        if (pw_is_atm) {
+            /*
+             * TODO
+             */
+            ratio = 0x0;
+        } else if (pw_is_slm) {
+            rdmsrl(MSR_IA32_IACORE_TURBO_RATIOS, res);
+            ratio = res & 0x1F; // Bits 4:0
+        } else {
+            rdmsrl(MSR_TURBO_RATIO_LIMIT, res);
+            ratio = res & 0xff; // Bits 7:0
+        }
+        pw_max_turbo_ratio = ratio;
+        pw_pr_debug("MAX TURBO RATIO = %u\n", (u32)pw_max_turbo_ratio);
     }
     /*
      * Extract SCU F/W version (if possible)
