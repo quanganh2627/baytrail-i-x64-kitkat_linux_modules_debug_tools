@@ -1291,7 +1291,8 @@ void vtss_transport_fini(void)
 {
     int wait_count = VTSS_TRANSPORT_COMPLETE_TIMEOUT;
     unsigned long flags, count;
-    struct list_head *p, *tmp;
+    struct list_head* p = NULL;
+    struct list_head* tmp = NULL;
     struct vtss_transport_data *trnd = NULL;
 
 #ifdef VTSS_TRANSPORT_TIMER_INTERVAL

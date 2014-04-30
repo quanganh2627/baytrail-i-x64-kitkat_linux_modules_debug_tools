@@ -407,5 +407,6 @@ fail:
             kfree(ppcb->scratch_ptr);
         ppcb->scratch_ptr = NULL;
     }
+    ERROR("NO memory");
     return VTSS_ERR_NOMEMORY;
 }

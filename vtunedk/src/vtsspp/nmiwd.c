@@ -25,6 +25,7 @@
 */
 #include "vtss_config.h"
 #include "nmiwd.h"
+#include "vtsserr.h"
 #include <linux/cred.h>         /* for current_uid_gid() */
 #include <linux/watchdog.h>
 #include <linux/namei.h>
@@ -118,7 +119,8 @@ int vtss_nmi_watchdog_disable_thread(void* data)
  //get_watchdog_device();
  if (!data)
  {
-    INFO("Internal error! We will crash now.");
+    ERROR("Internal error!");
+    return VTSS_ERR_INTERNAL;
  }
  mode_ptr = data;
 
@@ -222,7 +224,8 @@ int vtss_nmi_watchdog_enable_thread(void* data)
  int* mode_ptr = NULL;
  if (!data)
  {
-    INFO("Internal error! We will crash now.");
+    ERROR("Internal error!");
+    return VTSS_ERR_INTERNAL;
  }
  mode_ptr = data;
 

@@ -98,30 +98,34 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
     U32 gid;
     U32 mapping;
     U32 i;
- 
+
     if (unc_package_to_bus_map != NULL) {
         return;
     }
- 
+
     unc_package_to_bus_map = CONTROL_Allocate_Memory(num_packages * sizeof(U32));
- 
+
+    if (unc_package_to_bus_map == NULL) {
+        return;
+    }
+
     for (bus_no = 0; bus_no < MAX_PCI_BUSNO; bus_no++) {
         for (device_no = 0; device_no < MAX_PCI_DEVNO; device_no++) {
             for (function_no = 0; function_no < MAX_PCI_FUNCNO; function_no++) {
- 
+
                 // find the bus, device, and function number for
                 // the socket ID UBOX device
- 
+
                 pci_address = FORM_PCI_ADDR(bus_no,
                                             device_no,
                                             function_no,
                                             0);
                 value = PCI_Read_Ulong(pci_address);
- 
+
                 vendor_id = value & VENDOR_ID_MASK;
                 device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
- 
-                if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+
+             if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
                     continue;
                 }
                 if (device_id == socketid_ubox_did) {
@@ -131,7 +135,6 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
                                                 function_no,
                                                 UNCORE_SOCKETID_UBOX_LNID_OFFSET);
                     gid = PCI_Read_Ulong(pci_address) & 0x00000007;
- 
                     // Get the node id mapping register:
                     // Basic idea is to read the Node ID Mapping Register (below)
                     // and match up one of the nodes with the gid that we read in above
@@ -157,7 +160,7 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
         }
     }
 }
-                                    
+
 
 /*!
  * @fn          extern VOID UNC_COMMON_PCI_Write_PMU(VOID*)
