@@ -1556,10 +1556,12 @@ corei7_Platform_Info (
 {
     DRV_PLATFORM_INFO      platform_data               = (DRV_PLATFORM_INFO)data;
     U64                    value                       = 0;
-    DRV_PLATFORM_INFO_energy_multiplier(platform_data) = 0;
+
     if (!platform_data) {
         return;
     }
+
+    DRV_PLATFORM_INFO_energy_multiplier(platform_data) = 0;
  
 #define IA32_MSR_PLATFORM_INFO 0xCE
     value = SYS_Read_MSR(IA32_MSR_PLATFORM_INFO);
