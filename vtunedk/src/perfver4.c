@@ -909,18 +909,15 @@ perfver4_Read_Counts (
 )
 {
     U64            *data;
-    int             data_index;
     U32             this_cpu            = CONTROL_THIS_CPU();
     CPU_STATE       pcpu                = &pcb[this_cpu];
     U32             event_id            = 0;
 
-    data       = (U64 *)param;
-    data_index = 0;
-
-    // Write GroupID
-    data[data_index] = CPU_STATE_current_group(pcpu) + 1;
-    // Increment the data index as the event id starts from zero
-    data_index++;
+    if (DRV_CONFIG_ebc_group_id_offset(pcfg)) {
+        // Write GroupID
+        data  = (U64 *)((S8*)param + DRV_CONFIG_ebc_group_id_offset(pcfg));
+        *data = CPU_STATE_current_group(pcpu) + 1;
+    }
 
     FOR_EACH_DATA_REG(pecb,i) {
         if (ECB_entries_counter_event_offset(pecb,i) == 0) {

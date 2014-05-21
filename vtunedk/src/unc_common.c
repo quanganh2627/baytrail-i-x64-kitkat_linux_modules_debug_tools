@@ -106,6 +106,7 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
     unc_package_to_bus_map = CONTROL_Allocate_Memory(num_packages * sizeof(U32));
 
     if (unc_package_to_bus_map == NULL) {
+        SEP_PRINT_DEBUG("UNC_COMMON_Do_Bus_to_Socket_Map allocated NULL by CONTROL_Allocate_Memory\n");
         return;
     }
 
@@ -125,7 +126,7 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
                 vendor_id = value & VENDOR_ID_MASK;
                 device_id = (value & DEVICE_ID_MASK) >> DEVICE_ID_BITSHIFT;
 
-             if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
+                if (vendor_id != DRV_IS_PCI_VENDOR_ID_INTEL) {
                     continue;
                 }
                 if (device_id == socketid_ubox_did) {
@@ -135,6 +136,7 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
                                                 function_no,
                                                 UNCORE_SOCKETID_UBOX_LNID_OFFSET);
                     gid = PCI_Read_Ulong(pci_address) & 0x00000007;
+
                     // Get the node id mapping register:
                     // Basic idea is to read the Node ID Mapping Register (below)
                     // and match up one of the nodes with the gid that we read in above
@@ -148,7 +150,7 @@ UNC_COMMON_Do_Bus_to_Socket_Map(
                                                 function_no,
                                                 UNCORE_SOCKETID_UBOX_GID_OFFSET);
                     mapping = PCI_Read_Ulong(pci_address);
- 
+
                     for (i = 0; i < 7; i++, mapping = mapping >> 3) {
                         if ((mapping & 0x00000007) == gid) {
                           unc_package_to_bus_map[i] = bus_no;
@@ -306,7 +308,7 @@ UNC_COMMON_PCI_Enable_PMU (
     U32      pci_address   = 0;
     U32      this_cpu      = CONTROL_THIS_CPU();
     CPU_STATE      pcpu    = &pcb[this_cpu];
- 
+
     if (!CPU_STATE_socket_master(pcpu)) {
         return;
     }
@@ -345,7 +347,7 @@ UNC_COMMON_PCI_Enable_PMU (
     } END_FOR_EACH_REG_ENTRY_UNC;
     return;
 }
- 
+
 /*!
  * @fn         extern VOID UNC_COMMON_PCI_Disable_PMU(PVOID)
  *
@@ -374,7 +376,7 @@ UNC_COMMON_PCI_Disable_PMU (
     if (!CPU_STATE_socket_master(pcpu)) {
         return;
     }
- 
+
     FOR_EACH_REG_ENTRY_UNC(pecb, dev_idx, i) {
         if (control_msr && (ECB_entries_reg_id(pecb,i) == control_msr)) {
             SYS_Write_MSR(ECB_entries_reg_id(pecb,i), 0LL);
@@ -658,11 +660,11 @@ UNC_COMMON_PCI_Scan_For_Uncore(
 
 
 /************************************************************/
-/* 
+/*
  * UNC common MSR  based API
  *
  ************************************************************/
- 
+
 
 /*!
  * @fn          extern VOID UNC_COMMON_MSR_Write_PMU(VOID*)
@@ -710,7 +712,7 @@ UNC_COMMON_MSR_Write_PMU (
             callback                               &&
             callback->is_Unit_Ctl                  &&
             callback->is_Unit_Ctl(ECB_entries_reg_id(pecb,i))) {
- 
+
             SYS_Write_MSR(ECB_entries_reg_id(pecb,i), unit_reset_val);
             SEP_PRINT_DEBUG("common_sbox_Write_PMU Read reg = 0x%x --- value 0x%x\n",
                                      ECB_entries_reg_id(pecb,i), value);
@@ -720,7 +722,7 @@ UNC_COMMON_MSR_Write_PMU (
                                      ECB_entries_reg_id(pecb,i), value);
             continue;
         }
- 
+
         SYS_Write_MSR(ECB_entries_reg_id(pecb,i), ECB_entries_reg_value(pecb,i));
         SEP_PRINT_DEBUG("UNC_COMMON_MSR_Write_PMU Event_Data_reg = 0x%x --- value 0x%llx\n",
                         ECB_entries_reg_id(pecb,i), ECB_entries_reg_value(pecb,i));
@@ -730,7 +732,7 @@ UNC_COMMON_MSR_Write_PMU (
             LWPMU_DEVICE_counter_mask(&devices[dev_idx]) = (U64)ECB_entries_max_bits(pecb,i);
         }
     } END_FOR_EACH_REG_ENTRY_UNC;
- 
+
     return;
 }
 
@@ -760,7 +762,7 @@ UNC_COMMON_MSR_Enable_PMU (
     U64            value         = 0;
     U32            this_cpu      = CONTROL_THIS_CPU();
     CPU_STATE      pcpu          = &pcb[this_cpu];
- 
+
     if (!CPU_STATE_socket_master(pcpu)) {
         return;
     }
@@ -818,7 +820,7 @@ UNC_COMMON_MSR_Disable_PMU (
     U64            value         = 0;
     U32            this_cpu      = CONTROL_THIS_CPU();
     CPU_STATE      pcpu          = &pcb[this_cpu];
- 
+
     if (!CPU_STATE_socket_master(pcpu)) {
         return;
     }
@@ -877,12 +879,12 @@ UNC_COMMON_MSR_Read_Counts (
     // Write GroupID
     data    = (U64*)((S8*)data + ECB_group_offset(pecb));
     *data   = cur_grp + 1;
- 
+
     FOR_EACH_DATA_REG_UNC(pecb, id, i) {
         data  = (U64 *)((S8*)param + ECB_entries_counter_event_offset(pecb,i));
         *data = SYS_Read_MSR(ECB_entries_reg_id(pecb,i));
     } END_FOR_EACH_DATA_REG_UNC;
- 
+
     return;
 }
 
@@ -915,12 +917,12 @@ UNC_COMMON_MSR_Read_Counts_With_Mask (
     // Write GroupID
     data    = (U64*)((S8*)data + ECB_group_offset(pecb));
     *data   = cur_grp + 1;
- 
+
     FOR_EACH_DATA_REG_UNC(pecb, id, i) {
         data  = (U64 *)((S8*)param + ECB_entries_counter_event_offset(pecb,i));
         *data = SYS_Read_MSR(ECB_entries_reg_id(pecb,i)) & mask;
     } END_FOR_EACH_DATA_REG_UNC;
- 
+
     return;
 }
 
@@ -958,7 +960,7 @@ UNC_COMMON_MSR_Read_PMU_Data (
     U32             cur_grp             = LWPMU_DEVICE_cur_group(&devices[(dev_idx)]);
     ECB             pecb                = LWPMU_DEVICE_PMU_register_data(&devices[(dev_idx)])[cur_grp];
     U32             num_events          = 0;
- 
+
     if (!CPU_STATE_socket_master(pcpu)) {
         return;
     }
@@ -991,7 +993,7 @@ UNC_COMMON_MSR_Read_PMU_Data (
                 sub_evt_index = 0;
             }
     } END_FOR_EACH_DATA_REG_UNC;
- 
+
     return;
 }
 
@@ -1017,15 +1019,7 @@ UNC_COMMON_MSR_Clean_Up (
             SYS_Write_MSR(ECB_entries_reg_id(pecb,i), 0LL);
         }
     } END_FOR_EACH_REG_ENTRY_UNC;
- 
+
     return;
 }
-
-
-
-
-
-
-
-
 

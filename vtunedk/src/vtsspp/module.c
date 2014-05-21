@@ -610,6 +610,9 @@ DEFINE_KP_STUB(syscall_leave,      VTSS_SYMBOL_SYSCALL_LEAVE)
 /* ------------------------------------------------------------------------- */
 /* stubs with tracepoints */
 #if defined(CONFIG_TRACEPOINTS) && defined(VTSS_AUTOCONF_TRACE_EVENTS_SCHED)
+DEFINE_TRACE(sched_switch)
+DEFINE_TRACE(sched_process_fork)
+DEFINE_TRACE(sched_process_exit)
 #undef _REGISTER_TRACE
 #undef _UNREGISTER_TRACE
 #define _REGISTER_TRACE(name) \
