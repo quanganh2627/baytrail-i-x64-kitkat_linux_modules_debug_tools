@@ -692,14 +692,13 @@ struct sys_node{
 
 #define GET_SYS_HLIST(index) (apwr_sys_map + index)
 
-
 /*
  * Function declarations (incomplete).
  */
-bool is_sleep_syscall_i(long id) __attribute__((always_inline));
-void sys_enter_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
-void sys_exit_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
-void sched_wakeup_helper_i(struct task_struct *task) __attribute__((always_inline));
+inline bool is_sleep_syscall_i(long id) __attribute__((always_inline));
+inline void sys_enter_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
+inline void sys_exit_helper_i(long id, pid_t tid, pid_t pid) __attribute__((always_inline));
+inline void sched_wakeup_helper_i(struct task_struct *task) __attribute__((always_inline));
 static int pw_device_open(struct inode *inode, struct file *file);
 static int pw_device_release(struct inode *inode, struct file *file);
 static ssize_t pw_device_read(struct file *file, char __user * buffer, size_t length, loff_t * offset);
@@ -4260,7 +4259,7 @@ static void probe_power_frequency(void *ignore, unsigned int type, unsigned int 
     if(unlikely(!IS_FREQ_MODE())){
         return;
     }
-    DO_PER_CPU_OVERHEAD_FUNC(tpf, CPU(), type, state);
+    DO_PER_CPU_OVERHEAD_FUNC(tpf, CPU(), type, state, 0 /* prev freq, 0 ==> use pcpu var */);
 };
 
 #else // version >= 2.6.38 ==> Use 'trace_cpu_frequency()'
@@ -4327,7 +4326,7 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
-void __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
+inline void  __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
 {
     int target_cpu = task_cpu(task), source_cpu = CPU();
     /*
@@ -4370,7 +4369,7 @@ static void probe_sched_wakeup(void *ignore, struct task_struct *task, int succe
 };
 
 
-bool __attribute__((always_inline)) is_sleep_syscall_i(long id) 
+inline bool   __attribute__((always_inline)) is_sleep_syscall_i(long id)
 {
     switch (id) {
         case __NR_poll: // 7
@@ -4394,7 +4393,7 @@ bool __attribute__((always_inline)) is_sleep_syscall_i(long id)
     return false;
 };
 
-void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
+inline void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_t pid)
 {
     if (check_and_add_proc_to_sys_list(tid, pid)) {
         pw_pr_error("ERROR: could NOT add proc to sys list!\n");
@@ -4402,7 +4401,7 @@ void  __attribute__((always_inline)) sys_enter_helper_i(long id, pid_t tid, pid_
     return;
 };
 
-void  __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
+inline void  __attribute__((always_inline)) sys_exit_helper_i(long id, pid_t tid, pid_t pid)
 {
     check_and_remove_proc_from_sys_list(tid, pid);
 };

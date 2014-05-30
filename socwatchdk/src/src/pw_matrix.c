@@ -115,6 +115,9 @@
 #endif
 
 #define PW_NUM_SOCHAP_COUNTERS 9
+#ifndef DO_INTEL_INTERNAL
+    #define DO_INTEL_INTERNAL 0
+#endif
 #if DO_INTEL_INTERNAL
     extern void LWPMUDRV_VISA_Read_Data (void *data_buffer);
 #endif // DO_INTEL_INTERNAL
