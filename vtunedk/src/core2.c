@@ -58,8 +58,10 @@ extern DRV_CONFIG     pcfg;
 extern PWR            pwr;
 extern U64           *interrupt_counts;
 
+#if !defined(DRV_ANDROID)
 static U32            direct2core_data_saved = 0;
 static U32            bl_bypass_data_saved   = 0;
+#endif
 
 typedef struct SADDR_S {
     S64 addr:LBR_DATA_BITS;
@@ -80,12 +82,12 @@ typedef struct SADDR_S {
  *
  * <I>Special Notes</I>
  */
+#if !defined(DRV_ANDROID)
 static VOID
 core2_Disable_Direct2core (
     ECB pecb
 )
 {
-#if !defined(DRV_ANDROID)
     U32            busno       = 0;
     U32            dev_idx     = 0;
     U32            base_idx    = 0;
@@ -204,8 +206,8 @@ core2_Disable_Direct2core (
             PCI_Write_Ulong(pci_address, value);
         }
     }
-#endif
 }
+#endif
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -219,12 +221,12 @@ core2_Disable_Direct2core (
  *
  * <I>Special Notes</I>
  */
+#if !defined(DRV_ANDROID)
 static VOID
 core2_Disable_BL_Bypass (
     ECB pecb
 )
 {
-#if !defined(DRV_ANDROID)
     U64            value;
     U32            this_cpu    = CONTROL_THIS_CPU();
 
@@ -234,8 +236,8 @@ core2_Disable_BL_Bypass (
     value |= CORE2UNC_BLBYPASS_BITMASK;
     SYS_Write_MSR(CORE2UNC_DISABLE_BL_BYPASS_MSR, value);
 
-#endif
 }
+#endif
 
 /* ------------------------------------------------------------------------- */
 /*!
@@ -1056,9 +1058,9 @@ core2_Clean_Up (
     VOID   *param
 )
 {
+#if !defined(DRV_ANDROID)
     U32            this_cpu    = CONTROL_THIS_CPU();
     CPU_STATE      pcpu        = &pcb[this_cpu];
-#if !defined(DRV_ANDROID)
     U32            busno       = 0;
     U32            dev_idx     = 0;
     U32            base_idx    = 0;

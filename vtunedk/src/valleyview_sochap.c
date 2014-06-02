@@ -77,7 +77,9 @@ write_To_Sideband (
     U32 cmd  = 0;
     U32 mmio_offset_lo;
     U32 mmio_offset_hi;
+#if !defined(DRV_ANDROID)
     U32 pci_address;
+#endif
 
     mmio_offset_hi = mmio_offset & VLV_VISA_OFFSET_HI_MASK;
     mmio_offset_lo = mmio_offset & VLV_VISA_OFFSET_LO_MASK;
@@ -137,7 +139,9 @@ read_From_Sideband (
     U32   cmd  = 0;
     U32   mmio_offset_hi;
     U32   mmio_offset_lo;
+#if !defined(DRV_ANDROID)
     U32   pci_address;
+#endif
 
     mmio_offset_hi = mmio_offset & VLV_VISA_OFFSET_HI_MASK;
     mmio_offset_lo = mmio_offset & VLV_VISA_OFFSET_LO_MASK;
