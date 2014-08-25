@@ -131,7 +131,7 @@ struct mtx_pci_ops {
 	unsigned long port_island;
 };
 
-struct mtx_visa {
+struct mtx_soc_perf {
 	char *ptr_data_usr;
 	unsigned long data_size;
 	unsigned long operation;
@@ -170,9 +170,9 @@ struct lookup_table {
 	unsigned long cfg_db_init_length;
 	unsigned long cfg_db_init_wb;
 
-	struct mtx_visa *visa_init;
-	unsigned long visa_init_length;
-	unsigned long visa_init_wb;
+	struct mtx_soc_perf *soc_perf_init;
+	unsigned long soc_perf_init_length;
+	unsigned long soc_perf_init_wb;
 
 	/*Poll Data */
 	struct mtx_msr *msrs_poll;
@@ -196,10 +196,10 @@ struct lookup_table {
 	struct scu_config scu_poll;
 	unsigned long scu_poll_length;
 
-	struct mtx_visa *visa_poll;
-	unsigned long visa_poll_length;
-	unsigned long visa_poll_wb;
-	unsigned long visa_records;
+	struct mtx_soc_perf *soc_perf_poll;
+	unsigned long soc_perf_poll_length;
+	unsigned long soc_perf_poll_wb;
+	unsigned long soc_perf_records;
 
 	/*Term Data */
 	struct mtx_msr *msrs_term;
@@ -218,9 +218,9 @@ struct lookup_table {
 	unsigned long cfg_db_term_length;
 	unsigned long cfg_db_term_wb;
 
-	struct mtx_visa *visa_term;
-	unsigned long visa_term_length;
-	unsigned long visa_term_wb;
+	struct mtx_soc_perf *soc_perf_term;
+	unsigned long soc_perf_term_length;
+	unsigned long soc_perf_term_wb;
 };
 
 /*
@@ -263,7 +263,7 @@ struct mtx_pci_ops32 {
 	compat_ulong_t port_island;
 };
 
-struct mtx_visa32 {
+struct mtx_soc_perf32 {
 	compat_caddr_t ptr_data_usr;
 	compat_ulong_t data_size;
 	compat_ulong_t operation;
@@ -302,9 +302,9 @@ struct lookup_table32 {
 	compat_ulong_t cfg_db_init_length;
 	compat_ulong_t cfg_db_init_wb;
 
-	compat_caddr_t visa_init;
-	compat_ulong_t visa_init_length;
-	compat_ulong_t visa_init_wb;
+	compat_caddr_t soc_perf_init;
+	compat_ulong_t soc_perf_init_length;
+	compat_ulong_t soc_perf_init_wb;
 
 	/*Poll Data */
 	compat_caddr_t msrs_poll;
@@ -328,10 +328,10 @@ struct lookup_table32 {
 	struct scu_config32 scu_poll;
 	compat_ulong_t scu_poll_length;
 
-	compat_caddr_t visa_poll;
-	compat_ulong_t visa_poll_length;
-	compat_ulong_t visa_poll_wb;
-	compat_ulong_t visa_records;
+	compat_caddr_t soc_perf_poll;
+	compat_ulong_t soc_perf_poll_length;
+	compat_ulong_t soc_perf_poll_wb;
+	compat_ulong_t soc_perf_records;
 
 	/*Term Data */
 	compat_caddr_t msrs_term;
@@ -350,9 +350,9 @@ struct lookup_table32 {
 	compat_ulong_t cfg_db_term_length;
 	compat_ulong_t cfg_db_term_wb;
 
-	compat_caddr_t visa_term;
-	compat_ulong_t visa_term_length;
-	compat_ulong_t visa_term_wb;
+	compat_caddr_t soc_perf_term;
+	compat_ulong_t soc_perf_term_length;
+	compat_ulong_t soc_perf_term_wb;
 };
 
 struct mtx_msr_container32 {
@@ -375,14 +375,14 @@ struct mt_msr_buffer {
 	u32 edx_MSB;
 };
 
-#define MAX_VISA_VALUES 10
+#define MAX_SOC_PERF_VALUES 10
 
-struct visa_buffer {
-	unsigned long long values[MAX_VISA_VALUES];
+struct soc_perf_buffer {
+	unsigned long long values[MAX_SOC_PERF_VALUES];
 };
 
-struct mt_visa_buffer {
-	u64 values[MAX_VISA_VALUES];
+struct mt_soc_perf_buffer {
+	u64 values[MAX_SOC_PERF_VALUES];
 };
 
 struct xchange_buffer {
@@ -394,35 +394,21 @@ struct xchange_buffer {
 	unsigned long pci_ops_length;
 	unsigned long *ptr_cfg_db_buff;
 	unsigned long cfg_db_length;
-	struct visa_buffer *ptr_visa_buff;
-	unsigned long visa_length;
+	struct soc_perf_buffer *ptr_soc_perf_buff;
+	unsigned long soc_perf_length;
 };
 
-#if 0
-struct mt_xchange_buffer {
-	u64 ptr_msr_buff;
-	u32 msr_length;
-	u64 ptr_mem_buff;
-	u32 mem_length;
-	u64 ptr_pci_ops_buff;
-	u32 pci_ops_length;
-	u64 ptr_cfg_db_buff;
-	u32 cfg_db_length;
-	u64 ptr_visa_buff;
-	u32 visa_length;
-};
-#endif // if 0
 struct mt_xchange_buffer {
 	u64 ptr_msr_buff;
 	u64 ptr_mem_buff;
 	u64 ptr_pci_ops_buff;
 	u64 ptr_cfg_db_buff;
-	u64 ptr_visa_buff;
+	u64 ptr_soc_perf_buff;
 	u32 msr_length;
 	u32 mem_length;
 	u32 pci_ops_length;
 	u32 cfg_db_length;
-	u32 visa_length;
+	u32 soc_perf_length;
         u32 padding;           // Required to keep sizeof(mt_xchange_buffer) the same on 32b and 64b systems 
                                // in the absence of #pragma pack(XXX) directives!
 };
@@ -473,9 +459,9 @@ struct mtx_size_info {
 	unsigned int poll_cfg_db_size;
 	unsigned int poll_scu_drv_size;
 	unsigned int total_mem_bytes_req;
-	unsigned int init_visa_size;
-	unsigned int term_visa_size;
-	unsigned int poll_visa_size;
+	unsigned int init_soc_perf_size;
+	unsigned int term_soc_perf_size;
+	unsigned int poll_soc_perf_size;
 };
 
 #define IOCTL_INIT_SCAN _IOR(0xF8, 0x00000001, unsigned long)

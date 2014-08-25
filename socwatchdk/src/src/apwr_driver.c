@@ -156,6 +156,7 @@ typedef enum {
 static __read_mostly atom_arch_type_t pw_is_atm = NON_ATOM;
 static __read_mostly slm_arch_type_t pw_is_slm = NON_SLM;
 static __read_mostly bool pw_is_hsw = false;
+static __read_mostly bool pw_is_bdw = false;
 static __read_mostly bool pw_is_any_thread_set = false;
 static __read_mostly bool pw_is_auto_demote_enabled = false;
 static __read_mostly u16 pw_msr_fsb_freq_value = 0x0;
@@ -209,7 +210,7 @@ static unsigned long startJIFF, stopJIFF;
  * Set to: "1" ==> 'OUTPUT' is enabled.
  *         "0" ==> 'OUTPUT' is disabled.
  */
-#define DO_DEBUG_OUTPUT 0
+// #define DO_DEBUG_OUTPUT 0
 /*
  * Control whether to output driver ERROR messages.
  * These are independent of the 'OUTPUT' macro
@@ -217,7 +218,7 @@ static unsigned long startJIFF, stopJIFF;
  * Set to '1' ==> Print driver error messages (to '/var/log/messages')
  *        '0' ==> Do NOT print driver error messages
  */
-#define DO_PRINT_DRIVER_ERROR_MESSAGES 1
+// #define DO_PRINT_DRIVER_ERROR_MESSAGES 1
 /*
  * Do we read the TSC MSR directly to determine
  * TSC (as opposed to using a kernel
@@ -559,6 +560,19 @@ static u64 startTSC_acpi_s3;
     #define PW_HLIST_FOR_EACH_ENTRY_RCU(tpos, pos, head, member) pos = NULL; hlist_for_each_entry_rcu(tpos, head, member)
 #endif
 
+#define ALLOW_WUWATCH_MSR_READ_WRITE 1
+#if ALLOW_WUWATCH_MSR_READ_WRITE
+    #define WUWATCH_RDMSR_ON_CPU(cpu, addr, low, high) ({int __tmp = rdmsr_on_cpu((cpu), (addr), (low), (high)); __tmp;})
+    #define WUWATCH_RDMSR(addr, low, high) rdmsr((addr), (low), (high))
+    #define WUWATCH_RDMSR_SAFE_ON_CPU(cpu, addr, low, high) ({int __tmp = rdmsr_safe_on_cpu((cpu), (addr), (low), (high)); __tmp;})
+    #define WUWATCH_RDMSRL(addr, val) rdmsrl((addr), (val))
+#else
+    #define WUWATCH_RDMSR_ON_CPU(cpu, addr, low, high) ({int __tmp = 0; *(low) = 0; *(high) = 0; __tmp;})
+    #define WUWATCH_RDMSR(addr, low, high) ({int __tmp = 0; (low) = 0; (high) = 0; __tmp;})
+    #define WUWATCH_RDMSR_SAFE_ON_CPU(cpu, addr, low, high) ({int __tmp = 0; *(low) = 0; *(high) = 0; __tmp;})
+    #define WUWATCH_RDMSRL(addr, val) ( (val) = 0 )
+#endif // ALLOW_WUWATCH_MSR_READ
+
 /*
  * Data structure definitions.
  */
@@ -691,6 +705,7 @@ struct sys_node{
 #define SYS_MAP_UNLOCK(index) UNLOCK(apwr_sys_map_locks[index])
 
 #define GET_SYS_HLIST(index) (apwr_sys_map + index)
+
 
 /*
  * Function declarations (incomplete).
@@ -1020,16 +1035,18 @@ static inline void tscval(u64 *v)
         return;
     }
 #ifndef __arm__
-#if READ_MSR_FOR_TSC
+#if READ_MSR_FOR_TSC && ALLOW_WUWATCH_MSR_READ_WRITE
     {
         u64 res;
-        rdmsrl(0x10, res);
+        WUWATCH_RDMSRL(0x10, res);
         *v = res;
+        // printk(KERN_INFO "TSC = %llu\n", res);
     }
 #else
     {
         unsigned int aux; 
         rdtscpll(*v, aux);
+        // printk(KERN_INFO "TSCPLL = %llu\n", *v);
     }
 #endif // READ_MSR_FOR_TSC
 #else
@@ -1193,25 +1210,26 @@ static void destroy_irq_map(void)
 
 static void free_timer_block(tblock_t *block)
 {
-    if(!block){
-	return;
-    }
-    if(block->data){
-	int i=0;
-	for(i=0; i<NUM_TIMER_NODES_PER_BLOCK; ++i){
-            /*
-             * Check trace, just to be sure
-             * (We shouldn't need this -- 'timer_destroy()'
-             * explicitly checks and frees call trace
-             * arrays).
-             */
-	    if(block->data[i].trace)
-		pw_kfree(block->data[i].trace);
+    while (block) {
+        tblock_t *next = block->next;
+        if (block->data) {
+            int i=0;
+            for (i=0; i<NUM_TIMER_NODES_PER_BLOCK; ++i) {
+                /*
+                 * Check trace, just to be sure
+                 * (We shouldn't need this -- 'timer_destroy()'
+                 * explicitly checks and frees call trace
+                 * arrays).
+                 */
+                if (block->data[i].trace) {
+                    pw_kfree(block->data[i].trace);
+                }
+            }
+            pw_kfree(block->data);
         }
-	pw_kfree(block->data);
+        pw_kfree(block);
+        block = next;
     }
-    free_timer_block(block->next);
-    pw_kfree(block);
     return;
 };
 
@@ -3516,7 +3534,7 @@ static int pw_read_msr_info_set_i(struct pw_msr_info_set *info_set)
         if (unlikely(msr_addr <= 0)) {
             continue;
         }
-        rdmsrl(msr_addr, val);
+        WUWATCH_RDMSRL(msr_addr, val);
         if (unlikely(info_set->prev_msr_vals[i].val == 0x0)) {
             if (msr_addrs[i].id.depth == MPERF) {
                 info_set->curr_msr_count[curr_index].id = info_set->prev_msr_vals[i].id;
@@ -3556,7 +3574,7 @@ static void tps_lite(bool is_boundary_sample)
 
         tscval(&tsc);
 
-        rdmsrl(REF_CYCLES_MSR_ADDR, mperf);
+        WUWATCH_RDMSRL(REF_CYCLES_MSR_ADDR, mperf);
     }
     put_cpu();
     /*
@@ -3705,7 +3723,7 @@ static void bdry_tps(void)
 
                 // Why "true"? Document!
                 pw_produce_generic_msg(&sample, true);
-                pw_pr_debug(KERN_INFO "[%d]: SENT init msr set\n", cpu);
+                pw_pr_debug(KERN_INFO "[%d]: SENT init msr set at TSC = %llu\n", cpu, tsc);
             }
         }
 
@@ -3912,7 +3930,7 @@ static void tps(unsigned int type, unsigned int state)
 
                 // Why "true"? Document!
                 pw_produce_generic_msg(&sample, true);
-                pw_pr_debug(KERN_INFO "[%d]: SENT init msr set\n", cpu);
+                pw_pr_debug(KERN_INFO "[%d]: SENT init msr set at tsc = %llu\n", cpu, tsc);
             }
         }
 
@@ -4131,14 +4149,14 @@ static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq
 
     /*
      * We're not guaranteed that 'cpu' (which is the CPU on which the frequency transition is occuring) is
-     * the same as the cpu on which the callback i.e. the 'TPF' probe is executing. This is why we use 'rdmsr_safe_on_cpu()'
+     * the same as the cpu on which the callback i.e. the 'TPF' probe is executing. This is why we use 'WUWATCH_RDMSR_SAFE_ON_CPU()'
      * to read the various MSRs.
      */
     /*
      * Read TSC value
      */
     u32 l=0, h=0;
-    WARN_ON(rdmsr_safe_on_cpu(cpu, 0x10, &l, &h));
+    WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, 0x10, &l, &h));
     tsc = (u64)h << 32 | (u64)l;
     /*
      * Read CPU_CLK_UNHALTED.REF and CPU_CLK_UNHALTED.CORE. These required ONLY for AXE import
@@ -4146,10 +4164,10 @@ static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq
      */
 #if 1
     {
-        WARN_ON(rdmsr_safe_on_cpu(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
+        WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
         aperf = (u64)h << 32 | (u64)l;
 
-        WARN_ON(rdmsr_safe_on_cpu(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
+        WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
         mperf = (u64)h << 32 | (u64)l;
     }
 #endif
@@ -4160,7 +4178,7 @@ static void tpf(int cpu, unsigned int type, u32 curr_req_freq, u32 prev_req_freq
      * We delegate the actual frequency computation to Ring-3 because the PERF_STATUS encoding is
      * actually model-specific.
      */
-    WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
+    WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
     // perf_status = l; // We're only interested in the lower 16 bits!
     /*
      * Update: 'TPF' is FORWARD facing -- make it BACKWARDS facing here.
@@ -4326,7 +4344,7 @@ static void probe_sched_process_exit(struct task_struct *task)
     produce_r_sample(CPU(), tsc, PW_PROC_EXIT, tid, pid, name);
 };
 
-inline void  __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
+inline void __attribute__((always_inline)) sched_wakeup_helper_i(struct task_struct *task)
 {
     int target_cpu = task_cpu(task), source_cpu = CPU();
     /*
@@ -4369,7 +4387,7 @@ static void probe_sched_wakeup(void *ignore, struct task_struct *task, int succe
 };
 
 
-inline bool   __attribute__((always_inline)) is_sleep_syscall_i(long id)
+inline bool __attribute__((always_inline)) is_sleep_syscall_i(long id) 
 {
     switch (id) {
         case __NR_poll: // 7
@@ -5358,7 +5376,7 @@ static ssize_t pw_device_read(struct file *file, char __user *buffer, size_t len
          */
         size_t bytes_read = 0;
         unsigned long bytes_not_copied = pw_consume_data(val, buffer, length, &bytes_read); // 'read' returns # of bytes actually read
-        pw_pr_debug(KERN_INFO "OK: returning %d\n", bytes_read);
+        pw_pr_debug(KERN_INFO "OK: returning %u\n", (unsigned)bytes_read);
         if (unlikely(bytes_not_copied)) {
             return -ERROR;
         }
@@ -5478,7 +5496,7 @@ static inline void get_base_operating_frequency(void)
  * These include MSR addresses, and power
  * collection switches.
  */
-int set_config(struct PWCollector_config *remote_config, int size)
+int set_config(struct PWCollector_config __user *remote_config, int size)
 {
     int i=0;
     struct PWCollector_config local_config;
@@ -5564,7 +5582,7 @@ static void pw_deallocate_msr_info_i(struct pw_msr_addr **addrs)
 /*
  * Set MSR addrs
  */
-int pw_set_msr_addrs(struct pw_msr_info *remote_info, int size)
+int pw_set_msr_addrs(struct pw_msr_info __user *remote_info, int size)
 {
     int i=0, retVal = SUCCESS;
     struct pw_msr_info *local_info = NULL;
@@ -5596,7 +5614,7 @@ int pw_set_msr_addrs(struct pw_msr_info *remote_info, int size)
     }
     num_msrs = local_info->num_msr_addrs;
     msr_addrs = (struct pw_msr_addr *)local_info->data;
-    pw_pr_debug(KERN_INFO "pw_set_msr_addrs: size = %d, # msrs = %d\n", size, num_msrs);
+    pw_pr_debug("pw_set_msr_addrs: size = %d, # msrs = %d\n", size, num_msrs);
     INTERNAL_STATE.num_msrs = num_msrs;
     INTERNAL_STATE.msr_addrs = pw_kmalloc(sizeof(pw_msr_addr_t) * num_msrs, GFP_KERNEL);
     if (unlikely(!INTERNAL_STATE.msr_addrs)) {
@@ -5605,6 +5623,9 @@ int pw_set_msr_addrs(struct pw_msr_info *remote_info, int size)
         goto done;
     }
     memcpy(INTERNAL_STATE.msr_addrs, msr_addrs, sizeof(pw_msr_addr_t) * num_msrs);
+    for (i=0; i<num_msrs; ++i) {
+        pw_pr_debug("MSR[%d] = 0x%x\n", i, INTERNAL_STATE.msr_addrs[i].addr);
+    }
     /*
      * We also need to allocate space for the MSR sets populated by the "pw_read_msr_info_set_i()" function.
      */
@@ -6176,8 +6197,9 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      * the PERF_STATUS encoding is actually model-specific.
      */
     {
-        rdmsr(IA32_PERF_STATUS_MSR_ADDR, l, h);
+        WUWATCH_RDMSR(IA32_PERF_STATUS_MSR_ADDR, l, h);
         perf_status = l; // We're only interested in the lower 16 bits!
+        h = 0;
     }
 
 
@@ -6198,9 +6220,9 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      * backward compatibility!
      */
     {
-        rdmsrl(CORE_CYCLES_MSR_ADDR, aperf);
+        WUWATCH_RDMSRL(CORE_CYCLES_MSR_ADDR, aperf);
 
-        rdmsrl(REF_CYCLES_MSR_ADDR, mperf);
+        WUWATCH_RDMSRL(REF_CYCLES_MSR_ADDR, mperf);
     }
 
 #else // __arm__
@@ -6238,9 +6260,9 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
 #ifndef __arm__
     u32 l=0, h=0;
     {
-        int ret = rdmsr_safe_on_cpu(cpu, 0x10, &l, &h);
+        int ret = WUWATCH_RDMSR_SAFE_ON_CPU(cpu, 0x10, &l, &h);
         if(ret){
-            OUTPUT(0, KERN_INFO "WARNING: rdmsr of TSC failed with code %d\n", ret);
+            OUTPUT(0, KERN_INFO "WARNING: WUWATCH_RDMSR_SAFE_ON_CPU of TSC failed with code %d\n", ret);
         }
         tsc = h;
         tsc <<= 32;
@@ -6252,7 +6274,7 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      * the PERF_STATUS encoding is actually model-specific.
      */
     {
-        WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
+        WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, IA32_PERF_STATUS_MSR_ADDR, &l, &h));
         perf_status = l; // We're only interested in the lower 16 bits!
     }
 
@@ -6275,10 +6297,10 @@ static void generate_cpu_frequency_per_cpu(int cpu, bool is_start)
      */
 #if 1
     {
-        WARN_ON(rdmsr_safe_on_cpu(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
+        WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, CORE_CYCLES_MSR_ADDR, &l, &h));
         aperf = (u64)h << 32 | (u64)l;
 
-        WARN_ON(rdmsr_safe_on_cpu(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
+        WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, REF_CYCLES_MSR_ADDR, &l, &h));
         mperf = (u64)h << 32 | (u64)l;
     }
 #endif
@@ -6720,7 +6742,7 @@ long handle_cmd(PWCollector_cmd_t cmd)
     return SUCCESS;
 };
 
-long do_cmd(PWCollector_cmd_t cmd, u64 *remote_output_args, int size)
+long do_cmd(PWCollector_cmd_t cmd, u64 __user *remote_output_args, int size)
 {
     int retVal = SUCCESS;
 
@@ -6993,6 +7015,9 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
     int local_in_len, local_out_len;
     PWCollector_cmd_t cmd;
     int tmp = -1;
+    struct PWCollector_ioctl_arg local_args;
+
+    // printk(KERN_INFO "HANDLING IOCTL: %u\n", ioctl_num);
 
     if (!remote_args) {
         pw_pr_error("ERROR: NULL remote_args value?!\n");
@@ -7012,28 +7037,32 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
     /*
      * (2) Extract arg lengths.
      */
-    if(get_arg_lengths(ioctl_param, &local_in_len, &local_out_len)){
-	return -ERROR;
+    if (copy_from_user(&local_args, remote_args, sizeof(local_args))) {
+        pw_pr_error("ERROR copying in data from userspace\n");
+        return -ERROR;
     }
+    local_in_len = local_args.in_len;
+    local_out_len = local_args.out_len;
     OUTPUT(0, KERN_INFO "GU: local_in_len = %d, local_out_len = %d\n", local_in_len, local_out_len);
     /*
      * (3) Service individual IOCTL requests.
      */
     if(MATCH_IOCTL(ioctl_num, PW_IOCTL_CONFIG)){
-	OUTPUT(0, KERN_INFO "PW_IOCTL_CONFIG\n");
-	return set_config((struct PWCollector_config *)remote_args->in_arg, local_in_len);
+	// printk(KERN_INFO "PW_IOCTL_CONFIG\n");
+	// return set_config((struct PWCollector_config *)remote_args->in_arg, local_in_len);
+	return set_config((struct PWCollector_config __user *)local_args.in_arg, local_in_len);
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_CMD)){
-	if(get_user(cmd, ((PWCollector_cmd_t *)remote_args->in_arg))){
+	if (get_user(cmd, ((PWCollector_cmd_t __user *)local_args.in_arg))) {
 	    pw_pr_error("ERROR: could NOT extract cmd value!\n");
 	    return -ERROR;
 	}
-	OUTPUT(0, KERN_INFO "PW_IOCTL_CMD: cmd=%d\n", cmd);
 	// return handle_cmd(cmd);
-        return do_cmd(cmd, (u64 *)remote_args->out_arg, local_out_len);
+        // return do_cmd(cmd, (u64 *)remote_args->out_arg, local_out_len);
+        return do_cmd(cmd, (u64 __user *)local_args.out_arg, local_out_len);
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_STATUS)){
-	OUTPUT(0, KERN_INFO "PW_IOCTL_STATUS\n");
+	// printk(KERN_INFO "PW_IOCTL_STATUS\n");
 	/*
 	 * For now, we assume STATUS information can only
 	 * be retrieved for an ACTIVE collection.
@@ -7043,44 +7072,44 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
 	    return -ERROR;
 	}
 #if DO_IOCTL_STATS
-	return get_status((struct PWCollector_status *)remote_args->out_arg, local_out_len);
+	return get_status((struct PWCollector_status __user *)local_args.out_arg, local_out_len);
 #else
 	return -ERROR;
 #endif
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_CHECK_PLATFORM)) {
-	OUTPUT(0, KERN_INFO "PW_IOCTL_CHECK_PLATFORM\n");
-	if( (tmp = check_platform((struct PWCollector_check_platform *)remote_args->out_arg, local_out_len)))
+	// printk(KERN_INFO "PW_IOCTL_CHECK_PLATFORM\n");
+	if( (tmp = check_platform((struct PWCollector_check_platform __user *)local_args.out_arg, local_out_len)))
 	    if(tmp < 0) // ERROR
 		return 2; // for PW_IOCTL_CHECK_PLATFORM: >= 2 ==> Error; == 1 => SUCCESS, but not EOF; 0 ==> SUCCESS, EOF
 	return tmp;
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_VERSION)){
-	OUTPUT(0, KERN_INFO "PW_IOCTL_VERSION\n");
+	// printk(KERN_INFO "PW_IOCTL_VERSION\n");
 	OUTPUT(3, KERN_INFO "OUT len = %d\n", local_out_len);
-	return get_version((struct PWCollector_version_info *)remote_args->out_arg, local_out_len);
+	return get_version((struct PWCollector_version_info __user *)local_args.out_arg, local_out_len);
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_MICRO_PATCH)){
-	OUTPUT(0, KERN_INFO "PW_IOCTL_MICRO_PATCH\n");
-	return get_micro_patch_ver((int *)remote_args->out_arg, local_out_len);
+	// printk(KERN_INFO "PW_IOCTL_MICRO_PATCH\n");
+	return get_micro_patch_ver((int __user *)local_args.out_arg, local_out_len);
     }
     else if(MATCH_IOCTL(ioctl_num, PW_IOCTL_TURBO_THRESHOLD)){
-	OUTPUT(0, KERN_INFO "PW_IOCTL_TURBO_THRESHOLD\n");
-	return get_turbo_threshold((struct PWCollector_turbo_threshold *)remote_args->out_arg, local_out_len);
+	// printk(KERN_INFO "PW_IOCTL_TURBO_THRESHOLD\n");
+	return get_turbo_threshold((struct PWCollector_turbo_threshold __user *)local_args.out_arg, local_out_len);
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_COLLECTION_TIME)) {
         /*
          * Only supported on Android/Moorestown!!!
          */
-        OUTPUT(0, KERN_INFO "PW_IOCTL_COLLECTION_TIME\n");
+        // printk(KERN_INFO "PW_IOCTL_COLLECTION_TIME\n");
 // #ifdef CONFIG_X86_MRST
         {
             unsigned int local_collection_time_secs = 0;
-            if (get_user(local_collection_time_secs, (unsigned long *)remote_args->in_arg)) {
+            if (get_user(local_collection_time_secs, (unsigned long __user *)local_args.in_arg)) {
                 pw_pr_error("ERROR extracting local collection time!\n");
                 return -ERROR;
             }
-            printk(KERN_INFO "OK: received local collection time = %u seconds\n", local_collection_time_secs);
+            // printk(KERN_INFO "OK: received local collection time = %u seconds\n", local_collection_time_secs);
             /*
              * Get (and set) collection START time...
              */
@@ -7105,8 +7134,8 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_MMAP_SIZE)) {
-        pw_pr_debug("MMAP_SIZE received!\n");
-        if(put_user(pw_buffer_alloc_size, (unsigned long *)remote_args->out_arg)) {
+        // printk(KERN_INFO "MMAP_SIZE received!\n");
+        if (put_user(pw_buffer_alloc_size, (unsigned long __user *)local_args.out_arg)) {
             pw_pr_error("ERROR transfering buffer size!\n");
             return -ERROR;
         }
@@ -7115,7 +7144,7 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_BUFFER_SIZE)) {
         unsigned long buff_size = pw_get_buffer_size();
         pw_pr_debug("BUFFER_SIZE received!\n");
-        if(put_user(buff_size, (unsigned long *)remote_args->out_arg)) {
+        if(put_user(buff_size, (unsigned long __user *)local_args.out_arg)) {
             pw_pr_error("ERROR transfering buffer size!\n");
             return -ERROR;
         }
@@ -7125,7 +7154,6 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_FSB_FREQ)) {
-        pw_pr_debug("PW_IOCTL_FSB_FREQ  received!\n");
         // printk(KERN_INFO "PW_IOCTL_FSB_FREQ  received!\n");
         /*
          * UPDATE: return fsb-freq AND max non-turbo ratio here.
@@ -7135,7 +7163,7 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         {
             u64 __fsb_non_turbo = ((pw_u64_t)pw_max_turbo_ratio << 48 | (pw_u64_t)pw_max_non_turbo_ratio << 32 | pw_max_efficiency_ratio << 16 | pw_msr_fsb_freq_value);
             pw_pr_debug("__fsb_non_turbo = %llu\n", __fsb_non_turbo);
-            if (put_user(__fsb_non_turbo, (u64 *)remote_args->out_arg)) {
+            if (put_user(__fsb_non_turbo, (u64 __user *)local_args.out_arg)) {
                 pw_pr_error("ERROR transfering FSB_FREQ MSR value!\n");
                 return -ERROR;
             }
@@ -7143,12 +7171,12 @@ long pw_unlocked_handle_ioctl_i(unsigned int ioctl_num, struct PWCollector_ioctl
         return SUCCESS;
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_MSR_ADDRS)) {
-        pw_pr_debug(KERN_INFO "PW_IOCTL_MSR_ADDRS\n");
-        return pw_set_msr_addrs((struct pw_msr_info *)remote_args->in_arg, local_in_len);
+        // printk(KERN_INFO "PW_IOCTL_MSR_ADDRS\n");
+        return pw_set_msr_addrs((struct pw_msr_info __user *)local_args.in_arg, local_in_len);
     }
     else if (MATCH_IOCTL(ioctl_num, PW_IOCTL_PLATFORM_RES_CONFIG)) {
-        pw_pr_debug(KERN_INFO "PW_IOCTL_PLATFORM_RES_CONFIG encountered!\n");
-        return pw_set_platform_res_config_i((struct PWCollector_platform_res_info *)remote_args->in_arg, local_in_len);
+        // printk(KERN_INFO "PW_IOCTL_PLATFORM_RES_CONFIG encountered!\n");
+        return pw_set_platform_res_config_i((struct PWCollector_platform_res_info __user *)local_args.in_arg, local_in_len);
         // return -ERROR;
     }
     else{
@@ -7178,26 +7206,32 @@ long pw_device_unlocked_ioctl(struct file *filp, unsigned int ioctl_num, unsigne
  */
 long pw_device_compat_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
-    struct PWCollector_ioctl_arg remote_args;
-    struct PWCollector_ioctl_arg32 *remote_args32 = (struct PWCollector_ioctl_arg32 *)ioctl_param;
+    struct PWCollector_ioctl_arg32 __user *remote_args32 = compat_ptr(ioctl_param); 
+    struct PWCollector_ioctl_arg __user *remote_args = NULL;
+    u32 data;
+    int tmp;
 
-    if (!remote_args32) {
-        pw_pr_error("ERROR: NULL remote_args32?!\n");
+    remote_args = compat_alloc_user_space(sizeof(*remote_args));
+    if (!remote_args) {
+        return -ERROR;
+    }
+    if (get_user(tmp, &remote_args32->in_len) || put_user(tmp, &remote_args->in_len)) {
+        return -ERROR;
+    }
+    if (get_user(tmp, &remote_args32->out_len) || put_user(tmp, &remote_args->out_len)) {
+        return -ERROR;
+    }
+    if (get_user(data, &remote_args32->in_arg) || put_user(compat_ptr(data), &remote_args->in_arg)) {
+        return -ERROR;
+    }
+    if (get_user(data, &remote_args32->out_arg) || put_user(compat_ptr(data), &remote_args->out_arg)) {
         return -ERROR;
     }
 
-    remote_args.in_len = remote_args32->in_len;
-    remote_args.in_arg = (char *)((unsigned long)remote_args32->in_arg);
-    remote_args.out_len = remote_args32->out_len;
-    remote_args.out_arg = (char *)((unsigned long)remote_args32->out_arg);
-    /*
-    remote_args.in_len = remote_args32->in_len; remote_args.in_arg = remote_args32->in_arg;
-    remote_args.out_len = remote_args32->out_len; remote_args.out_arg = remote_args32->out_arg;
-    */
+    // printk(KERN_INFO "OK, copied. Remote_args = %p\n", remote_args);
 
-    OUTPUT(3, KERN_INFO "32b transfering to handler!\n");
-
-    return pw_unlocked_handle_ioctl_i(ioctl_num, &remote_args, ioctl_param);
+    // return -ERROR;
+    return pw_unlocked_handle_ioctl_i(ioctl_num, remote_args, ioctl_param);
 };
 #endif // COMPAT && x64
 
@@ -7290,7 +7324,7 @@ static void disable_auto_demote(void *dummy)
     unsigned long long msr_addr = AUTO_DEMOTE_MSR;
     unsigned long long msr_bits = 0, old_msr_bits = 0;
 
-    rdmsrl(msr_addr, msr_bits);
+    WUWATCH_RDMSRL(msr_addr, msr_bits);
     old_msr_bits = msr_bits;
     msr_bits &= ~auto_demote_disable_flags;
     wrmsrl(msr_addr, msr_bits);
@@ -7306,7 +7340,7 @@ static void enable_auto_demote(void *dummy)
     unsigned long long msr_addr = AUTO_DEMOTE_MSR;
     unsigned long long msr_bits = 0, old_msr_bits = 0;
 
-    rdmsrl(msr_addr, msr_bits);
+    WUWATCH_RDMSRL(msr_addr, msr_bits);
     old_msr_bits = msr_bits;
     msr_bits |= auto_demote_disable_flags;
     wrmsrl(msr_addr, msr_bits);
@@ -7323,7 +7357,7 @@ static bool check_auto_demote_flags(int cpu)
 #ifndef __arm__
     u32 l=0, h=0;
     u64 msr_val = 0;
-    WARN_ON(rdmsr_safe_on_cpu(cpu, AUTO_DEMOTE_MSR, &l, &h));
+    WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, AUTO_DEMOTE_MSR, &l, &h));
     msr_val = (u64)h << 32 | (u64)l;
     return IS_AUTO_DEMOTE_ENABLED(msr_val);
 #else
@@ -7336,7 +7370,7 @@ static bool check_any_thread_flags(int cpu)
 #ifndef __arm__
     u32 l=0, h=0;
     u64 msr_val = 0;
-    WARN_ON(rdmsr_safe_on_cpu(cpu, IA32_FIXED_CTR_CTL_ADDR, &l, &h));
+    WARN_ON(WUWATCH_RDMSR_SAFE_ON_CPU(cpu, IA32_FIXED_CTR_CTL_ADDR, &l, &h));
     msr_val = (u64)h << 32 | (u64)l;
     return IS_ANY_THREAD_SET(msr_val);
 #else
@@ -7381,7 +7415,7 @@ static void enable_ref(void)
          */
         {
             data_copy = (&per_cpu(CTRL_data_values, cpu))->fixed_data;
-            ret = rdmsr_safe_on_cpu(cpu, IA32_FIXED_CTR_CTL_ADDR, &data[0], &data[1]);
+            ret = WUWATCH_RDMSR_SAFE_ON_CPU(cpu, IA32_FIXED_CTR_CTL_ADDR, &data[0], &data[1]);
             WARN(ret, KERN_WARNING "rdmsr failed with code %d\n", ret);
             memcpy(data_copy, data, sizeof(u32) * 2);
             /*
@@ -7399,7 +7433,7 @@ static void enable_ref(void)
          */
         {
             data_copy = (&per_cpu(CTRL_data_values, cpu))->perf_data;
-            ret = rdmsr_safe_on_cpu(cpu, IA32_PERF_GLOBAL_CTRL_ADDR, &data[0], &data[1]);
+            ret = WUWATCH_RDMSR_SAFE_ON_CPU(cpu, IA32_PERF_GLOBAL_CTRL_ADDR, &data[0], &data[1]);
             WARN(ret, KERN_WARNING "rdmsr failed with code %d\n", ret);
             memcpy(data_copy, data, sizeof(u32) * 2);
             res = data[1];
@@ -7576,6 +7610,30 @@ static bool is_hsw(void)
     return false;
 };
 
+static bool is_bdw(void)
+{
+#ifndef __arm__
+    unsigned int family, model, stepping;
+
+    get_fms(&family, &model, &stepping);
+    /*
+     * This check below will need to
+     * be updated for each new
+     * architecture type!!!
+     */
+    if (family == 0x6) {
+        switch (model) {
+            case 0x3d:
+            case 0x47:
+                return true;
+            default:
+                break;
+        }
+    }
+#endif // __arm__
+    return false;
+};
+
 static void test_wlock_mappings(void)
 {
 #if DO_WAKELOCK_SAMPLE 
@@ -7658,9 +7716,13 @@ static int __init init_hooks(void)
      */
     pw_is_hsw = is_hsw();
     /*
+     * Check if we're running on BDW.
+     */
+    pw_is_bdw = is_bdw();
+    /*
      * Sanity!
      */
-    BUG_ON(pw_is_atm && pw_is_slm && pw_is_hsw);
+    BUG_ON(pw_is_atm && pw_is_slm && pw_is_hsw && pw_is_bdw);
 
     /*
      * For MFLD, we also check
@@ -7686,7 +7748,7 @@ static int __init init_hooks(void)
             u64 res;
             u32 patch_val;
 
-            rdmsrl(0x8b, res);
+            WUWATCH_RDMSRL(0x8b, res);
             patch_val = (res >> 32) & 0xfff;
             if(patch_val < 0x102){
                 pw_pr_error("ERROR: B0 micro code path = 0x%x: REQUIRED >= 0x102!!!\n", patch_val);
@@ -7708,10 +7770,12 @@ static int __init init_hooks(void)
     if (pw_is_atm || pw_is_slm) {
         u64 res;
 
-        rdmsrl(MSR_FSB_FREQ_ADDR, res);
+        WUWATCH_RDMSRL(MSR_FSB_FREQ_ADDR, res);
         // memcpy(&pw_msr_fsb_freq_value, &res, sizeof(unsigned long));
         memcpy(&pw_msr_fsb_freq_value, &res, sizeof(pw_msr_fsb_freq_value));
         pw_pr_debug("MSR_FSB_FREQ value = %u\n", pw_msr_fsb_freq_value);
+    } else {
+        printk(KERN_INFO "NO FSB FREQ!\n");
     }
     /*
      * Read the Max non-turbo ratio.
@@ -7729,27 +7793,27 @@ static int __init init_hooks(void)
          * with the bus clock frequency.
          */
         if (pw_is_atm) {
-            rdmsrl(CLOCK_CR_GEYSIII_STAT_MSR_ADDR, res);
+            WUWATCH_RDMSRL(CLOCK_CR_GEYSIII_STAT_MSR_ADDR, res);
             /*
              * Base operating Freq ratio is
              * bits 44:40
              */
             ratio = (res >> 40) & 0x1f;
         } else if (pw_is_slm) {
-            rdmsrl(MSR_IA32_IACORE_RATIOS, res);
+            WUWATCH_RDMSRL(MSR_IA32_IACORE_RATIOS, res);
             ratio = (res >> 16) & 0x3F; // Bits 21:16
             /*
              * Debug code
              */
             {
-                rdmsrl(MSR_IA32_IACORE_TURBO_RATIOS, res);
+                WUWATCH_RDMSRL(MSR_IA32_IACORE_TURBO_RATIOS, res);
                 pw_pr_debug("IACORE_TURBO_RATIOS: res = %llu, val = %u\n", res, (u32)(res & 0x1f) /* bits [4:0] */);
             }
             /*
              * End debug code.
              */
         } else {
-            rdmsrl(PLATFORM_INFO_MSR_ADDR, res);
+            WUWATCH_RDMSRL(PLATFORM_INFO_MSR_ADDR, res);
             /*
              * Base Operating Freq ratio is
              * bits 15:8
@@ -7780,10 +7844,10 @@ static int __init init_hooks(void)
              */
             ratio = 0x0;
         } else if (pw_is_slm) {
-            rdmsrl(MSR_IA32_IACORE_RATIOS, res);
+            WUWATCH_RDMSRL(MSR_IA32_IACORE_RATIOS, res);
             ratio = (res >> 8) & 0x3F; // Bits 13:8
         } else {
-            rdmsrl(PLATFORM_INFO_MSR_ADDR, res);
+            WUWATCH_RDMSRL(PLATFORM_INFO_MSR_ADDR, res);
             ratio = (res >> 40) & 0xff;
         }
         pw_max_efficiency_ratio = ratio;
@@ -7807,10 +7871,10 @@ static int __init init_hooks(void)
              */
             ratio = 0x0;
         } else if (pw_is_slm) {
-            rdmsrl(MSR_IA32_IACORE_TURBO_RATIOS, res);
+            WUWATCH_RDMSRL(MSR_IA32_IACORE_TURBO_RATIOS, res);
             ratio = res & 0x1F; // Bits 4:0
         } else {
-            rdmsrl(MSR_TURBO_RATIO_LIMIT, res);
+            WUWATCH_RDMSRL(MSR_TURBO_RATIO_LIMIT, res);
             ratio = res & 0xff; // Bits 7:0
         }
         pw_max_turbo_ratio = ratio;

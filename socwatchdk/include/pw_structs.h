@@ -1375,11 +1375,11 @@ typedef struct c_sample {
     u32 tps_epoch; // Used to sync with SCHED_SAMPLE events
     /*
      * "c_data" is one of the following:
-     * (1) If "c_type" == 'I' ==> "c_data" is the IRQ of the interrupt
+     * (1) If "break_type" == 'I' ==> "c_data" is the IRQ of the interrupt
      * that caused the C-state break.
-     * (2) If "c_type" == 'D' || 'N' => "c_data" is the TSC that maps to the 
+     * (2) If "break_type" == 'D' || 'N' => "c_data" is the TSC that maps to the 
      * user-space call trace ID for the process which caused the C-state break.
-     * (3) If "c_type" == 'U' ==> "c_data" is undefined.
+     * (3) If "break_type" == 'U' ==> "c_data" is undefined.
      */
     u64 c_data;
     u64 c_state_res_counts[MAX_MSR_ADDRESSES];
